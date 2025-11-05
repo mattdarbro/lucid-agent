@@ -1,0 +1,18 @@
+.
+├── DATABASE_SCHEMA.md
+├── package.json
+├── project-structure.txt
+├── README.md
+├── ROADMAP.md
+├── schema.sql
+├── SETUP_GUIDE.md
+├── src
+│   ├── config.ts
+│   ├── db.ts
+│   ├── index.ts
+│   ├── logger.ts
+│   └── types
+│       └── database.ts
+└── tsconfig.json
+
+3 directories, 13 files
