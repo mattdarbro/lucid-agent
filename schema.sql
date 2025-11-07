@@ -87,23 +87,6 @@ CREATE TRIGGER conversation_time_of_day
   FOR EACH ROW
   EXECUTE FUNCTION set_time_of_day();
 
--- Auto-increment message count
-CREATE OR REPLACE FUNCTION increment_message_count()
-RETURNS TRIGGER AS $$
-BEGIN
-  UPDATE conversations 
-  SET message_count = message_count + 1,
-      updated_at = NOW()
-  WHERE id = NEW.conversation_id;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER message_count_increment
-  AFTER INSERT ON messages
-  FOR EACH ROW
-  EXECUTE FUNCTION increment_message_count();
-
 -- ============================================================================
 -- 3. Messages
 -- ============================================================================
@@ -134,6 +117,23 @@ CREATE INDEX idx_messages_role ON messages(role);
 
 -- Vector similarity search index
 CREATE INDEX idx_messages_embedding ON messages USING ivfflat (embedding vector_cosine_ops);
+
+-- Auto-increment message count on conversations
+CREATE OR REPLACE FUNCTION increment_message_count()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE conversations
+  SET message_count = message_count + 1,
+      updated_at = NOW()
+  WHERE id = NEW.conversation_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER message_count_increment
+  AFTER INSERT ON messages
+  FOR EACH ROW
+  EXECUTE FUNCTION increment_message_count();
 
 -- ============================================================================
 -- 4. Facts (User Knowledge)
