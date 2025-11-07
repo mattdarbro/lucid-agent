@@ -442,7 +442,7 @@ CREATE TABLE context_adaptations (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_context_adaptations_active ON context_adaptations(user_id, active_from, active_until) WHERE active_until IS NULL OR active_until > NOW();
+CREATE INDEX idx_context_adaptations_active ON context_adaptations(user_id, active_from, active_until) WHERE active_until IS NULL;
 CREATE INDEX idx_context_adaptations_state ON context_adaptations(emotional_state_id);
 
 -- ============================================================================
