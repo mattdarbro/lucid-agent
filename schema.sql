@@ -24,8 +24,8 @@ CREATE TABLE users (
   preferences JSONB DEFAULT '{}',
   
   -- Timestamps
-  created_at TIMESTAMP DEFAULT NOW(),
-  last_active_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  last_active_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_users_external_id ON users(external_id);
@@ -52,9 +52,9 @@ CREATE TABLE conversations (
   is_active BOOLEAN DEFAULT TRUE,
   
   -- Timestamps
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  ended_at TIMESTAMP
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  ended_at TIMESTAMPTZ
 );
 
 CREATE INDEX idx_conversations_user ON conversations(user_id);
@@ -108,7 +108,7 @@ CREATE TABLE messages (
   model VARCHAR(100),
   
   -- Timestamps
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_messages_conversation ON messages(conversation_id, created_at);
@@ -158,10 +158,10 @@ CREATE TABLE facts (
   is_active BOOLEAN DEFAULT TRUE,
   
   -- Timestamps
-  first_mentioned_at TIMESTAMP DEFAULT NOW(),
-  last_mentioned_at TIMESTAMP DEFAULT NOW(),
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  first_mentioned_at TIMESTAMPTZ DEFAULT NOW(),
+  last_mentioned_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_facts_user ON facts(user_id);
@@ -188,7 +188,7 @@ CREATE TABLE evidence (
   context_type VARCHAR(50), -- 'direct_statement', 'implied', 'inferred', 'contradiction'
   
   -- Timestamps
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_evidence_fact ON evidence(fact_id);
@@ -249,7 +249,7 @@ CREATE TABLE summaries (
   message_count INT, -- how many messages this summarizes
   
   -- Timestamps
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_summaries_conversation ON summaries(conversation_id);
@@ -280,7 +280,7 @@ CREATE TABLE personality_snapshots (
   message_count INT, -- based on how many messages
   
   -- Timestamps
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_personality_user_time ON personality_snapshots(user_id, created_at DESC);
@@ -311,9 +311,9 @@ CREATE TABLE personality_statistics (
   -- Metadata
   sample_size INT DEFAULT 0,
   window_days INT DEFAULT 30, -- how many days of history
-  last_updated TIMESTAMP DEFAULT NOW(),
+  last_updated TIMESTAMPTZ DEFAULT NOW(),
   
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_personality_statistics_user ON personality_statistics(user_id);
@@ -385,13 +385,13 @@ CREATE TABLE emotional_states (
   -- }
   
   -- Duration
-  detected_at TIMESTAMP DEFAULT NOW(),
-  resolved_at TIMESTAMP, -- when state ended (null if ongoing)
+  detected_at TIMESTAMPTZ DEFAULT NOW(),
+  resolved_at TIMESTAMPTZ, -- when state ended (null if ongoing)
   
   -- Recommended response approach
   recommended_approach VARCHAR(50), -- 'gentle', 'supportive', 'exploratory', 'analytical', 'minimal'
   
-  created_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   
   -- Prevent duplicate detections for same state at same time
   UNIQUE(user_id, state_type, detected_at)
@@ -436,10 +436,10 @@ CREATE TABLE context_adaptations (
   adaptation_reasoning TEXT, -- why these adjustments were made
   
   -- Validity period
-  active_from TIMESTAMP DEFAULT NOW(),
-  active_until TIMESTAMP, -- when this adaptation expires
+  active_from TIMESTAMPTZ DEFAULT NOW(),
+  active_until TIMESTAMPTZ, -- when this adaptation expires
   
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_context_adaptations_active ON context_adaptations(user_id, active_from, active_until) WHERE active_until IS NULL;
@@ -465,13 +465,13 @@ CREATE TABLE autonomous_thoughts (
   -- Importance & sharing
   importance_score DECIMAL(4,3), -- how important is this thought (0.000-1.000)
   is_shared BOOLEAN DEFAULT FALSE, -- has this been shared with user?
-  shared_at TIMESTAMP,
+  shared_at TIMESTAMPTZ,
   
   -- Vector embedding for semantic search
   embedding vector(1536),
   
   -- Timestamps
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_thoughts_user ON autonomous_thoughts(user_id, created_at DESC);
@@ -502,9 +502,9 @@ CREATE TABLE research_tasks (
   derived_facts TEXT[], -- facts extracted from research
   
   -- Timestamps
-  created_at TIMESTAMP DEFAULT NOW(),
-  started_at TIMESTAMP,
-  completed_at TIMESTAMP
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ
 );
 
 CREATE INDEX idx_research_tasks_user ON research_tasks(user_id);
@@ -521,7 +521,7 @@ CREATE TABLE agent_jobs (
   
   -- Job details
   job_type VARCHAR(50) NOT NULL, -- 'morning_reflection', 'midday_curiosity', 'evening_consolidation', 'night_dream'
-  scheduled_for TIMESTAMP NOT NULL,
+  scheduled_for TIMESTAMPTZ NOT NULL,
   
   -- Status
   status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'running', 'completed', 'failed'
@@ -532,9 +532,9 @@ CREATE TABLE agent_jobs (
   error_message TEXT,
   
   -- Timestamps
-  created_at TIMESTAMP DEFAULT NOW(),
-  started_at TIMESTAMP,
-  completed_at TIMESTAMP
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ
 );
 
 CREATE INDEX idx_agent_jobs_user ON agent_jobs(user_id);
