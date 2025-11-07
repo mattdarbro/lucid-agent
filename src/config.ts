@@ -17,7 +17,13 @@ export const config = {
   // Database
   databaseUrl: process.env.DATABASE_URL || '',
 
-  // OpenAI
+  // Anthropic (for LLM/chat)
+  anthropic: {
+    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022',
+  },
+
+  // OpenAI (for embeddings only)
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
     embeddingModel: process.env.EMBEDDING_MODEL || 'text-embedding-ada-002',
@@ -58,8 +64,9 @@ export function validateConfig(): void {
   if (!config.supabase.url) errors.push('SUPABASE_URL is required');
   if (!config.supabase.serviceKey) errors.push('SUPABASE_SERVICE_KEY is required');
   if (!config.databaseUrl) errors.push('DATABASE_URL is required');
+  if (!config.anthropic.apiKey) errors.push('ANTHROPIC_API_KEY is required');
   if (!config.openai.apiKey) errors.push('OPENAI_API_KEY is required');
-  if (!config.studioApi.appKey) errors.push('STUDIO_APP_KEY is required');
+  // STUDIO_APP_KEY is optional - only needed for session validation
 
   if (errors.length > 0) {
     throw new Error(`Configuration errors:\n${errors.join('\n')}`);
