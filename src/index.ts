@@ -3,6 +3,8 @@ import cors from 'cors';
 import { config, validateConfig } from './config';
 import { testConnection, closeConnections } from './db';
 import { logger } from './logger';
+import usersRouter from './routes/users';
+import conversationsRouter from './routes/conversations';
 
 // Validate configuration on startup
 try {
@@ -57,8 +59,11 @@ app.get('/info', (req, res) => {
 });
 
 // ============================================================================
-// ROUTES (TODO: Implement these)
+// ROUTES
 // ============================================================================
+
+app.use('/v1/users', usersRouter);
+app.use('/v1/conversations', conversationsRouter);
 
 // TODO: Chat endpoint with streaming
 // app.use('/v1/chat', chatRouter);
