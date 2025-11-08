@@ -523,6 +523,13 @@
 
                 const result = await response.json();
 
+                if (!response.ok) {
+                    // Show detailed error
+                    const errorMsg = result.details || result.error || 'Unknown error';
+                    alert(`Failed to send message: ${errorMsg}\n\nCode: ${result.code || 'N/A'}`);
+                    return;
+                }
+
                 // Clear input
                 document.getElementById('messageInput').value = '';
 

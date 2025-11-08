@@ -99,7 +99,14 @@ export class MessageService {
 
       return message;
     } catch (error: any) {
-      logger.error('Error creating message:', error);
+      logger.error('Error creating message:', {
+        message: error.message,
+        code: error.code,
+        detail: error.detail,
+        constraint: error.constraint,
+        table: error.table,
+        stack: error.stack
+      });
       throw new Error(`Failed to create message: ${error.message}`);
     }
   }
