@@ -54,6 +54,24 @@ export function createMockConversation(overrides: Partial<any> = {}) {
 }
 
 /**
+ * Creates a mock message object for testing
+ */
+export function createMockMessage(overrides: Partial<any> = {}) {
+  return {
+    id: '123e4567-e89b-12d3-a456-426614174002',
+    conversation_id: '123e4567-e89b-12d3-a456-426614174001',
+    user_id: '123e4567-e89b-12d3-a456-426614174000',
+    role: 'user',
+    content: 'Test message content',
+    embedding: null,
+    tokens: 4,
+    model: null,
+    created_at: new Date('2024-01-01T00:00:00Z'),
+    ...overrides,
+  };
+}
+
+/**
  * Clears all mocks between tests
  */
 export function clearAllMocks() {
