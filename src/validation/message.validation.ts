@@ -32,7 +32,7 @@ export const createMessageSchema = z.object({
     .optional(),
 
   // Optional: Allow skipping embedding generation (for bulk imports, etc.)
-  skip_embedding: z.boolean().optional().default(false),
+  skip_embedding: z.boolean().optional(),
 });
 
 /**
