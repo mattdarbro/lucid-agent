@@ -60,7 +60,12 @@ router.post(
       const message = await messageService.createMessage(req.body);
       res.status(201).json(message);
     } catch (error: any) {
-      logger.error('Error in POST /v1/messages:', error);
+      logger.error('Error in POST /v1/messages:', {
+        message: error.message,
+        code: error.code,
+        detail: error.detail,
+        constraint: error.constraint,
+      });
 
       if (error.message.includes('Conversation not found')) {
         return res.status(404).json({ error: 'Conversation not found' });
@@ -70,7 +75,12 @@ router.post(
         return res.status(404).json({ error: 'User not found' });
       }
 
-      res.status(500).json({ error: 'Failed to create message' });
+      // Return detailed error in development
+      res.status(500).json({
+        error: 'Failed to create message',
+        details: error.message,
+        code: error.code
+      });
     }
   }
 );
