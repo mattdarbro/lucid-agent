@@ -1,93 +1,228 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { logger } from '../logger';
+import { ConversationService } from '../services/conversation.service';
+import {
+  createConversationSchema,
+  updateConversationSchema,
+  conversationIdSchema,
+  userIdParamSchema,
+} from '../validation/conversation.validation';
+import { z } from 'zod';
 
 const router = Router();
+const conversationService = new ConversationService(pool);
 
-// POST /v1/conversations - Create a new conversation
-router.post('/', async (req: Request, res: Response) => {
-  try {
-    const { user_id, title, user_timezone } = req.body;
-
-    // Validation
-    if (!user_id) {
-      return res.status(400).json({ error: 'user_id is required' });
+/**
+ * Validation middleware helper
+ */
+function validateBody(schema: z.ZodSchema) {
+  return (req: Request, res: Response, next: Function) => {
+    try {
+      req.body = schema.parse(req.body);
+      next();
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: error.errors.map((err) => ({
+            field: err.path.join('.'),
+            message: err.message,
+          })),
+        });
+      }
+      next(error);
     }
+  };
+}
 
-    // Verify user exists
-    const userCheck = await pool.query(
-      'SELECT id, timezone FROM users WHERE id = $1',
-      [user_id]
-    );
+/**
+ * POST /v1/conversations
+ *
+ * Creates a new conversation for a user.
+ *
+ * Request body:
+ * - user_id: string (required) - UUID of the user
+ * - title: string (optional) - Conversation title
+ * - user_timezone: string (optional) - User's timezone (defaults to user's timezone)
+ */
+router.post(
+  '/',
+  validateBody(createConversationSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const conversation = await conversationService.createConversation(req.body);
+      res.status(201).json(conversation);
+    } catch (error: any) {
+      logger.error('Error in POST /v1/conversations:', error);
 
-    if (userCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+      if (error.message.includes('User not found')) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      res.status(500).json({ error: 'Failed to create conversation' });
     }
-
-    const user = userCheck.rows[0];
-
-    // Create conversation
-    const result = await pool.query(
-      `INSERT INTO conversations (user_id, title, user_timezone)
-       VALUES ($1, $2, $3)
-       RETURNING *`,
-      [
-        user_id,
-        title || null,
-        user_timezone || user.timezone || 'UTC'
-      ]
-    );
-
-    const conversation = result.rows[0];
-    logger.info(`Conversation created: ${conversation.id} for user ${user_id}`);
-
-    res.status(201).json(conversation);
-  } catch (error: any) {
-    logger.error('Error creating conversation:', error);
-    res.status(500).json({ error: 'Failed to create conversation' });
   }
-});
+);
 
-// GET /v1/conversations/:id - Get conversation by ID
+/**
+ * GET /v1/conversations/:id
+ *
+ * Retrieves a specific conversation by ID
+ *
+ * Path parameters:
+ * - id: string - UUID of the conversation
+ */
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = conversationIdSchema.parse(req.params);
 
-    const result = await pool.query(
-      'SELECT * FROM conversations WHERE id = $1',
-      [id]
-    );
+    const conversation = await conversationService.findById(id);
 
-    if (result.rows.length === 0) {
+    if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    res.json(result.rows[0]);
-  } catch (error: any) {
-    logger.error('Error fetching conversation:', error);
+    res.json(conversation);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in GET /v1/conversations/:id:', error);
     res.status(500).json({ error: 'Failed to fetch conversation' });
   }
 });
 
-// GET /v1/conversations/user/:user_id - Get all conversations for a user
+/**
+ * GET /v1/conversations/user/:user_id
+ *
+ * Lists all conversations for a specific user
+ *
+ * Path parameters:
+ * - user_id: string - UUID of the user
+ *
+ * Query parameters:
+ * - limit: number (optional) - Maximum conversations to return (default: 50)
+ * - offset: number (optional) - Number of conversations to skip (default: 0)
+ */
 router.get('/user/:user_id', async (req: Request, res: Response) => {
   try {
-    const { user_id } = req.params;
+    const { user_id } = userIdParamSchema.parse(req.params);
 
-    const result = await pool.query(
-      `SELECT * FROM conversations
-       WHERE user_id = $1
-       ORDER BY created_at DESC`,
-      [user_id]
+    // Parse query parameters
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+    const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+
+    const conversations = await conversationService.listByUserId(
+      user_id,
+      limit,
+      offset
     );
 
     res.json({
-      conversations: result.rows,
-      count: result.rows.length
+      conversations,
+      count: conversations.length,
+      limit,
+      offset,
     });
-  } catch (error: any) {
-    logger.error('Error fetching conversations:', error);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in GET /v1/conversations/user/:user_id:', error);
     res.status(500).json({ error: 'Failed to fetch conversations' });
+  }
+});
+
+/**
+ * PATCH /v1/conversations/:id
+ *
+ * Updates a conversation
+ *
+ * Path parameters:
+ * - id: string - UUID of the conversation
+ *
+ * Request body:
+ * - title: string (optional) - New title
+ * - user_timezone: string (optional) - New timezone
+ */
+router.patch(
+  '/:id',
+  validateBody(updateConversationSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = conversationIdSchema.parse(req.params);
+
+      const conversation = await conversationService.updateConversation(id, req.body);
+
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      res.json(conversation);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: error.errors.map((err) => ({
+            field: err.path.join('.'),
+            message: err.message,
+          })),
+        });
+      }
+
+      logger.error('Error in PATCH /v1/conversations/:id:', error);
+      res.status(500).json({ error: 'Failed to update conversation' });
+    }
+  }
+);
+
+/**
+ * DELETE /v1/conversations/:id
+ *
+ * Deletes a conversation and all associated messages
+ *
+ * Path parameters:
+ * - id: string - UUID of the conversation
+ */
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = conversationIdSchema.parse(req.params);
+
+    const deleted = await conversationService.deleteConversation(id);
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    res.status(204).send();
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in DELETE /v1/conversations/:id:', error);
+    res.status(500).json({ error: 'Failed to delete conversation' });
   }
 });
 
