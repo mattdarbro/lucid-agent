@@ -157,6 +157,105 @@
             font-weight: 600;
             color: #2d3748;
         }
+
+        /* Chat Interface Styles */
+        .chat-container {
+            max-height: 500px;
+            overflow-y: auto;
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #f7fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .message {
+            margin-bottom: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            max-width: 80%;
+        }
+
+        .message.user {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-left: auto;
+        }
+
+        .message.assistant {
+            background: white;
+            color: #2d3748;
+            border: 1px solid #e2e8f0;
+        }
+
+        .message.system {
+            background: #fef3c7;
+            color: #78350f;
+            border: 1px solid #fcd34d;
+            font-size: 13px;
+            text-align: center;
+            max-width: 100%;
+        }
+
+        .message-role {
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            opacity: 0.8;
+            text-transform: uppercase;
+        }
+
+        .message-content {
+            line-height: 1.5;
+        }
+
+        .message-time {
+            font-size: 11px;
+            margin-top: 4px;
+            opacity: 0.7;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #2d3748;
+        }
+
+        .btn-secondary:hover {
+            background: #cbd5e0;
+        }
+
+        .success-badge {
+            display: inline-block;
+            background: #c6f6d5;
+            color: #22543d;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
     </style>
 </head>
 <body>
@@ -224,6 +323,41 @@
             </form>
 
             <div id="conversationResponse" class="response" style="display: none;"></div>
+        </div>
+
+        <div class="card">
+            <h2>Chat Interface</h2>
+            <p class="subtitle">Send messages and test semantic search</p>
+
+            <div class="form-group">
+                <label for="conversation_id_chat">Conversation ID (from create conversation above)</label>
+                <input type="text" id="conversation_id_chat" placeholder="Paste conversation ID here">
+            </div>
+
+            <div class="chat-container" id="chatContainer">
+                <div class="message system">
+                    <div class="message-content">Create a conversation above to start chatting!</div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="messageInput">Your Message</label>
+                <textarea id="messageInput" placeholder="Type your message here..."></textarea>
+            </div>
+
+            <div class="btn-group">
+                <button id="sendMessageBtn" class="btn-primary">Send Message</button>
+                <button id="loadMessagesBtn" class="btn-secondary">Load Messages</button>
+            </div>
+
+            <div class="form-group" style="margin-top: 20px;">
+                <label for="searchQuery">Semantic Search</label>
+                <input type="text" id="searchQuery" placeholder="Search for similar messages...">
+            </div>
+
+            <button id="searchBtn" class="btn-secondary">Search</button>
+
+            <div id="searchResults" class="response" style="display: none;"></div>
         </div>
     </div>
 
@@ -344,6 +478,11 @@
 
                 responseEl.style.display = 'block';
                 responseEl.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+
+                // Auto-fill conversation_id for chat
+                if (result.id) {
+                    document.getElementById('conversation_id_chat').value = result.id;
+                }
             } catch (error) {
                 responseEl.style.display = 'block';
                 responseEl.innerHTML = `<pre style="color: #e53e3e;">Error: ${error.message}</pre>`;
@@ -352,6 +491,178 @@
                 submitBtn.textContent = 'Create Conversation';
             }
         });
+
+        // Send message
+        document.getElementById('sendMessageBtn').addEventListener('click', async () => {
+            const conversationId = document.getElementById('conversation_id_chat').value;
+            const userId = document.getElementById('user_id').value;
+            const content = document.getElementById('messageInput').value;
+
+            if (!conversationId || !userId || !content) {
+                alert('Please fill in conversation ID, user ID, and message');
+                return;
+            }
+
+            const sendBtn = document.getElementById('sendMessageBtn');
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Sending...';
+
+            try {
+                const response = await fetch(`${API_URL}/v1/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        conversation_id: conversationId,
+                        user_id: userId,
+                        role: 'user',
+                        content: content,
+                    })
+                });
+
+                const result = await response.json();
+
+                // Clear input
+                document.getElementById('messageInput').value = '';
+
+                // Add message to chat container
+                addMessageToChat({
+                    role: 'user',
+                    content: content,
+                    created_at: result.created_at || new Date().toISOString(),
+                    embedding: result.embedding ? '✓ Embedded' : '✗ No embedding',
+                });
+            } catch (error) {
+                alert(`Error sending message: ${error.message}`);
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'Send Message';
+            }
+        });
+
+        // Load messages
+        document.getElementById('loadMessagesBtn').addEventListener('click', async () => {
+            const conversationId = document.getElementById('conversation_id_chat').value;
+
+            if (!conversationId) {
+                alert('Please enter a conversation ID');
+                return;
+            }
+
+            const loadBtn = document.getElementById('loadMessagesBtn');
+            loadBtn.disabled = true;
+            loadBtn.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(
+                    `${API_URL}/v1/messages/conversations/${conversationId}/messages?limit=50`
+                );
+                const result = await response.json();
+
+                // Clear chat container
+                const chatContainer = document.getElementById('chatContainer');
+                chatContainer.innerHTML = '';
+
+                if (result.messages && result.messages.length > 0) {
+                    result.messages.forEach(msg => {
+                        addMessageToChat(msg);
+                    });
+                } else {
+                    chatContainer.innerHTML = '<div class="message system"><div class="message-content">No messages yet. Start the conversation!</div></div>';
+                }
+            } catch (error) {
+                alert(`Error loading messages: ${error.message}`);
+            } finally {
+                loadBtn.disabled = false;
+                loadBtn.textContent = 'Load Messages';
+            }
+        });
+
+        // Semantic search
+        document.getElementById('searchBtn').addEventListener('click', async () => {
+            const query = document.getElementById('searchQuery').value;
+            const conversationId = document.getElementById('conversation_id_chat').value;
+
+            if (!query) {
+                alert('Please enter a search query');
+                return;
+            }
+
+            const searchBtn = document.getElementById('searchBtn');
+            const resultsEl = document.getElementById('searchResults');
+
+            searchBtn.disabled = true;
+            searchBtn.textContent = 'Searching...';
+
+            try {
+                const body = { query };
+                if (conversationId) {
+                    body.conversation_id = conversationId;
+                }
+
+                const response = await fetch(`${API_URL}/v1/messages/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                const result = await response.json();
+
+                resultsEl.style.display = 'block';
+                if (result.results && result.results.length > 0) {
+                    const formatted = result.results.map(r => ({
+                        content: r.message.content.substring(0, 100) + '...',
+                        similarity: (r.similarity * 100).toFixed(1) + '%',
+                        role: r.message.role,
+                        created_at: new Date(r.message.created_at).toLocaleString(),
+                    }));
+                    resultsEl.innerHTML = `<pre>${JSON.stringify({
+                        query: result.query,
+                        count: result.count,
+                        results: formatted
+                    }, null, 2)}</pre>`;
+                } else {
+                    resultsEl.innerHTML = '<pre>No results found</pre>';
+                }
+            } catch (error) {
+                resultsEl.style.display = 'block';
+                resultsEl.innerHTML = `<pre style="color: #e53e3e;">Error: ${error.message}</pre>`;
+            } finally {
+                searchBtn.disabled = false;
+                searchBtn.textContent = 'Search';
+            }
+        });
+
+        // Helper function to add message to chat
+        function addMessageToChat(message) {
+            const chatContainer = document.getElementById('chatContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${message.role}`;
+
+            const roleDiv = document.createElement('div');
+            roleDiv.className = 'message-role';
+            roleDiv.textContent = message.role.toUpperCase();
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.textContent = message.content;
+
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'message-time';
+            const time = message.created_at ? new Date(message.created_at).toLocaleTimeString() : '';
+            const embedding = message.embedding ? ' • Embedded' : '';
+            timeDiv.textContent = time + embedding;
+
+            messageDiv.appendChild(roleDiv);
+            messageDiv.appendChild(contentDiv);
+            messageDiv.appendChild(timeDiv);
+
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
 
         // Check API status on page load
         checkAPIStatus();
