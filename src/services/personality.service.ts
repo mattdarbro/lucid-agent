@@ -397,9 +397,9 @@ IMPORTANT INSTRUCTIONS:
       const result = await this.pool.query<PersonalitySnapshot>(
         `INSERT INTO personality_snapshots (
           user_id, openness, conscientiousness, extraversion, agreeableness, neuroticism,
-          confidence, sample_size, reasoning
+          assessment_reasoning, message_count
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *`,
         [
           userId,
@@ -408,9 +408,8 @@ IMPORTANT INSTRUCTIONS:
           assessment.extraversion,
           assessment.agreeableness,
           assessment.neuroticism,
-          assessment.confidence,
-          assessment.sample_size,
           assessment.reasoning,
+          assessment.sample_size,
         ]
       );
 

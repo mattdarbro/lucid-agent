@@ -113,9 +113,10 @@ router.get('/overview/:userId', async (req: Request, res: Response) => {
           extraversion: snapshot.extraversion,
           agreeableness: snapshot.agreeableness,
           neuroticism: snapshot.neuroticism,
-          confidence: snapshot.confidence,
-          assessed_at: snapshot.snapshot_at,
-          reasoning: snapshot.reasoning,
+          confidence: snapshot.message_count ? Math.min(snapshot.message_count / 50, 1.0) : 0.5, // Derive from message count
+          assessed_at: snapshot.created_at,
+          reasoning: snapshot.assessment_reasoning,
+          message_count: snapshot.message_count,
         },
         baseline: stats ? {
           openness: stats.avg_openness,
