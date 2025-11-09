@@ -359,6 +359,35 @@
 
             <div id="searchResults" class="response" style="display: none;"></div>
         </div>
+
+        <div class="card">
+            <h2>🧠 AI Fact Extraction</h2>
+            <p class="subtitle">Let AI automatically extract facts from your messages!</p>
+
+            <div class="form-group">
+                <label for="extract_conversation_id">Conversation ID (from above)</label>
+                <input type="text" id="extract_conversation_id" placeholder="Paste conversation ID">
+            </div>
+
+            <button id="extractFactsBtn" class="btn-primary">Extract Facts from Conversation</button>
+
+            <div id="extractionResults" class="response" style="display: none;"></div>
+
+            <hr style="margin: 30px 0; border: 1px solid #e2e8f0;">
+
+            <h3>My Facts</h3>
+            <div class="btn-group">
+                <button id="loadFactsBtn" class="btn-secondary">Load All Facts</button>
+                <button id="searchFactsBtn" class="btn-secondary">Search Facts</button>
+            </div>
+
+            <div class="form-group" id="factSearchGroup" style="display: none; margin-top: 15px;">
+                <label for="factSearchQuery">Search Query</label>
+                <input type="text" id="factSearchQuery" placeholder="e.g., food preferences">
+            </div>
+
+            <div id="factsDisplay" class="response" style="display: none;"></div>
+        </div>
     </div>
 
     <script>
@@ -669,6 +698,220 @@
 
             chatContainer.appendChild(messageDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Extract facts from conversation
+        document.getElementById('extractFactsBtn').addEventListener('click', async () => {
+            const conversationId = document.getElementById('extract_conversation_id').value ||
+                                 document.getElementById('conversation_id_chat').value;
+            const userId = document.getElementById('user_id').value;
+
+            if (!conversationId || !userId) {
+                alert('Please enter conversation ID and user ID');
+                return;
+            }
+
+            const extractBtn = document.getElementById('extractFactsBtn');
+            const resultsEl = document.getElementById('extractionResults');
+
+            extractBtn.disabled = true;
+            extractBtn.textContent = 'Extracting... (AI is analyzing your messages)';
+
+            try {
+                const response = await fetch(`${API_URL}/v1/facts/extract`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        conversation_id: conversationId,
+                        limit: 50
+                    })
+                });
+
+                const result = await response.json();
+
+                resultsEl.style.display = 'block';
+
+                if (result.created && result.created.length > 0) {
+                    const factsHtml = result.created.map(fact => `
+                        <div style="padding: 10px; margin: 10px 0; background: #f7fafc; border-left: 3px solid #805ad5; border-radius: 4px;">
+                            <div style="font-weight: bold; color: #805ad5;">${fact.category}</div>
+                            <div style="margin: 5px 0;">${fact.content}</div>
+                            <div style="font-size: 0.9em; color: #718096;">
+                                Confidence: ${(fact.confidence * 100).toFixed(0)}%
+                            </div>
+                        </div>
+                    `).join('');
+
+                    resultsEl.innerHTML = `
+                        <div style="color: #38a169; font-weight: bold; margin-bottom: 10px;">
+                            ✓ ${result.message}
+                        </div>
+                        ${factsHtml}
+                    `;
+
+                    // Auto-fill conversation ID for next extraction
+                    document.getElementById('extract_conversation_id').value = conversationId;
+                } else {
+                    resultsEl.innerHTML = '<pre>No facts extracted. Try sending more descriptive messages!</pre>';
+                }
+            } catch (error) {
+                resultsEl.style.display = 'block';
+                resultsEl.innerHTML = `<pre style="color: #e53e3e;">Error: ${error.message}</pre>`;
+            } finally {
+                extractBtn.disabled = false;
+                extractBtn.textContent = 'Extract Facts from Conversation';
+            }
+        });
+
+        // Load all facts for user
+        document.getElementById('loadFactsBtn').addEventListener('click', async () => {
+            const userId = document.getElementById('user_id').value;
+
+            if (!userId) {
+                alert('Please enter user ID');
+                return;
+            }
+
+            const loadBtn = document.getElementById('loadFactsBtn');
+            const displayEl = document.getElementById('factsDisplay');
+
+            loadBtn.disabled = true;
+            loadBtn.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(`${API_URL}/v1/users/${userId}/facts?limit=100`);
+                const result = await response.json();
+
+                displayEl.style.display = 'block';
+
+                if (result.facts && result.facts.length > 0) {
+                    // Group by category
+                    const byCategory = result.facts.reduce((acc, fact) => {
+                        const cat = fact.category || 'other';
+                        if (!acc[cat]) acc[cat] = [];
+                        acc[cat].push(fact);
+                        return acc;
+                    }, {});
+
+                    let html = `<div style="margin-bottom: 10px;"><strong>Total Facts: ${result.count}</strong></div>`;
+
+                    for (const [category, facts] of Object.entries(byCategory)) {
+                        html += `<div style="margin: 15px 0;">`;
+                        html += `<div style="font-weight: bold; color: #805ad5; text-transform: capitalize;">${category} (${facts.length})</div>`;
+
+                        facts.forEach(fact => {
+                            const activeStyle = fact.is_active ? '' : 'opacity: 0.5; text-decoration: line-through;';
+                            html += `
+                                <div style="padding: 8px; margin: 5px 0; background: #f7fafc; border-radius: 4px; ${activeStyle}">
+                                    <div>${fact.content}</div>
+                                    <div style="font-size: 0.85em; color: #718096;">
+                                        Confidence: ${(fact.confidence * 100).toFixed(0)}% |
+                                        Evidence: ${fact.evidence_count} |
+                                        ${fact.is_active ? 'Active' : 'Inactive'}
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        html += '</div>';
+                    }
+
+                    displayEl.innerHTML = html;
+                } else {
+                    displayEl.innerHTML = '<pre>No facts found. Try extracting some facts first!</pre>';
+                }
+            } catch (error) {
+                displayEl.style.display = 'block';
+                displayEl.innerHTML = `<pre style="color: #e53e3e;">Error: ${error.message}</pre>`;
+            } finally {
+                loadBtn.disabled = false;
+                loadBtn.textContent = 'Load All Facts';
+            }
+        });
+
+        // Toggle fact search input
+        document.getElementById('searchFactsBtn').addEventListener('click', () => {
+            const searchGroup = document.getElementById('factSearchGroup');
+            const searchQuery = document.getElementById('factSearchQuery');
+
+            if (searchGroup.style.display === 'none') {
+                searchGroup.style.display = 'block';
+                searchQuery.focus();
+            } else {
+                performFactSearch();
+            }
+        });
+
+        // Perform fact search on Enter key
+        document.getElementById('factSearchQuery').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performFactSearch();
+            }
+        });
+
+        async function performFactSearch() {
+            const query = document.getElementById('factSearchQuery').value;
+            const userId = document.getElementById('user_id').value;
+
+            if (!query) {
+                alert('Please enter a search query');
+                return;
+            }
+
+            const searchBtn = document.getElementById('searchFactsBtn');
+            const displayEl = document.getElementById('factsDisplay');
+
+            searchBtn.disabled = true;
+            searchBtn.textContent = 'Searching...';
+
+            try {
+                const body = { query };
+                if (userId) {
+                    body.user_id = userId;
+                }
+
+                const response = await fetch(`${API_URL}/v1/facts/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                const result = await response.json();
+
+                displayEl.style.display = 'block';
+
+                if (result.results && result.results.length > 0) {
+                    let html = `<div style="margin-bottom: 10px;"><strong>Search: "${result.query}" (${result.count} results)</strong></div>`;
+
+                    result.results.forEach(r => {
+                        const fact = r.fact;
+                        html += `
+                            <div style="padding: 10px; margin: 10px 0; background: #f7fafc; border-left: 3px solid #805ad5; border-radius: 4px;">
+                                <div style="font-weight: bold; color: #805ad5;">${fact.category || 'other'}</div>
+                                <div style="margin: 5px 0;">${fact.content}</div>
+                                <div style="font-size: 0.85em; color: #718096;">
+                                    Similarity: ${(r.similarity * 100).toFixed(1)}% |
+                                    Confidence: ${(fact.confidence * 100).toFixed(0)}%
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    displayEl.innerHTML = html;
+                } else {
+                    displayEl.innerHTML = `<pre>No facts found matching "${query}"</pre>`;
+                }
+            } catch (error) {
+                displayEl.style.display = 'block';
+                displayEl.innerHTML = `<pre style="color: #e53e3e;">Error: ${error.message}</pre>`;
+            } finally {
+                searchBtn.disabled = false;
+                searchBtn.textContent = 'Search Facts';
+            }
         }
 
         // Check API status on page load
