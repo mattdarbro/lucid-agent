@@ -3,15 +3,18 @@ import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../logger';
 import { MessageService } from './message.service';
 import { VectorService } from './vector.service';
+import { ContextAdaptationService } from './context-adaptation.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
 
 /**
  * ChatService handles AI conversation using Claude
+ * Now with emotional intelligence integration!
  */
 export class ChatService {
   private pool: Pool;
   private anthropic: Anthropic;
   private messageService: MessageService;
+  private contextAdaptationService: ContextAdaptationService;
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
@@ -21,6 +24,7 @@ export class ChatService {
 
     const vectorService = new VectorService();
     this.messageService = new MessageService(pool, vectorService);
+    this.contextAdaptationService = new ContextAdaptationService(pool, anthropicApiKey);
   }
 
   /**
@@ -53,21 +57,43 @@ export class ChatService {
         content: msg.content,
       }));
 
-      // Default system prompt
-      const systemPrompt = input.system_prompt ||
-        'You are a helpful AI assistant. Be concise, friendly, and helpful.';
+      // Check for active emotional context adaptation
+      const adaptation = await this.contextAdaptationService.getActiveAdaptation(input.user_id);
+
+      // Build system prompt with emotional intelligence
+      let systemPrompt = input.system_prompt ||
+        'You are Lucid, an emotionally intelligent AI assistant. Be helpful, empathetic, and adaptive.';
+
+      // Inject emotional context if adaptation exists
+      if (adaptation && adaptation.tone_directive) {
+        systemPrompt += `\n\n🧠 EMOTIONAL CONTEXT:\n${adaptation.tone_directive}`;
+
+        logger.debug('Injecting emotional context into chat', {
+          user_id: input.user_id,
+          adaptation_id: adaptation.id,
+          curiosity_approach: adaptation.curiosity_approach,
+        });
+      }
+
+      // Calculate temperature with emotional adjustment
+      const baseTemperature = input.temperature ?? 0.7;
+      const adjustedTemperature = adaptation
+        ? baseTemperature * adaptation.temperature_modifier
+        : baseTemperature;
 
       logger.debug('Sending chat completion request', {
         conversation_id: input.conversation_id,
         message_count: messages.length,
         model: input.model,
+        temperature: adjustedTemperature,
+        has_adaptation: !!adaptation,
       });
 
-      // Call Claude API
+      // Call Claude API with emotional intelligence
       const response = await this.anthropic.messages.create({
         model: input.model || 'claude-sonnet-4-5-20250929',
         max_tokens: input.max_tokens || 2000,
-        temperature: input.temperature ?? 0.7,
+        temperature: adjustedTemperature,
         system: systemPrompt,
         messages,
       });
