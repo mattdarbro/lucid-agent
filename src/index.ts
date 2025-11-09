@@ -8,6 +8,7 @@ import conversationsRouter from './routes/conversations';
 import messagesRouter from './routes/messages';
 import factsRouter from './routes/facts';
 import evidenceRouter from './routes/evidence';
+import chatRouter from './routes/chat';
 
 // Validate configuration on startup
 try {
@@ -72,9 +73,7 @@ app.use('/v1/facts', factsRouter);
 app.use('/v1/users/:user_id/facts', factsRouter);
 app.use('/v1/evidence', evidenceRouter);
 app.use('/v1/facts/:fact_id/evidence', evidenceRouter);
-
-// TODO: Chat endpoint with streaming
-// app.use('/v1/chat', chatRouter);
+app.use('/v1/chat', chatRouter);
 
 // TODO: Memory endpoints
 // app.use('/v1/memory', memoryRouter);
