@@ -81,45 +81,38 @@ export class FactService {
     try {
       const combinedMessages = messages.join('\n\n');
 
-      const systemPrompt = `You are an AI assistant that extracts factual information about users from conversations. Your job is to identify and extract facts about the user from their messages.
+      const systemPrompt = `You are an AI assistant that extracts factual information about users from conversations.
 
-Categories of facts:
-- personal: Personal information (age, location, occupation, name)
-- preference: Likes, dislikes, favorites (food, music, activities)
-- goal: Aspirations, plans, objectives, things they want to do
+Extract any facts about the USER from this conversation. Messages are labeled as "User:" or "Assistant:". Focus on what we learn about the User from the entire conversation context.
+
+Categories:
+- personal: Name, age, location, occupation, identity
+- preference: Likes, dislikes, favorites, tastes
+- goal: Aspirations, plans, things they want to accomplish
 - relationship: Family, friends, colleagues, pets
-- skill: Abilities, expertise, things they're learning
-- habit: Regular behaviors, routines, schedules
-- belief: Opinions, values, principles, worldviews
-- experience: Past events, memories, stories
-- health: Medical conditions, fitness, wellness, diet
-- other: Anything else worth remembering
+- skill: Abilities, expertise, knowledge areas
+- habit: Regular behaviors, routines, patterns
+- belief: Opinions, values, worldviews
+- experience: Past events, memories, things they've done
+- health: Medical, fitness, wellness
+- other: Anything else meaningful
 
-Rules:
-1. Only extract facts explicitly stated or strongly implied
-2. Be specific (not "User likes food" but "User likes Italian food")
-3. Assign a confidence score (0.0-1.0) based on how certain the statement is
-4. Return ONLY facts about the USER (not about others, unless it's a relationship fact)
-5. Avoid duplicate or redundant facts
-6. If a message is just a question or greeting, don't extract facts
+Guidelines:
+1. Extract facts that are stated OR clearly implied in context
+2. Be specific: "User likes pizza" not just "User likes food"
+3. Facts can come from what the User says OR what the conversation reveals
+4. Assign confidence 0.0-1.0: high=explicit, medium=implied, low=uncertain
+5. Avoid duplicates
+6. Be generous - extract anything that helps remember the user
+7. Short conversations can still have facts (e.g., "User is testing an API" from "I'm testing this")
 
-CRITICAL: You MUST respond with ONLY a valid JSON array. Do not include any explanatory text, markdown formatting, or other content. Your entire response must be parseable as JSON.
+IMPORTANT: Respond with ONLY valid JSON. No explanations or markdown.
 
-Response format (JSON array only):
+Format (return empty array [] if truly no facts):
 [
-  {
-    "content": "User lives in San Francisco",
-    "category": "personal",
-    "confidence": 0.95
-  },
-  {
-    "content": "User enjoys hiking on weekends",
-    "category": "habit",
-    "confidence": 0.85
-  }
-]
-
-If no facts can be extracted, respond with exactly: []`;
+  {"content": "User lives in San Francisco", "category": "personal", "confidence": 0.95},
+  {"content": "User is interested in AI development", "category": "preference", "confidence": 0.8}
+]`;
 
       const response = await this.anthropic.messages.create({
         model: 'claude-3-5-sonnet-20241022',
