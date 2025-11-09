@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { logger } from '../logger';
 import { EvidenceService } from '../services/evidence.service';
@@ -10,10 +10,33 @@ import {
   evidenceListQuerySchema,
   CreateEvidenceInput,
 } from '../validation/evidence.validation';
-import { validateBody, validateParams, validateQuery } from '../middleware/validate';
+import { z } from 'zod';
 
 const router = Router();
 const evidenceService = new EvidenceService(pool);
+
+/**
+ * Validation middleware helper
+ */
+function validateBody(schema: z.ZodSchema) {
+  return (req: Request, res: Response, next: Function) => {
+    try {
+      req.body = schema.parse(req.body);
+      next();
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: error.errors.map((err) => ({
+            field: err.path.join('.'),
+            message: err.message,
+          })),
+        });
+      }
+      next(error);
+    }
+  };
+}
 
 /**
  * POST /v1/evidence
@@ -71,9 +94,9 @@ router.post(
  * GET /v1/evidence/:id
  * Get evidence by ID
  */
-router.get('/:id', validateParams(evidenceIdSchema), async (req, res) => {
+router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = evidenceIdSchema.parse(req.params);
     const evidence = await evidenceService.findById(id);
 
     if (!evidence) {
@@ -82,6 +105,12 @@ router.get('/:id', validateParams(evidenceIdSchema), async (req, res) => {
 
     res.json(evidence);
   } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors,
+      });
+    }
     logger.error('Error fetching evidence:', error);
     res.status(500).json({ error: 'Failed to fetch evidence' });
   }
@@ -91,64 +120,66 @@ router.get('/:id', validateParams(evidenceIdSchema), async (req, res) => {
  * GET /v1/facts/:fact_id/evidence
  * List all evidence for a specific fact
  */
-router.get(
-  '/facts/:fact_id',
-  validateParams(factIdParamSchema),
-  validateQuery(evidenceListQuerySchema),
-  async (req, res) => {
-    try {
-      const { fact_id } = req.params;
-      const options = req.query;
+router.get('/facts/:fact_id', async (req: Request, res: Response) => {
+  try {
+    const { fact_id } = factIdParamSchema.parse(req.params);
+    const options = evidenceListQuerySchema.parse(req.query);
 
-      const evidence = await evidenceService.listByFact(fact_id, options);
+    const evidence = await evidenceService.listByFact(fact_id, options);
 
-      res.json({
-        evidence,
-        count: evidence.length,
-        fact_id,
+    res.json({
+      evidence,
+      count: evidence.length,
+      fact_id,
+    });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors,
       });
-    } catch (error: any) {
-      logger.error('Error listing evidence:', error);
-      res.status(500).json({ error: 'Failed to list evidence' });
     }
+    logger.error('Error listing evidence:', error);
+    res.status(500).json({ error: 'Failed to list evidence' });
   }
-);
+});
 
 /**
  * PATCH /v1/evidence/:id
  * Update evidence
  */
-router.patch(
-  '/:id',
-  validateParams(evidenceIdSchema),
-  validateBody(updateEvidenceSchema),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const updates = req.body;
+router.patch('/:id', validateBody(updateEvidenceSchema), async (req: Request, res: Response) => {
+  try {
+    const { id } = evidenceIdSchema.parse(req.params);
+    const updates = req.body;
 
-      const evidence = await evidenceService.updateEvidence(id, updates);
+    const evidence = await evidenceService.updateEvidence(id, updates);
 
-      if (!evidence) {
-        return res.status(404).json({ error: 'Evidence not found' });
-      }
-
-      logger.info(`Evidence updated: ${id}`);
-      res.json(evidence);
-    } catch (error: any) {
-      logger.error('Error updating evidence:', error);
-      res.status(500).json({ error: 'Failed to update evidence' });
+    if (!evidence) {
+      return res.status(404).json({ error: 'Evidence not found' });
     }
+
+    logger.info(`Evidence updated: ${id}`);
+    res.json(evidence);
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors,
+      });
+    }
+    logger.error('Error updating evidence:', error);
+    res.status(500).json({ error: 'Failed to update evidence' });
   }
-);
+});
 
 /**
  * DELETE /v1/evidence/:id
  * Delete evidence
  */
-router.delete('/:id', validateParams(evidenceIdSchema), async (req, res) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = evidenceIdSchema.parse(req.params);
     const deleted = await evidenceService.deleteEvidence(id);
 
     if (!deleted) {
@@ -158,6 +189,12 @@ router.delete('/:id', validateParams(evidenceIdSchema), async (req, res) => {
     logger.info(`Evidence deleted: ${id}`);
     res.status(204).send();
   } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors,
+      });
+    }
     logger.error('Error deleting evidence:', error);
     res.status(500).json({ error: 'Failed to delete evidence' });
   }
@@ -167,26 +204,28 @@ router.delete('/:id', validateParams(evidenceIdSchema), async (req, res) => {
  * GET /v1/facts/:fact_id/evidence/stats
  * Get evidence statistics for a fact
  */
-router.get(
-  '/facts/:fact_id/stats',
-  validateParams(factIdParamSchema),
-  async (req, res) => {
-    try {
-      const { fact_id } = req.params;
+router.get('/facts/:fact_id/stats', async (req: Request, res: Response) => {
+  try {
+    const { fact_id } = factIdParamSchema.parse(req.params);
 
-      const count = await evidenceService.getCountByFact(fact_id);
-      const avgStrength = await evidenceService.getAverageStrength(fact_id);
+    const count = await evidenceService.getCountByFact(fact_id);
+    const avgStrength = await evidenceService.getAverageStrength(fact_id);
 
-      res.json({
-        fact_id,
-        evidence_count: count,
-        average_strength: avgStrength,
+    res.json({
+      fact_id,
+      evidence_count: count,
+      average_strength: avgStrength,
+    });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors,
       });
-    } catch (error: any) {
-      logger.error('Error fetching evidence stats:', error);
-      res.status(500).json({ error: 'Failed to fetch evidence stats' });
     }
+    logger.error('Error fetching evidence stats:', error);
+    res.status(500).json({ error: 'Failed to fetch evidence stats' });
   }
-);
+});
 
 export default router;
