@@ -120,6 +120,13 @@ Output: [{"content": "User is testing an API", "category": "experience", "confid
 
 NOW extract facts from the conversation below. If you truly find NO facts (very rare), return []`;
 
+      logger.info('Calling Anthropic API for fact extraction:', {
+        model: 'claude-haiku-4-20250514',
+        message_count: messages.length,
+        combined_length: combinedMessages.length,
+        system_prompt_length: systemPrompt.length
+      });
+
       const response = await this.anthropic.messages.create({
         model: 'claude-haiku-4-20250514',
         max_tokens: 2000,
@@ -202,6 +209,10 @@ NOW extract facts from the conversation below. If you truly find NO facts (very 
       logger.error('Error extracting facts with LLM:', {
         message: error.message,
         status: error.status,
+        error_type: error.type,
+        error_code: error.code,
+        error_details: error.error,
+        full_error: JSON.stringify(error, null, 2)
       });
       throw new Error(`Failed to extract facts: ${error.message}`);
     }
