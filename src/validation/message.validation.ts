@@ -98,7 +98,7 @@ export const semanticSearchSchema = z.object({
     .min(0)
     .max(1)
     .optional()
-    .default(0.7),
+    .default(0.82),
 });
 
 // Type exports

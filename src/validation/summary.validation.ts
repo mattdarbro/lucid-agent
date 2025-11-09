@@ -38,8 +38,7 @@ export const createSummarySchema = z.object({
 
   skip_embeddings: z
     .boolean()
-    .optional()
-    .default(false),
+    .optional(),
 });
 
 /**
@@ -59,8 +58,7 @@ export const generateSummarySchema = z.object({
     .int()
     .min(1, 'message_count must be at least 1')
     .max(100, 'message_count must be at most 100')
-    .optional()
-    .default(20),
+    .optional(),
 });
 
 /**
@@ -128,7 +126,7 @@ export const summarySearchSchema = z.object({
     .min(0)
     .max(1)
     .optional()
-    .default(0.7),
+    .default(0.82),
 });
 
 export type CreateSummaryInput = z.infer<typeof createSummarySchema>;

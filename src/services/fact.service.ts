@@ -81,9 +81,9 @@ export class FactService {
     try {
       const combinedMessages = messages.join('\n\n');
 
-      const systemPrompt = `You are an AI assistant that extracts factual information about users from conversations.
+      const systemPrompt = `You are an AI assistant that extracts factual information about users from conversations. You are VERY good at finding facts even in brief exchanges.
 
-Extract any facts about the USER from this conversation. Messages are labeled as "User:" or "Assistant:". Focus on what we learn about the User from the entire conversation context.
+Extract ANY facts about the USER from this conversation. Messages are labeled as "User:" or "Assistant:". Focus on what we learn about the User.
 
 Categories:
 - personal: Name, age, location, occupation, identity
@@ -97,22 +97,28 @@ Categories:
 - health: Medical, fitness, wellness
 - other: Anything else meaningful
 
-Guidelines:
-1. Extract facts that are stated OR clearly implied in context
-2. Be specific: "User likes pizza" not just "User likes food"
-3. Facts can come from what the User says OR what the conversation reveals
-4. Assign confidence 0.0-1.0: high=explicit, medium=implied, low=uncertain
-5. Avoid duplicates
-6. Be generous - extract anything that helps remember the user
-7. Short conversations can still have facts (e.g., "User is testing an API" from "I'm testing this")
+IMPORTANT EXTRACTION RULES:
+1. Extract facts from BOTH what user says AND what the conversation reveals about them
+2. Be VERY generous - extract anything that tells us about the user
+3. Even short conversations have facts:
+   - "I'm testing this" → {"content": "User is testing an API", "category": "experience", "confidence": 0.9}
+   - "I like pizza" → {"content": "User likes pizza", "category": "preference", "confidence": 0.95}
+   - "I work in SF" → {"content": "User works in San Francisco", "category": "personal", "confidence": 0.9}
+4. Infer reasonable facts from context:
+   - User asking about code → {"content": "User is interested in programming", "category": "preference", "confidence": 0.7}
+   - User testing features → {"content": "User is evaluating the system", "category": "experience", "confidence": 0.8}
+5. Confidence levels: 0.9-1.0 = stated explicitly, 0.6-0.8 = clearly implied, 0.4-0.5 = weakly implied
 
-IMPORTANT: Respond with ONLY valid JSON. No explanations or markdown.
+CRITICAL: Respond with ONLY a JSON array. NO explanations, NO markdown, NO text outside the array.
 
-Format (return empty array [] if truly no facts):
-[
-  {"content": "User lives in San Francisco", "category": "personal", "confidence": 0.95},
-  {"content": "User is interested in AI development", "category": "preference", "confidence": 0.8}
-]`;
+Examples:
+User: "Hi, I'm Matt from California"
+Output: [{"content": "User's name is Matt", "category": "personal", "confidence": 0.95}, {"content": "User is from California", "category": "personal", "confidence": 0.95}]
+
+User: "I'm testing your API"
+Output: [{"content": "User is testing an API", "category": "experience", "confidence": 0.9}, {"content": "User is interested in software development", "category": "preference", "confidence": 0.7}]
+
+NOW extract facts from the conversation below. If you truly find NO facts (very rare), return []`;
 
       const response = await this.anthropic.messages.create({
         model: 'claude-haiku-4-20250514',
@@ -136,10 +142,17 @@ Format (return empty array [] if truly no facts):
       // Parse the JSON response
       let text = content.text.trim();
 
+      // Log what we received from LLM for debugging
+      logger.info('LLM fact extraction response:', {
+        response_preview: text.substring(0, 500),
+        response_length: text.length
+      });
+
       // Extract JSON from markdown code blocks if present
       const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (jsonMatch) {
         text = jsonMatch[1].trim();
+        logger.info('Extracted JSON from markdown code block');
       }
 
       // Check if response looks like an error message or explanation
