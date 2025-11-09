@@ -406,6 +406,40 @@
 
             <div id="factsDisplay" class="response" style="display: none;"></div>
         </div>
+
+        <div class="card">
+            <h2>🎭 Personality Assessment (Big 5)</h2>
+            <p class="subtitle">See your personality scores and emotional state!</p>
+
+            <div class="form-group">
+                <label for="personality_user_id">User ID (from above)</label>
+                <input type="text" id="personality_user_id" placeholder="Paste user ID">
+            </div>
+
+            <div class="btn-group">
+                <button id="assessPersonalityBtn" class="btn-primary">Assess Personality Now</button>
+                <button id="loadPersonalityBtn" class="btn-secondary">Load Latest Assessment</button>
+            </div>
+
+            <div id="personalityResults" class="response" style="display: none;">
+                <h3>Current Personality (OCEAN Model)</h3>
+                <div id="personalityScores"></div>
+
+                <div id="personalityBaseline" style="margin-top: 20px; display: none;">
+                    <h4>Deviations from Baseline</h4>
+                    <p style="font-size: 0.9em; color: #718096; margin-bottom: 10px;">
+                        These show how your current personality differs from your baseline (in standard deviations).
+                        Values > 1.5σ indicate significant shifts.
+                    </p>
+                    <div id="personalityDeviations"></div>
+                </div>
+
+                <div id="personalityReasoning" style="margin-top: 20px; padding: 15px; background: #f7fafc; border-radius: 8px; display: none;">
+                    <h4 style="margin-bottom: 10px;">Assessment Reasoning</h4>
+                    <p id="reasoningText" style="font-size: 0.9em; line-height: 1.6; color: #4a5568;"></p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -986,6 +1020,200 @@
                 searchBtn.disabled = false;
                 searchBtn.textContent = 'Search Facts';
             }
+        }
+
+        // ============================================================================
+        // PERSONALITY ASSESSMENT
+        // ============================================================================
+
+        document.getElementById('assessPersonalityBtn').addEventListener('click', assessPersonality);
+        document.getElementById('loadPersonalityBtn').addEventListener('click', loadPersonalityOverview);
+
+        async function assessPersonality() {
+            const userId = document.getElementById('personality_user_id').value;
+            const conversationId = document.getElementById('conversation_id_chat').value;
+
+            if (!userId) {
+                alert('Please enter a User ID');
+                return;
+            }
+
+            const btn = document.getElementById('assessPersonalityBtn');
+            btn.disabled = true;
+            btn.textContent = 'Assessing... (this may take 10-30 seconds)';
+
+            try {
+                const response = await fetch(`${API_URL}/v1/personality/assess`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        conversation_id: conversationId || undefined,
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    displayPersonalityResults(result.snapshot);
+                    // Auto-load overview to show deviations
+                    await loadPersonalityOverview();
+                } else {
+                    alert(`Error: ${result.error}`);
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Assess Personality Now';
+            }
+        }
+
+        async function loadPersonalityOverview() {
+            const userId = document.getElementById('personality_user_id').value;
+
+            if (!userId) {
+                alert('Please enter a User ID');
+                return;
+            }
+
+            const btn = document.getElementById('loadPersonalityBtn');
+            btn.disabled = true;
+            btn.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(`${API_URL}/v1/personality/overview/${userId}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    displayPersonalityOverview(result.overview);
+                } else {
+                    alert(`Error: ${result.error}`);
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Load Latest Assessment';
+            }
+        }
+
+        function displayPersonalityResults(snapshot) {
+            const resultsEl = document.getElementById('personalityResults');
+            const scoresEl = document.getElementById('personalityScores');
+            const reasoningEl = document.getElementById('personalityReasoning');
+            const reasoningText = document.getElementById('reasoningText');
+
+            resultsEl.style.display = 'block';
+
+            // Display scores
+            const traits = [
+                { name: 'Openness', key: 'openness', emoji: '🎨', description: 'Creativity, curiosity, openness to new experiences' },
+                { name: 'Conscientiousness', key: 'conscientiousness', emoji: '📋', description: 'Organization, responsibility, self-discipline' },
+                { name: 'Extraversion', key: 'extraversion', emoji: '🎉', description: 'Sociability, energy, assertiveness' },
+                { name: 'Agreeableness', key: 'agreeableness', emoji: '🤝', description: 'Compassion, cooperation, trust' },
+                { name: 'Neuroticism', key: 'neuroticism', emoji: '😰', description: 'Emotional stability, anxiety, mood' },
+            ];
+
+            let html = '';
+            traits.forEach(trait => {
+                const value = snapshot[trait.key];
+                const percentage = value !== null ? (value * 100).toFixed(0) : 'N/A';
+                const color = getTraitColor(value);
+
+                html += `
+                    <div style="margin-bottom: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <span style="font-weight: 600;">${trait.emoji} ${trait.name}</span>
+                            <span style="font-weight: bold; color: ${color};">${percentage}%</span>
+                        </div>
+                        <div style="background: #e2e8f0; border-radius: 10px; height: 8px; overflow: hidden;">
+                            <div style="background: ${color}; height: 100%; width: ${percentage}%; transition: width 0.3s;"></div>
+                        </div>
+                        <div style="font-size: 0.85em; color: #718096; margin-top: 3px;">${trait.description}</div>
+                    </div>
+                `;
+            });
+
+            html += `
+                <div style="margin-top: 15px; padding: 10px; background: #edf2f7; border-radius: 6px;">
+                    <strong>Confidence:</strong> ${(snapshot.confidence * 100).toFixed(0)}% |
+                    <strong>Assessed:</strong> ${new Date(snapshot.snapshot_at).toLocaleString()}
+                </div>
+            `;
+
+            scoresEl.innerHTML = html;
+
+            // Display reasoning
+            if (snapshot.reasoning) {
+                reasoningEl.style.display = 'block';
+                reasoningText.textContent = snapshot.reasoning;
+            }
+        }
+
+        function displayPersonalityOverview(overview) {
+            // First display the current scores
+            if (overview.current) {
+                displayPersonalityResults(overview.current);
+            }
+
+            // Then show deviations if available
+            if (overview.deviations) {
+                const baselineEl = document.getElementById('personalityBaseline');
+                const deviationsEl = document.getElementById('personalityDeviations');
+
+                baselineEl.style.display = 'block';
+
+                const traits = [
+                    { name: 'Openness', key: 'openness', emoji: '🎨' },
+                    { name: 'Conscientiousness', key: 'conscientiousness', emoji: '📋' },
+                    { name: 'Extraversion', key: 'extraversion', emoji: '🎉' },
+                    { name: 'Agreeableness', key: 'agreeableness', emoji: '🤝' },
+                    { name: 'Neuroticism', key: 'neuroticism', emoji: '😰' },
+                ];
+
+                let html = '';
+                traits.forEach(trait => {
+                    const deviation = overview.deviations[trait.key];
+                    const deviationValue = parseFloat(deviation);
+                    const color = getDeviationColor(deviationValue);
+                    const icon = getDeviationIcon(deviationValue);
+
+                    html += `
+                        <div style="padding: 10px; margin: 8px 0; background: #f7fafc; border-left: 3px solid ${color}; border-radius: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span><strong>${trait.emoji} ${trait.name}</strong></span>
+                                <span style="font-weight: bold; color: ${color};">${icon} ${deviation}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                deviationsEl.innerHTML = html;
+            }
+        }
+
+        function getTraitColor(value) {
+            if (value === null) return '#cbd5e0';
+            if (value < 0.3) return '#fc8181'; // Low - red
+            if (value < 0.5) return '#f6ad55'; // Medium-low - orange
+            if (value < 0.7) return '#68d391'; // Medium-high - green
+            return '#4299e1'; // High - blue
+        }
+
+        function getDeviationColor(deviation) {
+            const abs = Math.abs(deviation);
+            if (abs < 1.0) return '#718096'; // Gray - normal
+            if (abs < 1.5) return '#ed8936'; // Orange - moderate
+            return '#e53e3e'; // Red - significant
+        }
+
+        function getDeviationIcon(deviation) {
+            if (Math.abs(deviation) < 1.0) return '→';
+            if (deviation > 0) return '⬆';
+            return '⬇';
         }
 
         // Check API status on page load

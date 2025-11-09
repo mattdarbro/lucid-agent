@@ -11,7 +11,8 @@
     "test": "vitest",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "test:emotional-intelligence": "tsx test-emotional-intelligence.ts"
   },
   "keywords": [
     "ai",
