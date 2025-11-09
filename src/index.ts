@@ -7,6 +7,7 @@ import usersRouter from './routes/users';
 import conversationsRouter from './routes/conversations';
 import messagesRouter from './routes/messages';
 import factsRouter from './routes/facts';
+import evidenceRouter from './routes/evidence';
 
 // Validate configuration on startup
 try {
@@ -69,6 +70,8 @@ app.use('/v1/conversations', conversationsRouter);
 app.use('/v1/messages', messagesRouter);
 app.use('/v1/facts', factsRouter);
 app.use('/v1/users/:user_id/facts', factsRouter);
+app.use('/v1/evidence', evidenceRouter);
+app.use('/v1/facts/:fact_id/evidence', evidenceRouter);
 
 // TODO: Chat endpoint with streaming
 // app.use('/v1/chat', chatRouter);
