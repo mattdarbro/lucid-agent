@@ -38,7 +38,7 @@ describe('PersonalityService', () => {
       const userId = 'user-123';
       const mockMessages = [
         { role: 'user', content: 'I love exploring new ideas and trying new things!' },
-        { role: 'assistant', content: 'That's wonderful! What kind of new experiences interest you?' },
+        { role: 'assistant', content: "That's wonderful! What kind of new experiences interest you?" },
         { role: 'user', content: 'I enjoy learning about philosophy and different cultures.' },
       ];
 
