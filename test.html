@@ -555,7 +555,7 @@
             sendBtn.textContent = 'Sending...';
 
             try {
-                const response = await fetch(`${API_URL}/v1/messages`, {
+                const response = await fetch(`${API_URL}/v1/chat`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -563,8 +563,7 @@
                     body: JSON.stringify({
                         conversation_id: conversationId,
                         user_id: userId,
-                        role: 'user',
-                        content: content,
+                        message: content,
                     })
                 });
 
@@ -580,12 +579,20 @@
                 // Clear input
                 document.getElementById('messageInput').value = '';
 
-                // Add message to chat container
+                // Add user message to chat container
                 addMessageToChat({
                     role: 'user',
                     content: content,
-                    created_at: result.created_at || new Date().toISOString(),
-                    embedding: result.embedding ? '✓ Embedded' : '✗ No embedding',
+                    created_at: result.user_message.created_at || new Date().toISOString(),
+                    embedding: result.user_message.embedding ? '✓ Embedded' : '✗ No embedding',
+                });
+
+                // Add AI response to chat container
+                addMessageToChat({
+                    role: 'assistant',
+                    content: result.response,
+                    created_at: result.assistant_message.created_at || new Date().toISOString(),
+                    embedding: result.assistant_message.embedding ? '✓ Embedded' : '✗ No embedding',
                 });
             } catch (error) {
                 alert(`Error sending message: ${error.message}`);
