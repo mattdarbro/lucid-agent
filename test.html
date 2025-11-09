@@ -773,17 +773,46 @@
                         </div>
                     `).join('');
 
+                    const debugInfo = result.debug ? `
+                        <div style="font-size: 0.85em; color: #718096; margin-bottom: 10px;">
+                            Analyzed ${result.debug.messages_analyzed} messages
+                        </div>
+                    ` : '';
+
                     resultsEl.innerHTML = `
                         <div style="color: #38a169; font-weight: bold; margin-bottom: 10px;">
                             ✓ ${result.message}
                         </div>
+                        ${debugInfo}
                         ${factsHtml}
                     `;
 
                     // Auto-fill conversation ID for next extraction
                     document.getElementById('extract_conversation_id').value = conversationId;
                 } else {
-                    resultsEl.innerHTML = '<pre>No facts extracted. Try sending more descriptive messages!</pre>';
+                    const debugInfo = result.debug ? `
+                        <div style="margin-top: 10px; padding: 10px; background: #f7fafc; border-radius: 4px;">
+                            <div style="font-weight: bold; margin-bottom: 5px;">Debug Info:</div>
+                            <div style="font-size: 0.9em;">Messages analyzed: ${result.debug.messages_analyzed}</div>
+                            <div style="font-size: 0.85em; color: #718096; margin-top: 5px;">Sample messages:</div>
+                            ${result.debug.sample_messages.map(msg => `
+                                <div style="font-size: 0.85em; color: #718096; margin-left: 10px;">• ${msg}</div>
+                            `).join('')}
+                        </div>
+                    ` : '';
+
+                    resultsEl.innerHTML = `
+                        <pre>No facts extracted from the conversation.</pre>
+                        ${debugInfo}
+                        <div style="margin-top: 10px; font-size: 0.9em; color: #718096;">
+                            Tips:
+                            <ul style="margin: 5px 0; padding-left: 20px;">
+                                <li>Try having a more detailed conversation</li>
+                                <li>Mention specific things you like, do, or are interested in</li>
+                                <li>Share information about yourself or your work</li>
+                            </ul>
+                        </div>
+                    `;
                 }
             } catch (error) {
                 resultsEl.style.display = 'block';

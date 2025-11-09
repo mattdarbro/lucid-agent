@@ -116,9 +116,15 @@ router.post(
           conversation_id,
           limit || 20
         );
-        messages = msgs
-          .filter((m) => m.user_id === user_id)
-          .map((m) => m.content);
+
+        // Include ALL messages, not just user messages
+        // This allows extracting facts mentioned by both user and assistant
+        messages = msgs.map((m) => {
+          const prefix = m.role === 'user' ? 'User: ' : 'Assistant: ';
+          return prefix + m.content;
+        });
+
+        logger.info(`Fetched ${msgs.length} messages (${messages.length} total) for fact extraction`);
       } else {
         // This would require a new method to get all user messages
         return res.status(400).json({
@@ -162,6 +168,10 @@ router.post(
         created: createdFacts,
         count: createdFacts.length,
         message: `Extracted ${extractedFacts.length} facts, created ${createdFacts.length} successfully`,
+        debug: {
+          messages_analyzed: messages.length,
+          sample_messages: messages.slice(0, 3).map(m => m.substring(0, 100) + '...')
+        }
       });
     } catch (error: any) {
       logger.error('Error in POST /v1/facts/extract:', {
