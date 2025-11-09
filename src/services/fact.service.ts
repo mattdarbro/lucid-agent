@@ -121,14 +121,14 @@ Output: [{"content": "User is testing an API", "category": "experience", "confid
 NOW extract facts from the conversation below. If you truly find NO facts (very rare), return []`;
 
       logger.info('Calling Anthropic API for fact extraction:', {
-        model: 'claude-haiku-4-20250514',
+        model: 'claude-sonnet-4-5-20250929',
         message_count: messages.length,
         combined_length: combinedMessages.length,
         system_prompt_length: systemPrompt.length
       });
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-haiku-4-20250514',
+        model: 'claude-sonnet-4-5-20250929',
         max_tokens: 2000,
         temperature: 0.2, // Low temperature for consistent fact extraction
         system: systemPrompt,
