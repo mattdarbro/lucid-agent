@@ -9,6 +9,7 @@ import messagesRouter from './routes/messages';
 import factsRouter from './routes/facts';
 import evidenceRouter from './routes/evidence';
 import chatRouter from './routes/chat';
+import summaryRouter from './routes/summary';
 
 // Validate configuration on startup
 try {
@@ -74,6 +75,9 @@ app.use('/v1/users/:user_id/facts', factsRouter);
 app.use('/v1/evidence', evidenceRouter);
 app.use('/v1/facts/:fact_id/evidence', evidenceRouter);
 app.use('/v1/chat', chatRouter);
+app.use('/v1/summaries', summaryRouter);
+app.use('/v1/conversations/:conversation_id/summaries', summaryRouter);
+app.use('/v1/users/:user_id/summaries', summaryRouter);
 
 // TODO: Memory endpoints
 // app.use('/v1/memory', memoryRouter);
