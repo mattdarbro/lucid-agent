@@ -27,9 +27,11 @@ const mockAnthropic = {
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class MockAnthropic {
-    messages = mockAnthropicCreate;
+    messages = {
+      create: mockAnthropicCreate,
+    };
     constructor() {
-      return mockAnthropic;
+      return mockAnthropic as any;
     }
   },
 }));

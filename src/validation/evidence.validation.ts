@@ -39,8 +39,7 @@ export const createEvidenceSchema = z.object({
     .number()
     .min(0)
     .max(1)
-    .optional()
-    .default(0.7),
+    .optional(),
 
   context_type: z
     .enum(evidenceContextTypes)
