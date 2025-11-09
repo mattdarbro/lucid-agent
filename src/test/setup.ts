@@ -72,6 +72,27 @@ export function createMockMessage(overrides: Partial<any> = {}) {
 }
 
 /**
+ * Creates a mock fact object for testing
+ */
+export function createMockFact(overrides: Partial<any> = {}) {
+  return {
+    id: '123e4567-e89b-12d3-a456-426614174003',
+    user_id: '123e4567-e89b-12d3-a456-426614174000',
+    content: 'User likes pizza',
+    category: 'preference',
+    confidence: 0.85,
+    evidence_count: 2,
+    embedding: null,
+    is_active: true,
+    first_mentioned_at: new Date('2024-01-01T00:00:00Z'),
+    last_mentioned_at: new Date('2024-01-01T00:00:00Z'),
+    created_at: new Date('2024-01-01T00:00:00Z'),
+    updated_at: new Date('2024-01-01T00:00:00Z'),
+    ...overrides,
+  };
+}
+
+/**
  * Clears all mocks between tests
  */
 export function clearAllMocks() {

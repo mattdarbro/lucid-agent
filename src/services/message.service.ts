@@ -285,6 +285,14 @@ export class MessageService {
     } = {}
   ): Promise<SemanticSearchResult[]> {
     try {
+      logger.debug('Semantic search options:', {
+        query,
+        conversation_id: options.conversation_id,
+        user_id: options.user_id,
+        limit: options.limit,
+        min_similarity: options.min_similarity
+      });
+
       // Generate embedding for the query
       const queryEmbedding = await this.vectorService.generateEmbedding(query);
 
@@ -316,6 +324,8 @@ export class MessageService {
       sql += ` ORDER BY embedding <=> $1::vector ASC LIMIT $${params.length + 1}`;
       params.push(options.limit || 10);
 
+      logger.debug('Semantic search SQL:', { sql, paramCount: params.length });
+
       const result = await this.pool.query(sql, params);
 
       const results: SemanticSearchResult[] = result.rows.map((row) => ({
@@ -333,7 +343,12 @@ export class MessageService {
         similarity: parseFloat(row.similarity),
       }));
 
-      logger.info(`Semantic search found ${results.length} results for query: "${query}"`);
+      logger.info(`Semantic search found ${results.length} results for query: "${query}"`, {
+        similarities: results.map(r => ({
+          content: r.message.content.substring(0, 50),
+          similarity: r.similarity.toFixed(3)
+        }))
+      });
       return results;
     } catch (error: any) {
       logger.error('Error performing semantic search:', error);
