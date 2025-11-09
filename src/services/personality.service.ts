@@ -119,7 +119,7 @@ export class PersonalityService {
       const result = await this.pool.query<PersonalitySnapshot>(
         `SELECT * FROM personality_snapshots
          WHERE user_id = $1
-         ORDER BY snapshot_at DESC
+         ORDER BY created_at DESC
          LIMIT 1`,
         [userId]
       );
@@ -144,7 +144,7 @@ export class PersonalityService {
       const result = await this.pool.query<PersonalitySnapshot>(
         `SELECT * FROM personality_snapshots
          WHERE user_id = $1
-         ORDER BY snapshot_at DESC
+         ORDER BY created_at DESC
          LIMIT $2 OFFSET $3`,
         [userId, limit, offset]
       );
