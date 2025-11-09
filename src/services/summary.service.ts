@@ -85,7 +85,7 @@ CRITICAL: Respond with ONLY valid JSON in this exact format:
       });
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-haiku-4-20250514',
+        model: 'claude-3-5-haiku-20241022',
         max_tokens: 1500,
         temperature: 0.3,
         system: systemPrompt,

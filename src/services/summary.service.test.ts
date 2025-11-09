@@ -111,7 +111,7 @@ describe('SummaryService', () => {
       expect(result.message_count).toBe(2);
       expect(mockAnthropicCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'claude-haiku-4-20250514',
+          model: 'claude-3-5-haiku-20241022',
           temperature: 0.3,
         })
       );

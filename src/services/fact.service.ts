@@ -121,7 +121,7 @@ Output: [{"content": "User is testing an API", "category": "experience", "confid
 NOW extract facts from the conversation below. If you truly find NO facts (very rare), return []`;
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-haiku-4-20250514',
+        model: 'claude-3-5-haiku-20241022',
         max_tokens: 2000,
         temperature: 0.2, // Low temperature for consistent fact extraction
         system: systemPrompt,

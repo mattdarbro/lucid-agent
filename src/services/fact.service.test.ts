@@ -80,7 +80,7 @@ describe('FactService', () => {
       expect(facts[1].content).toBe('User loves pizza');
       expect(mockAnthropicCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'claude-haiku-4-20250514',
+          model: 'claude-3-5-haiku-20241022',
           temperature: 0.2,
         })
       );
