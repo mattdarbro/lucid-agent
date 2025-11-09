@@ -355,6 +355,15 @@
                 <input type="text" id="searchQuery" placeholder="Search for similar messages...">
             </div>
 
+            <div class="form-group">
+                <label for="messageSimilaritySlider">Minimum Similarity: <span id="messageSimilarityValue">0.7</span> (70%)</label>
+                <input type="range" id="messageSimilaritySlider" min="0" max="1" step="0.05" value="0.7"
+                       style="width: 100%; cursor: pointer;">
+                <div style="font-size: 0.85em; color: #718096; margin-top: 5px;">
+                    Lower = more results (less strict), Higher = fewer results (more strict)
+                </div>
+            </div>
+
             <button id="searchBtn" class="btn-secondary">Search</button>
 
             <div id="searchResults" class="response" style="display: none;"></div>
@@ -384,6 +393,15 @@
             <div class="form-group" id="factSearchGroup" style="display: none; margin-top: 15px;">
                 <label for="factSearchQuery">Search Query</label>
                 <input type="text" id="factSearchQuery" placeholder="e.g., food preferences">
+
+                <div class="form-group" style="margin-top: 10px;">
+                    <label for="factSimilaritySlider">Minimum Similarity: <span id="factSimilarityValue">0.7</span> (70%)</label>
+                    <input type="range" id="factSimilaritySlider" min="0" max="1" step="0.05" value="0.7"
+                           style="width: 100%; cursor: pointer;">
+                    <div style="font-size: 0.85em; color: #718096; margin-top: 5px;">
+                        Lower = more results (less strict), Higher = fewer results (more strict)
+                    </div>
+                </div>
             </div>
 
             <div id="factsDisplay" class="response" style="display: none;"></div>
@@ -615,10 +633,17 @@
             }
         });
 
+        // Update similarity slider display for messages
+        document.getElementById('messageSimilaritySlider').addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById('messageSimilarityValue').textContent = value.toFixed(2);
+        });
+
         // Semantic search
         document.getElementById('searchBtn').addEventListener('click', async () => {
             const query = document.getElementById('searchQuery').value;
             const conversationId = document.getElementById('conversation_id_chat').value;
+            const minSimilarity = parseFloat(document.getElementById('messageSimilaritySlider').value);
 
             if (!query) {
                 alert('Please enter a search query');
@@ -632,7 +657,10 @@
             searchBtn.textContent = 'Searching...';
 
             try {
-                const body = { query };
+                const body = {
+                    query,
+                    min_similarity: minSimilarity
+                };
                 if (conversationId) {
                     body.conversation_id = conversationId;
                 }
@@ -844,6 +872,12 @@
             }
         });
 
+        // Update similarity slider display for facts
+        document.getElementById('factSimilaritySlider').addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById('factSimilarityValue').textContent = value.toFixed(2);
+        });
+
         // Perform fact search on Enter key
         document.getElementById('factSearchQuery').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
@@ -854,6 +888,7 @@
         async function performFactSearch() {
             const query = document.getElementById('factSearchQuery').value;
             const userId = document.getElementById('user_id').value;
+            const minSimilarity = parseFloat(document.getElementById('factSimilaritySlider').value);
 
             if (!query) {
                 alert('Please enter a search query');
@@ -867,7 +902,10 @@
             searchBtn.textContent = 'Searching...';
 
             try {
-                const body = { query };
+                const body = {
+                    query,
+                    min_similarity: minSimilarity
+                };
                 if (userId) {
                     body.user_id = userId;
                 }

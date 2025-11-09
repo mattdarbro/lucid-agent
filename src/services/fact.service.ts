@@ -103,7 +103,9 @@ Rules:
 5. Avoid duplicate or redundant facts
 6. If a message is just a question or greeting, don't extract facts
 
-Return a JSON array of facts in this format:
+CRITICAL: You MUST respond with ONLY a valid JSON array. Do not include any explanatory text, markdown formatting, or other content. Your entire response must be parseable as JSON.
+
+Response format (JSON array only):
 [
   {
     "content": "User lives in San Francisco",
@@ -117,7 +119,7 @@ Return a JSON array of facts in this format:
   }
 ]
 
-If no facts can be extracted, return an empty array: []`;
+If no facts can be extracted, respond with exactly: []`;
 
       const response = await this.anthropic.messages.create({
         model: 'claude-3-5-sonnet-20241022',
@@ -139,13 +141,53 @@ If no facts can be extracted, return an empty array: []`;
       }
 
       // Parse the JSON response
-      const text = content.text.trim();
+      let text = content.text.trim();
 
       // Extract JSON from markdown code blocks if present
-      const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || [null, text];
-      const jsonText = jsonMatch[1] || text;
+      const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        text = jsonMatch[1].trim();
+      }
 
-      const extractedFacts: ExtractedFact[] = JSON.parse(jsonText);
+      // Check if response looks like an error message or explanation
+      if (text.toLowerCase().includes('not enough') ||
+          text.toLowerCase().includes('cannot extract') ||
+          text.toLowerCase().includes('no facts') && !text.startsWith('[')) {
+        logger.info('LLM indicated no facts could be extracted from messages');
+        return [];
+      }
+
+      // Try to parse JSON
+      let extractedFacts: ExtractedFact[];
+      try {
+        extractedFacts = JSON.parse(text);
+      } catch (parseError) {
+        logger.warn('Failed to parse LLM response as JSON:', {
+          response: text.substring(0, 200),
+          error: (parseError as Error).message
+        });
+
+        // Try to find JSON array within the text
+        const arrayMatch = text.match(/\[[\s\S]*\]/);
+        if (arrayMatch) {
+          try {
+            extractedFacts = JSON.parse(arrayMatch[0]);
+            logger.info('Successfully extracted JSON array from response');
+          } catch {
+            logger.error('Could not parse extracted array');
+            return [];
+          }
+        } else {
+          logger.error('No JSON array found in response');
+          return [];
+        }
+      }
+
+      // Validate that we got an array
+      if (!Array.isArray(extractedFacts)) {
+        logger.warn('LLM response was not an array');
+        return [];
+      }
 
       logger.info(`Extracted ${extractedFacts.length} facts from ${messages.length} messages`);
 
