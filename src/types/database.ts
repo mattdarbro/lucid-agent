@@ -78,16 +78,15 @@ export interface Summary {
 export interface PersonalitySnapshot {
   id: string;
   user_id: string;
-  openness: number | null;
-  conscientiousness: number | null;
-  extraversion: number | null;
-  agreeableness: number | null;
-  neuroticism: number | null;
-  confidence: number;
-  snapshot_at: Date;
-  sample_size: number;
-  reasoning: string | null;
-  metadata: Record<string, any>;
+  conversation_id: string | null;
+  openness: number;
+  conscientiousness: number;
+  extraversion: number;
+  agreeableness: number;
+  neuroticism: number;
+  assessment_reasoning: string | null;
+  message_count: number | null;
+  created_at: Date;
 }
 
 export interface AutonomousThought {
