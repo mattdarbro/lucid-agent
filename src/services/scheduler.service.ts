@@ -4,11 +4,13 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '../logger';
 import { AgentJobService } from './agent-job.service';
 import { UserService } from './user.service';
+import { ResearchExecutorService } from './research-executor.service';
 import { config } from '../config';
 
 export class SchedulerService {
   private agentJobService: AgentJobService;
   private userService: UserService;
+  private researchExecutor: ResearchExecutorService;
   private scheduledTasks: cron.ScheduledTask[] = [];
   private jobCheckInterval: NodeJS.Timeout | null = null;
 
@@ -18,6 +20,7 @@ export class SchedulerService {
   ) {
     this.agentJobService = new AgentJobService(pool, supabase);
     this.userService = new UserService(pool);
+    this.researchExecutor = new ResearchExecutorService(pool, supabase);
   }
 
   /**
@@ -42,6 +45,26 @@ export class SchedulerService {
 
     // Start polling for due jobs every minute
     this.startJobPolling();
+
+    // Schedule research task execution every 5 minutes
+    if (config.features.webResearch) {
+      const researchTask = cron.schedule('*/5 * * * *', async () => {
+        logger.debug('Running research task executor');
+        try {
+          const result = await this.researchExecutor.processPendingTasks(3);
+          if (result.processed > 0) {
+            logger.info('Research execution completed', result);
+          }
+        } catch (error) {
+          logger.error('Research execution failed', { error });
+        }
+      }, {
+        timezone: 'UTC',
+      });
+
+      this.scheduledTasks.push(researchTask);
+      logger.info('🔍 Research executor: ENABLED (runs every 5 minutes)');
+    }
 
     logger.info('Scheduler service started successfully', {
       scheduleConfig: config.schedule,

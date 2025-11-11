@@ -31,6 +31,7 @@
     "node-cron": "^3.0.3",
     "openai": "^4.20.1",
     "pg": "^8.11.3",
+    "tavily": "^1.0.2",
     "zod": "^3.22.4"
   },
   "devDependencies": {
