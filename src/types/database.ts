@@ -92,32 +92,32 @@ export interface PersonalitySnapshot {
 export interface AutonomousThought {
   id: string;
   user_id: string;
-  thought_type: 'dream' | 'reflection' | 'curiosity' | 'insight' | 'question';
-  circadian_phase: 'morning' | 'midday' | 'evening' | 'night' | null;
+  agent_job_id: string | null;
   content: string;
-  trigger_type: 'scheduled' | 'pattern_detected' | 'user_mention' | 'memory_consolidation' | null;
-  trigger_data: Record<string, any> | null;
-  created_at: Date;
-  shared_with_user: boolean;
+  thought_type: 'dream' | 'reflection' | 'curiosity' | 'insight' | 'question' | 'consolidation';
+  circadian_phase: 'morning' | 'midday' | 'evening' | 'night' | null;
+  generated_at_time: string | null;
+  importance_score: number | null;
+  is_shared: boolean;
   shared_at: Date | null;
-  importance: number;
-  metadata: Record<string, any>;
   embedding: number[] | null;
+  created_at: Date;
 }
 
 export interface ResearchTask {
   id: string;
   user_id: string;
+  emotional_state_id: string | null;
   query: string;
-  reason: string | null;
+  purpose: string | null;
+  approach: 'gentle' | 'exploratory' | 'supportive' | 'analytical';
+  priority: number;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  results: Record<string, any> | null;
+  derived_facts: string[] | null;
   created_at: Date;
   started_at: Date | null;
   completed_at: Date | null;
-  results: Record<string, any> | null;
-  summary: string | null;
-  derived_facts: string[] | null;
-  metadata: Record<string, any>;
 }
 
 export interface AgentJob {
@@ -126,11 +126,12 @@ export interface AgentJob {
   job_type: 'morning_reflection' | 'midday_curiosity' | 'evening_consolidation' | 'night_dream';
   status: 'pending' | 'running' | 'completed' | 'failed';
   scheduled_for: Date;
+  thoughts_generated: number;
+  research_tasks_created: number;
+  error_message: string | null;
+  created_at: Date;
   started_at: Date | null;
   completed_at: Date | null;
-  output: Record<string, any> | null;
-  error: string | null;
-  metadata: Record<string, any>;
 }
 
 // ============================================================================

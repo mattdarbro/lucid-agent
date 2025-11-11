@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { config, validateConfig } from './config';
-import { testConnection, closeConnections } from './db';
+import { testConnection, closeConnections, pool, supabase } from './db';
 import { logger } from './logger';
 import usersRouter from './routes/users';
 import conversationsRouter from './routes/conversations';
@@ -11,6 +11,10 @@ import evidenceRouter from './routes/evidence';
 import chatRouter from './routes/chat';
 import summaryRouter from './routes/summary';
 import personalityRouter from './routes/personality';
+import { createAgentJobRouter } from './routes/agent-jobs';
+import { createAutonomousThoughtRouter } from './routes/autonomous-thoughts';
+import { createResearchTaskRouter } from './routes/research-tasks';
+import { SchedulerService } from './services/scheduler.service';
 
 // Validate configuration on startup
 try {
@@ -83,14 +87,13 @@ app.use('/v1/users/:user_id/summaries', summaryRouter);
 // Phase 3: Emotional Intelligence routes
 app.use('/v1/personality', personalityRouter);
 
-// TODO: Memory endpoints
+// Phase 4: Autonomous Agents routes
+app.use('/v1/agent-jobs', createAgentJobRouter(pool, supabase));
+app.use('/v1/autonomous-thoughts', createAutonomousThoughtRouter(pool, supabase));
+app.use('/v1/research-tasks', createResearchTaskRouter(pool, supabase));
+
+// TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);
-
-// TODO: Personality endpoint
-// app.use('/v1/personality', personalityRouter);
-
-// TODO: Autonomous thoughts endpoint
-// app.use('/v1/thoughts', thoughtsRouter);
 
 // ============================================================================
 // ERROR HANDLERS
@@ -111,6 +114,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // SERVER STARTUP
 // ============================================================================
 
+// Initialize scheduler (will be started if autonomous agents are enabled)
+let scheduler: SchedulerService | null = null;
+
 async function startServer() {
   try {
     // Test database connection
@@ -123,7 +129,7 @@ async function startServer() {
     }
 
     // Start Express server
-    const server = app.listen(PORT, HOST, () => {
+    const server = app.listen(PORT, HOST, async () => {
       logger.info(`🧠 ${config.agent.name} agent running on ${HOST}:${PORT}`);
       logger.info(`📊 Health: http://localhost:${PORT}/health`);
       logger.info(`ℹ️  Info: http://localhost:${PORT}/info`);
@@ -131,6 +137,16 @@ async function startServer() {
 
       if (config.features.autonomousAgents) {
         logger.info('🤖 Autonomous agents: ENABLED');
+
+        // Start the scheduler for autonomous agents
+        try {
+          scheduler = new SchedulerService(pool, supabase);
+          await scheduler.start();
+          logger.info('✅ Scheduler started successfully');
+        } catch (error) {
+          logger.error('Failed to start scheduler:', error);
+          logger.warn('⚠️  Continuing without autonomous agents');
+        }
       }
       if (config.features.dreams) {
         logger.info('💭 Dreams: ENABLED');
@@ -143,6 +159,13 @@ async function startServer() {
     // Graceful shutdown handlers
     const shutdown = async () => {
       logger.info('Shutting down gracefully...');
+
+      // Stop scheduler if running
+      if (scheduler) {
+        logger.info('Stopping scheduler...');
+        scheduler.stop();
+      }
+
       server.close(async () => {
         await closeConnections();
         logger.info('Server shut down complete');
