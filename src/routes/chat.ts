@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { pool } from '../db';
+import { pool, supabase } from '../db';
 import { logger } from '../logger';
 import { ChatService } from '../services/chat.service';
 import { chatCompletionSchema, ChatCompletionInput } from '../validation/chat.validation';
 import { z } from 'zod';
 
 const router = Router();
-const chatService = new ChatService(pool);
+const chatService = new ChatService(pool, supabase);
 
 /**
  * Validation middleware helper
