@@ -14,6 +14,7 @@ import personalityRouter from './routes/personality';
 import { createAgentJobRouter } from './routes/agent-jobs';
 import { createAutonomousThoughtRouter } from './routes/autonomous-thoughts';
 import { createResearchTaskRouter } from './routes/research-tasks';
+import profilesRouter from './routes/profiles';
 import { SchedulerService } from './services/scheduler.service';
 
 // Validate configuration on startup
@@ -91,6 +92,9 @@ app.use('/v1/personality', personalityRouter);
 app.use('/v1/agent-jobs', createAgentJobRouter(pool, supabase));
 app.use('/v1/autonomous-thoughts', createAutonomousThoughtRouter(pool, supabase));
 app.use('/v1/research-tasks', createResearchTaskRouter(pool, supabase));
+
+// Profile Management (Modular Configuration)
+app.use('/v1/profiles', profilesRouter);
 
 // TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);

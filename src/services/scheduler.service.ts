@@ -5,12 +5,14 @@ import { logger } from '../logger';
 import { AgentJobService } from './agent-job.service';
 import { UserService } from './user.service';
 import { ResearchExecutorService } from './research-executor.service';
+import { ProfileService } from './profile.service';
 import { config } from '../config';
 
 export class SchedulerService {
   private agentJobService: AgentJobService;
   private userService: UserService;
   private researchExecutor: ResearchExecutorService;
+  private profileService: ProfileService;
   private scheduledTasks: cron.ScheduledTask[] = [];
   private jobCheckInterval: NodeJS.Timeout | null = null;
 
@@ -21,6 +23,7 @@ export class SchedulerService {
     this.agentJobService = new AgentJobService(pool, supabase);
     this.userService = new UserService(pool);
     this.researchExecutor = new ResearchExecutorService(pool, supabase);
+    this.profileService = new ProfileService(pool);
   }
 
   /**
@@ -114,18 +117,34 @@ export class SchedulerService {
       }
 
       const today = new Date();
+      let scheduledCount = 0;
+      let skippedCount = 0;
 
       // Schedule jobs for each user
       for (const user of users) {
         try {
+          // Check if autonomous agents are enabled for this user
+          const agentsEnabled = await this.profileService.areAgentsEnabled(user.id);
+
+          if (!agentsEnabled) {
+            logger.debug('Skipping job scheduling for user (agents disabled in profile)', { userId: user.id });
+            skippedCount++;
+            continue;
+          }
+
           await this.agentJobService.scheduleCircadianJobs(user.id, today);
           logger.debug('Scheduled circadian jobs for user', { userId: user.id });
+          scheduledCount++;
         } catch (error) {
           logger.error('Failed to schedule jobs for user', { userId: user.id, error });
         }
       }
 
-      logger.info('Completed scheduling circadian jobs for all users', { userCount: users.length });
+      logger.info('Completed scheduling circadian jobs for all users', {
+        totalUsers: users.length,
+        scheduled: scheduledCount,
+        skipped: skippedCount,
+      });
     } catch (error) {
       logger.error('Error in scheduleJobsForAllUsers', { error });
     }
@@ -256,6 +275,15 @@ export class SchedulerService {
    */
   async scheduleJobsForUser(userId: string): Promise<void> {
     logger.info('Scheduling jobs for specific user', { userId });
+
+    // Check if autonomous agents are enabled for this user
+    const agentsEnabled = await this.profileService.areAgentsEnabled(userId);
+
+    if (!agentsEnabled) {
+      logger.info('Not scheduling jobs for user (agents disabled in profile)', { userId });
+      return;
+    }
+
     const today = new Date();
     await this.agentJobService.scheduleCircadianJobs(userId, today);
   }

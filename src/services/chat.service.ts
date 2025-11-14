@@ -6,11 +6,13 @@ import { MessageService } from './message.service';
 import { VectorService } from './vector.service';
 import { ContextAdaptationService } from './context-adaptation.service';
 import { AutonomousThoughtService } from './autonomous-thought.service';
+import { ProfileService } from './profile.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
 
 /**
  * ChatService handles AI conversation using Claude
  * Now with emotional intelligence and autonomous thought integration!
+ * Uses profile settings for modular behavior
  */
 export class ChatService {
   private pool: Pool;
@@ -19,6 +21,7 @@ export class ChatService {
   private messageService: MessageService;
   private contextAdaptationService: ContextAdaptationService;
   private thoughtService: AutonomousThoughtService;
+  private profileService: ProfileService;
 
   constructor(pool: Pool, supabase: SupabaseClient, anthropicApiKey?: string) {
     this.pool = pool;
@@ -31,6 +34,7 @@ export class ChatService {
     this.messageService = new MessageService(pool, vectorService);
     this.contextAdaptationService = new ContextAdaptationService(pool, anthropicApiKey);
     this.thoughtService = new AutonomousThoughtService(pool, supabase);
+    this.profileService = new ProfileService(pool);
   }
 
   /**
@@ -63,11 +67,22 @@ export class ChatService {
         content: msg.content,
       }));
 
-      // Check for active emotional context adaptation
-      const adaptation = await this.contextAdaptationService.getActiveAdaptation(input.user_id);
+      // Get user's profile configuration
+      const profile = await this.profileService.getUserProfile(input.user_id);
+      const chatConfig = profile.chat;
 
-      // Fetch recent autonomous thoughts (unshared insights)
-      const recentThoughts = await this.thoughtService.getRecentUnsharedThoughts(input.user_id, 5);
+      // Check for active emotional context adaptation (only if feature enabled)
+      let adaptation = null;
+      if (profile.features.emotionalIntelligence && chatConfig?.includeEmotionalContext) {
+        adaptation = await this.contextAdaptationService.getActiveAdaptation(input.user_id);
+      }
+
+      // Fetch recent autonomous thoughts (only if feature enabled)
+      let recentThoughts: any[] = [];
+      if (profile.features.autonomousAgents && chatConfig?.includeAutonomousThoughts) {
+        const maxThoughts = chatConfig?.maxThoughtsInContext ?? 5;
+        recentThoughts = await this.thoughtService.getRecentUnsharedThoughts(input.user_id, maxThoughts);
+      }
 
       // Build system prompt with emotional intelligence
       let systemPrompt = input.system_prompt ||
@@ -101,8 +116,8 @@ export class ChatService {
         });
       }
 
-      // Calculate temperature with emotional adjustment
-      const baseTemperature = input.temperature ?? 0.7;
+      // Calculate temperature with emotional adjustment and profile defaults
+      const baseTemperature = input.temperature ?? chatConfig?.defaultTemperature ?? 0.7;
       const adjustedTemperature = adaptation
         ? baseTemperature * adaptation.temperature_modifier
         : baseTemperature;
@@ -117,7 +132,7 @@ export class ChatService {
 
       // Call Claude API with emotional intelligence
       const response = await this.anthropic.messages.create({
-        model: input.model || 'claude-sonnet-4-5-20250929',
+        model: input.model || chatConfig?.defaultModel || 'claude-sonnet-4-5-20250929',
         max_tokens: input.max_tokens || 2000,
         temperature: adjustedTemperature,
         system: systemPrompt,
