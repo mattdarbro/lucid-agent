@@ -32,7 +32,26 @@ CREATE INDEX idx_users_external_id ON users(external_id);
 CREATE INDEX idx_users_last_active ON users(last_active_at);
 
 -- ============================================================================
--- 2. Conversations
+-- 2. User Profiles (Modular Configuration)
+-- ============================================================================
+
+CREATE TABLE user_profiles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES users(id) NOT NULL UNIQUE,
+
+  -- Profile selection
+  profile_id VARCHAR(50) NOT NULL, -- 'full-lucid', 'decision-assistant', 'news-digest', 'simple-chat'
+
+  -- Timestamps
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_user_profiles_user ON user_profiles(user_id);
+CREATE INDEX idx_user_profiles_profile_id ON user_profiles(profile_id);
+
+-- ============================================================================
+-- 3. Conversations
 -- ============================================================================
 
 CREATE TABLE conversations (
