@@ -31,12 +31,30 @@ const PORT = config.port;
 const HOST = '0.0.0.0';
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: true, // Allow all origins (Railway URLs, localhost, iOS, etc.)
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Type'],
+    maxAge: 86400, // 24 hours preflight cache
+  })
+);
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging
+// Request logging with error tracking
 app.use((req, res, next) => {
+  const start = Date.now();
   logger.debug(`${req.method} ${req.path}`);
+
+  // Log response status
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    logger.debug(`${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
+  });
+
   next();
 });
 

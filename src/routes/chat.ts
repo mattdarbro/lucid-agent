@@ -49,7 +49,15 @@ router.post('/', validateBody(chatCompletionSchema), async (req: Request, res: R
   try {
     const input: ChatCompletionInput = req.body;
 
+    logger.info('Chat request received:', {
+      user_id: input.user_id,
+      conversation_id: input.conversation_id,
+      message_length: input.message.length,
+    });
+
     const result = await chatService.chat(input);
+
+    logger.info('Chat response generated successfully');
 
     res.status(200).json({
       user_message: result.user_message,
@@ -58,8 +66,14 @@ router.post('/', validateBody(chatCompletionSchema), async (req: Request, res: R
       conversation_id: input.conversation_id,
     });
   } catch (error: any) {
-    logger.error('Error in POST /v1/chat:', error);
+    logger.error('Error in POST /v1/chat:', {
+      message: error.message,
+      stack: error.stack,
+      user_id: req.body.user_id,
+      conversation_id: req.body.conversation_id,
+    });
 
+    // Handle specific error types
     if (error.message.includes('Claude') || error.message.includes('Anthropic')) {
       return res.status(503).json({
         error: 'AI service temporarily unavailable',
@@ -73,6 +87,14 @@ router.post('/', validateBody(chatCompletionSchema), async (req: Request, res: R
       });
     }
 
+    if (error.message.includes('timeout') || error.code === 'ETIMEDOUT') {
+      return res.status(504).json({
+        error: 'Request timeout',
+        details: 'The request took too long to process. Please try again.',
+      });
+    }
+
+    // Generic error response
     res.status(500).json({
       error: 'Chat completion failed',
       details: error.message,
