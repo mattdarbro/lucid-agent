@@ -2,16 +2,24 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { logger } from '../logger';
 import { ConversationService } from '../services/conversation.service';
+import { MessageService } from '../services/message.service';
+import { SummaryService } from '../services/summary.service';
+import { VectorService } from '../services/vector.service';
 import {
   createConversationSchema,
   updateConversationSchema,
   conversationIdSchema,
   userIdParamSchema,
 } from '../validation/conversation.validation';
+import { messageListQuerySchema } from '../validation/message.validation';
+import { summaryListQuerySchema } from '../validation/summary.validation';
 import { z } from 'zod';
 
 const router = Router();
 const conversationService = new ConversationService(pool);
+const vectorService = new VectorService();
+const messageService = new MessageService(pool, vectorService);
+const summaryService = new SummaryService(pool, vectorService);
 
 /**
  * Validation middleware helper
@@ -223,6 +231,100 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
     logger.error('Error in DELETE /v1/conversations/:id:', error);
     res.status(500).json({ error: 'Failed to delete conversation' });
+  }
+});
+
+/**
+ * GET /v1/conversations/:id/messages
+ *
+ * Lists all messages for a specific conversation (RESTful route)
+ * This is an alias for the /v1/messages/conversations/:id/messages endpoint
+ *
+ * Path parameters:
+ * - id: string - UUID of the conversation
+ *
+ * Query parameters:
+ * - limit: number (optional) - Maximum messages to return (default: 50, max: 500)
+ * - offset: number (optional) - Number of messages to skip (default: 0)
+ * - role: 'user' | 'assistant' | 'system' (optional) - Filter by role
+ */
+router.get('/:id/messages', async (req: Request, res: Response) => {
+  try {
+    const { id } = conversationIdSchema.parse(req.params);
+    const queryParams = messageListQuerySchema.parse(req.query);
+
+    const messages = await messageService.listByConversation(
+      id,
+      queryParams.limit,
+      queryParams.offset,
+      queryParams.role
+    );
+
+    res.json({
+      messages,
+      count: messages.length,
+      limit: queryParams.limit,
+      offset: queryParams.offset,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in GET /v1/conversations/:id/messages:', error);
+    res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
+
+/**
+ * GET /v1/conversations/:id/summaries
+ *
+ * Lists all summaries for a specific conversation (RESTful route)
+ * This is an alias for the /v1/conversations/:conversation_id/summaries endpoint
+ *
+ * Path parameters:
+ * - id: string - UUID of the conversation
+ *
+ * Query parameters:
+ * - limit: number (optional) - Maximum summaries to return (default: 50, max: 500)
+ * - offset: number (optional) - Number of summaries to skip (default: 0)
+ */
+router.get('/:id/summaries', async (req: Request, res: Response) => {
+  try {
+    const { id } = conversationIdSchema.parse(req.params);
+    const queryParams = summaryListQuerySchema.parse(req.query);
+
+    const summaries = await summaryService.listByConversation(id, {
+      limit: queryParams.limit,
+      offset: queryParams.offset,
+    });
+
+    res.json({
+      summaries,
+      count: summaries.length,
+      conversation_id: id,
+      limit: queryParams.limit,
+      offset: queryParams.offset,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in GET /v1/conversations/:id/summaries:', error);
+    res.status(500).json({ error: 'Failed to fetch summaries' });
   }
 });
 
