@@ -215,6 +215,8 @@ Response 200:
 }
 ```
 
+**Note:** This is the RESTful route. There's also an older route at `/v1/messages/conversations/{conversation_id}/messages` but the above is preferred.
+
 ### 4. Facts (What Lucid Learns About You)
 
 #### Extract Facts from Conversation
@@ -357,9 +359,14 @@ Response 200:
       "created_at": "2024-01-15T10:30:00Z"
     }
   ],
-  "count": 1
+  "count": 1,
+  "conversation_id": "conversation-uuid",
+  "limit": 50,
+  "offset": 0
 }
 ```
+
+**Note:** This is the RESTful route. There's also an older route at `/v1/summaries/conversations/{conversation_id}` but the above is preferred.
 
 ---
 
