@@ -60,6 +60,46 @@ router.post('/', validateBody(createUserSchema), async (req: Request, res: Respo
 });
 
 /**
+ * GET /v1/users/by-id/:id
+ *
+ * Retrieves a user by their internal UUID (for testing/debugging)
+ *
+ * Path parameters:
+ * - id: string - The internal user UUID
+ */
+router.get('/by-id/:id', async (req: Request, res: Response) => {
+  try {
+    const uuidSchema = z.object({
+      id: z.string().uuid(),
+    });
+
+    const { id } = uuidSchema.parse(req.params);
+
+    const query = 'SELECT * FROM users WHERE id = $1';
+    const result = await pool.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in GET /v1/users/by-id/:id:', error);
+    res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+/**
  * GET /v1/users/:external_id
  *
  * Retrieves a user by their external ID (iOS app user ID)
