@@ -2,15 +2,21 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { logger } from '../logger';
 import { UserService } from '../services/user.service';
+import { ThoughtNotificationService } from '../services/thought-notification.service';
+import { MultiDayTaskService } from '../services/multi-day-task.service';
 import {
   createUserSchema,
   updateUserSchema,
   userExternalIdSchema,
 } from '../validation/user.validation';
+import { notificationListQuerySchema } from '../validation/thought-notification.validation';
+import { multiDayTaskListQuerySchema } from '../validation/multi-day-task.validation';
 import { z } from 'zod';
 
 const router = Router();
 const userService = new UserService(pool);
+const notificationService = new ThoughtNotificationService(pool);
+const taskService = new MultiDayTaskService(pool);
 
 /**
  * Validation middleware helper
@@ -96,6 +102,156 @@ router.get('/by-id/:id', async (req: Request, res: Response) => {
 
     logger.error('Error in GET /v1/users/by-id/:id:', error);
     res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+/**
+ * GET /v1/users/:user_id/thought-notifications/pending
+ *
+ * RESTful alias for iOS compatibility
+ * Get pending notifications for a user (most important first)
+ *
+ * Path parameters:
+ * - user_id: string - UUID of the user
+ *
+ * Query parameters:
+ * - limit: number (optional) - Maximum notifications to return (default: 10)
+ */
+router.get('/:user_id/thought-notifications/pending', async (req: Request, res: Response) => {
+  try {
+    const userIdSchema = z.object({
+      user_id: z.string().uuid(),
+    });
+
+    const { user_id } = userIdSchema.parse(req.params);
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 10;
+
+    const notifications = await notificationService.getPendingNotifications(user_id, limit);
+
+    res.json({
+      notifications,
+      count: notifications.length,
+      user_id,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in GET /v1/users/:user_id/thought-notifications/pending:', error);
+    res.status(500).json({ error: 'Failed to fetch pending notifications' });
+  }
+});
+
+/**
+ * GET /v1/users/:user_id/thought-notifications
+ *
+ * RESTful alias for iOS compatibility
+ * List thought notifications for a user
+ *
+ * Path parameters:
+ * - user_id: string - UUID of the user
+ *
+ * Query parameters:
+ * - status: string (optional) - Filter by status ('pending', 'sent', 'responded', 'expired', 'skipped')
+ * - limit: number (optional) - Maximum notifications to return (default: 50, max: 100)
+ * - offset: number (optional) - Number of notifications to skip (default: 0)
+ */
+router.get('/:user_id/thought-notifications', async (req: Request, res: Response) => {
+  try {
+    const userIdSchema = z.object({
+      user_id: z.string().uuid(),
+    });
+
+    const { user_id } = userIdSchema.parse(req.params);
+    const queryParams = notificationListQuerySchema.parse(req.query);
+
+    const notifications = await notificationService.listByUser(user_id, {
+      status: queryParams.status,
+      limit: queryParams.limit,
+      offset: queryParams.offset,
+    });
+
+    res.json({
+      notifications,
+      count: notifications.length,
+      user_id,
+      limit: queryParams.limit,
+      offset: queryParams.offset,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in GET /v1/users/:user_id/thought-notifications:', error);
+    res.status(500).json({ error: 'Failed to fetch notifications' });
+  }
+});
+
+/**
+ * GET /v1/users/:user_id/multi-day-tasks
+ *
+ * RESTful alias for iOS compatibility
+ * List multi-day tasks for a user
+ *
+ * Path parameters:
+ * - user_id: string - UUID of the user
+ *
+ * Query parameters:
+ * - status: string (optional) - Filter by status ('active', 'paused', 'completed', 'abandoned')
+ * - topic_category: string (optional) - Filter by category
+ * - limit: number (optional) - Maximum tasks to return (default: 50, max: 100)
+ * - offset: number (optional) - Number of tasks to skip (default: 0)
+ */
+router.get('/:user_id/multi-day-tasks', async (req: Request, res: Response) => {
+  try {
+    const userIdSchema = z.object({
+      user_id: z.string().uuid(),
+    });
+
+    const { user_id } = userIdSchema.parse(req.params);
+    const queryParams = multiDayTaskListQuerySchema.parse(req.query);
+
+    const tasks = await taskService.listByUser(user_id, {
+      status: queryParams.status,
+      topic_category: queryParams.topic_category,
+      limit: queryParams.limit,
+      offset: queryParams.offset,
+    });
+
+    res.json({
+      tasks,
+      count: tasks.length,
+      user_id,
+      limit: queryParams.limit,
+      offset: queryParams.offset,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in GET /v1/users/:user_id/multi-day-tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
   }
 });
 
