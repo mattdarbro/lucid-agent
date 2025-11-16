@@ -16,6 +16,7 @@ import { createAutonomousThoughtRouter } from './routes/autonomous-thoughts';
 import { createResearchTaskRouter } from './routes/research-tasks';
 import profilesRouter from './routes/profiles';
 import thoughtNotificationsRouter from './routes/thought-notifications';
+import multiDayTasksRouter from './routes/multi-day-tasks';
 import { SchedulerService } from './services/scheduler.service';
 
 // Validate configuration on startup
@@ -114,6 +115,8 @@ app.use('/v1/research-tasks', createResearchTaskRouter(pool, supabase));
 
 // Phase 5: Temporal Check-In System
 app.use('/v1/thought-notifications', thoughtNotificationsRouter);
+app.use('/v1/multi-day-tasks', multiDayTasksRouter);
+app.use('/v1/users/:user_id/multi-day-tasks', multiDayTasksRouter);
 
 // Profile Management (Modular Configuration)
 app.use('/v1/profiles', profilesRouter);
