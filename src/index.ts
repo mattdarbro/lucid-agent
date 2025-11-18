@@ -17,6 +17,7 @@ import { createResearchTaskRouter } from './routes/research-tasks';
 import profilesRouter from './routes/profiles';
 import thoughtNotificationsRouter from './routes/thought-notifications';
 import multiDayTasksRouter from './routes/multi-day-tasks';
+import taskInsightsRouter from './routes/task-insights';
 import { SchedulerService } from './services/scheduler.service';
 
 // Validate configuration on startup
@@ -117,6 +118,8 @@ app.use('/v1/research-tasks', createResearchTaskRouter(pool, supabase));
 app.use('/v1/thought-notifications', thoughtNotificationsRouter);
 app.use('/v1/multi-day-tasks', multiDayTasksRouter);
 app.use('/v1/users/:user_id/multi-day-tasks', multiDayTasksRouter);
+app.use('/v1/tasks', taskInsightsRouter); // Task insights and conversations
+app.use('/v1/insights', taskInsightsRouter); // Direct insight access
 
 // Profile Management (Modular Configuration)
 app.use('/v1/profiles', profilesRouter);

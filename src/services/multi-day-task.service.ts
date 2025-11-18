@@ -18,49 +18,106 @@ export class MultiDayTaskService {
 
   /**
    * Create a new multi-day research task
+   * Also creates a primary conversation for task-related check-ins
    */
   async createTask(input: CreateMultiDayTaskInput) {
-    const query = `
-      INSERT INTO multi_day_research_tasks (
-        user_id,
-        title,
-        description,
-        topic_category,
-        target_completion_date,
-        metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
-    `;
-
-    const metadata = {
-      check_in_times: input.check_in_times,
-      duration_days: input.duration_days,
-      initial_context: input.initial_context,
-    };
-
-    const values = [
-      input.user_id,
-      input.title,
-      input.description || null,
-      input.topic_category || null,
-      input.target_completion_date || null,
-      JSON.stringify(metadata),
-    ];
+    const client = await this.pool.connect();
 
     try {
-      const result = await this.pool.query(query, values);
+      await client.query('BEGIN');
 
-      logger.info('Multi-day research task created', {
-        id: result.rows[0].id,
+      // 1. Create the task first
+      const taskQuery = `
+        INSERT INTO multi_day_research_tasks (
+          user_id,
+          title,
+          description,
+          topic_category,
+          target_completion_date,
+          metadata
+        ) VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `;
+
+      const metadata = {
+        check_in_times: input.check_in_times,
+        duration_days: input.duration_days,
+        initial_context: input.initial_context,
+      };
+
+      const taskValues = [
+        input.user_id,
+        input.title,
+        input.description || null,
+        input.topic_category || null,
+        input.target_completion_date || null,
+        JSON.stringify(metadata),
+      ];
+
+      const taskResult = await client.query(taskQuery, taskValues);
+      const task = taskResult.rows[0];
+
+      // 2. Create a primary conversation for this task
+      const conversationQuery = `
+        INSERT INTO conversations (
+          user_id,
+          title,
+          conversation_context,
+          related_task_id,
+          metadata
+        ) VALUES ($1, $2, $3, $4, $5)
+        RETURNING id
+      `;
+
+      const conversationTitle = `Task: ${input.title}`;
+      const conversationMetadata = {
+        task_id: task.id,
+        task_title: input.title,
+        conversation_purpose: 'task_check_ins',
+      };
+
+      const conversationResult = await client.query(conversationQuery, [
+        input.user_id,
+        conversationTitle,
+        'task_check_in',
+        task.id,
+        JSON.stringify(conversationMetadata),
+      ]);
+
+      const conversationId = conversationResult.rows[0].id;
+
+      // 3. Update task with conversation reference
+      const updateTaskQuery = `
+        UPDATE multi_day_research_tasks
+        SET primary_conversation_id = $1
+        WHERE id = $2
+        RETURNING *
+      `;
+
+      const updatedTaskResult = await client.query(updateTaskQuery, [conversationId, task.id]);
+      const finalTask = updatedTaskResult.rows[0];
+
+      await client.query('COMMIT');
+
+      logger.info('Multi-day research task created with conversation', {
+        task_id: finalTask.id,
+        conversation_id: conversationId,
         user_id: input.user_id,
         title: input.title,
         duration_days: input.duration_days,
       });
 
-      return result.rows[0];
+      // Return task with conversation_id for iOS
+      return {
+        ...finalTask,
+        conversation_id: conversationId,
+      };
     } catch (error: any) {
+      await client.query('ROLLBACK');
       logger.error('Error creating multi-day task:', error);
       throw new Error(`Failed to create multi-day task: ${error.message}`);
+    } finally {
+      client.release();
     }
   }
 
