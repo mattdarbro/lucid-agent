@@ -62,16 +62,61 @@ export class ThoughtNotificationService {
 
   /**
    * Get a notification by ID
+   * Returns iOS-compatible JSON with proper timestamp formatting
    */
   async findById(notificationId: string) {
     const query = `
-      SELECT * FROM thought_notifications
+      SELECT
+        id,
+        user_id,
+        thought_id,
+        research_task_id,
+        question,
+        context,
+        preferred_time_of_day,
+        preferred_cognitive_state,
+        priority,
+        expires_at,
+        status,
+        sent_at,
+        responded_at,
+        response_text,
+        response_metadata,
+        created_at,
+        updated_at
+      FROM thought_notifications
       WHERE id = $1
     `;
 
     try {
       const result = await this.pool.query(query, [notificationId]);
-      return result.rows[0] || null;
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0];
+
+      // Format the response for iOS compatibility
+      return {
+        id: row.id,
+        user_id: row.user_id,
+        thought_id: row.thought_id || null,
+        research_task_id: row.research_task_id || null,
+        question: row.question,
+        context: row.context || null,
+        preferred_time_of_day: row.preferred_time_of_day || 'any',
+        preferred_cognitive_state: row.preferred_cognitive_state || 'any',
+        priority: parseFloat(row.priority) || 0.5,
+        expires_at: row.expires_at ? new Date(row.expires_at).toISOString() : null,
+        status: row.status,
+        sent_at: row.sent_at ? new Date(row.sent_at).toISOString() : null,
+        responded_at: row.responded_at ? new Date(row.responded_at).toISOString() : null,
+        response_text: row.response_text || null,
+        response_metadata: row.response_metadata || {},
+        created_at: new Date(row.created_at).toISOString(),
+        updated_at: new Date(row.updated_at).toISOString(),
+      };
     } catch (error: any) {
       logger.error('Error fetching thought notification:', error);
       throw new Error(`Failed to fetch notification: ${error.message}`);
@@ -80,6 +125,7 @@ export class ThoughtNotificationService {
 
   /**
    * List notifications for a user
+   * Returns iOS-compatible JSON with proper timestamp formatting
    */
   async listByUser(
     userId: string,
@@ -92,7 +138,25 @@ export class ThoughtNotificationService {
     const { status, limit = 50, offset = 0 } = options;
 
     let query = `
-      SELECT * FROM thought_notifications
+      SELECT
+        id,
+        user_id,
+        thought_id,
+        research_task_id,
+        question,
+        context,
+        preferred_time_of_day,
+        preferred_cognitive_state,
+        priority,
+        expires_at,
+        status,
+        sent_at,
+        responded_at,
+        response_text,
+        response_metadata,
+        created_at,
+        updated_at
+      FROM thought_notifications
       WHERE user_id = $1
     `;
 
@@ -109,7 +173,29 @@ export class ThoughtNotificationService {
 
     try {
       const result = await this.pool.query(query, values);
-      return result.rows;
+
+      // Format the response for iOS compatibility
+      const notifications = result.rows.map((row) => ({
+        id: row.id,
+        user_id: row.user_id,
+        thought_id: row.thought_id || null,
+        research_task_id: row.research_task_id || null,
+        question: row.question,
+        context: row.context || null,
+        preferred_time_of_day: row.preferred_time_of_day || 'any',
+        preferred_cognitive_state: row.preferred_cognitive_state || 'any',
+        priority: parseFloat(row.priority) || 0.5,
+        expires_at: row.expires_at ? new Date(row.expires_at).toISOString() : null,
+        status: row.status,
+        sent_at: row.sent_at ? new Date(row.sent_at).toISOString() : null,
+        responded_at: row.responded_at ? new Date(row.responded_at).toISOString() : null,
+        response_text: row.response_text || null,
+        response_metadata: row.response_metadata || {},
+        created_at: new Date(row.created_at).toISOString(),
+        updated_at: new Date(row.updated_at).toISOString(),
+      }));
+
+      return notifications;
     } catch (error: any) {
       logger.error('Error listing thought notifications:', error);
       throw new Error(`Failed to list notifications: ${error.message}`);
@@ -119,10 +205,29 @@ export class ThoughtNotificationService {
   /**
    * Get pending notifications for a user
    * (ordered by priority, respecting expiration)
+   * Returns iOS-compatible JSON with proper timestamp formatting
    */
   async getPendingNotifications(userId: string, limit: number = 10) {
     const query = `
-      SELECT * FROM thought_notifications
+      SELECT
+        id,
+        user_id,
+        thought_id,
+        research_task_id,
+        question,
+        context,
+        preferred_time_of_day,
+        preferred_cognitive_state,
+        priority,
+        expires_at,
+        status,
+        sent_at,
+        responded_at,
+        response_text,
+        response_metadata,
+        created_at,
+        updated_at
+      FROM thought_notifications
       WHERE user_id = $1
         AND status = 'pending'
         AND (expires_at IS NULL OR expires_at > NOW())
@@ -132,7 +237,29 @@ export class ThoughtNotificationService {
 
     try {
       const result = await this.pool.query(query, [userId, limit]);
-      return result.rows;
+
+      // Format the response for iOS compatibility
+      const notifications = result.rows.map((row) => ({
+        id: row.id,
+        user_id: row.user_id,
+        thought_id: row.thought_id || null,
+        research_task_id: row.research_task_id || null,
+        question: row.question,
+        context: row.context || null,
+        preferred_time_of_day: row.preferred_time_of_day || 'any',
+        preferred_cognitive_state: row.preferred_cognitive_state || 'any',
+        priority: parseFloat(row.priority) || 0.5,
+        expires_at: row.expires_at ? new Date(row.expires_at).toISOString() : null,
+        status: row.status,
+        sent_at: row.sent_at ? new Date(row.sent_at).toISOString() : null,
+        responded_at: row.responded_at ? new Date(row.responded_at).toISOString() : null,
+        response_text: row.response_text || null,
+        response_metadata: row.response_metadata || {},
+        created_at: new Date(row.created_at).toISOString(),
+        updated_at: new Date(row.updated_at).toISOString(),
+      }));
+
+      return notifications;
     } catch (error: any) {
       logger.error('Error fetching pending notifications:', error);
       throw new Error(`Failed to fetch pending notifications: ${error.message}`);
