@@ -7,6 +7,7 @@ import {
   CheckInRecord,
   TemporalAnalysis,
 } from '../validation/multi-day-task.validation';
+import { ThoughtNotificationService } from './thought-notification.service';
 
 /**
  * MultiDayTaskService
@@ -14,7 +15,11 @@ import {
  * Supports temporal cognitive diversity research
  */
 export class MultiDayTaskService {
-  constructor(private pool: Pool) {}
+  private notificationService: ThoughtNotificationService;
+
+  constructor(private pool: Pool) {
+    this.notificationService = new ThoughtNotificationService(pool);
+  }
 
   /**
    * Create a new multi-day research task
@@ -107,6 +112,19 @@ export class MultiDayTaskService {
         duration_days: input.duration_days,
       });
 
+      // 4. Generate check-in notifications for this task
+      try {
+        await this.generateCheckInNotifications(finalTask.id, input);
+        logger.info('Generated check-in notifications for task', {
+          task_id: finalTask.id,
+          check_in_times: input.check_in_times,
+          duration_days: input.duration_days,
+        });
+      } catch (error: any) {
+        logger.error('Failed to generate check-in notifications (non-fatal):', error);
+        // Don't fail the whole task creation, just log the error
+      }
+
       // Return task with conversation_id for iOS
       return {
         ...finalTask,
@@ -119,6 +137,116 @@ export class MultiDayTaskService {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Generate check-in notifications for a task
+   * Creates notifications for each check-in time over the duration of the task
+   */
+  private async generateCheckInNotifications(taskId: string, input: CreateMultiDayTaskInput) {
+    const checkInTimes = input.check_in_times || ['morning', 'evening'];
+    const durationDays = input.duration_days || 5;
+    const startDate = new Date();
+
+    // Time windows for each time of day
+    const timeWindows: Record<string, { hour: number; minute: number }> = {
+      morning: { hour: 9, minute: 0 },      // 9:00 AM
+      afternoon: { hour: 14, minute: 0 },   // 2:00 PM
+      evening: { hour: 19, minute: 0 },     // 7:00 PM
+      late_night: { hour: 22, minute: 0 },  // 10:00 PM
+    };
+
+    const notificationsCreated: string[] = [];
+
+    // Generate notifications for each day
+    for (let day = 0; day < durationDays; day++) {
+      for (const timeOfDay of checkInTimes) {
+        const window = timeWindows[timeOfDay];
+        if (!window) continue;
+
+        // Calculate the scheduled time
+        const scheduledDate = new Date(startDate);
+        scheduledDate.setDate(scheduledDate.getDate() + day);
+        scheduledDate.setHours(window.hour, window.minute, 0, 0);
+
+        // Skip if the time has already passed
+        if (scheduledDate < new Date()) {
+          logger.debug('Skipping past check-in time', { scheduledDate, timeOfDay, day });
+          continue;
+        }
+
+        // Create the notification
+        const question = this.generateCheckInQuestion(input.title, timeOfDay, day + 1, durationDays);
+        const context = `Day ${day + 1} of ${durationDays}: ${timeOfDay} check-in for "${input.title}"`;
+
+        try {
+          const notification = await this.notificationService.createNotification({
+            user_id: input.user_id,
+            research_task_id: taskId,
+            question,
+            context,
+            preferred_time_of_day: timeOfDay as any,
+            preferred_cognitive_state: 'any',
+            priority: 0.7, // High priority for task check-ins
+            expires_at: new Date(scheduledDate.getTime() + 24 * 60 * 60 * 1000).toISOString(), // Expires after 24 hours
+          });
+
+          notificationsCreated.push(notification.id);
+          logger.debug('Created check-in notification', {
+            task_id: taskId,
+            notification_id: notification.id,
+            scheduled_for: scheduledDate,
+            time_of_day: timeOfDay,
+            day: day + 1,
+          });
+        } catch (error: any) {
+          logger.error('Failed to create check-in notification', {
+            task_id: taskId,
+            day: day + 1,
+            time_of_day: timeOfDay,
+            error: error.message,
+          });
+        }
+      }
+    }
+
+    logger.info('Check-in notifications generated', {
+      task_id: taskId,
+      total_notifications: notificationsCreated.length,
+      duration_days: durationDays,
+      check_in_times: checkInTimes,
+    });
+
+    return notificationsCreated;
+  }
+
+  /**
+   * Generate a contextual question for a check-in
+   */
+  private generateCheckInQuestion(taskTitle: string, timeOfDay: string, day: number, totalDays: number): string {
+    const questions: Record<string, string[]> = {
+      morning: [
+        `Good morning! Let's check in on "${taskTitle}". How are you thinking about this today?`,
+        `Morning check-in for "${taskTitle}". What's on your mind about this right now?`,
+        `Starting day ${day}/${totalDays}. Any new thoughts on "${taskTitle}"?`,
+      ],
+      afternoon: [
+        `Afternoon check-in for "${taskTitle}". How's your perspective on this now?`,
+        `Midday reflection: What are you noticing about "${taskTitle}"?`,
+      ],
+      evening: [
+        `Evening reflection on "${taskTitle}". How do you feel about this tonight?`,
+        `End-of-day check-in: What stood out to you about "${taskTitle}" today?`,
+      ],
+      late_night: [
+        `Late-night thoughts on "${taskTitle}"? What's coming up for you?`,
+        `Quiet moment to reflect on "${taskTitle}". What's emerging?`,
+      ],
+    };
+
+    const options = questions[timeOfDay] || questions.morning;
+    const randomIndex = Math.floor(Math.random() * options.length);
+    return options[randomIndex];
   }
 
   /**
