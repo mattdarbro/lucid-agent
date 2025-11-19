@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "db:migrate": "node -r dotenv/config scripts/migrate.js",
+    "db:fix-metadata": "node -r dotenv/config scripts/fix-metadata-column.js",
     "test": "vitest",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage",

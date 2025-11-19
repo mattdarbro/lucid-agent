@@ -157,7 +157,8 @@ CREATE INDEX idx_tasks_conversation ON multi_day_research_tasks(primary_conversa
 ALTER TABLE conversations
   ADD COLUMN IF NOT EXISTS conversation_context TEXT, -- 'general', 'task_check_in', 'insight_review'
   ADD COLUMN IF NOT EXISTS related_task_id UUID REFERENCES multi_day_research_tasks(id) ON DELETE SET NULL,
-  ADD COLUMN IF NOT EXISTS related_insight_id UUID REFERENCES task_insights(id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS related_insight_id UUID REFERENCES task_insights(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
 
 CREATE INDEX idx_conversations_context ON conversations(conversation_context);
 CREATE INDEX idx_conversations_task ON conversations(related_task_id) WHERE related_task_id IS NOT NULL;

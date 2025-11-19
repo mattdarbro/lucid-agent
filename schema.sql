@@ -57,19 +57,25 @@ CREATE INDEX idx_user_profiles_profile_id ON user_profiles(profile_id);
 CREATE TABLE conversations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES users(id) NOT NULL,
-  
+
   -- Conversation metadata
   title TEXT,
   message_count INT DEFAULT 0,
-  
+
   -- Context tracking
   time_of_day VARCHAR(20), -- 'early_morning', 'morning', 'afternoon', 'evening', 'night', 'late_night'
   user_timezone VARCHAR(50), -- timezone at time of conversation
   emotional_state_id UUID, -- link to detected emotional state (added via FK later)
-  
+
+  -- Task/context linking (added by migration 009)
+  conversation_context TEXT, -- 'general', 'task_check_in', 'insight_review'
+  related_task_id UUID, -- references multi_day_research_tasks(id) - FK added in migration 009
+  related_insight_id UUID, -- references task_insights(id) - FK added in migration 009
+  metadata JSONB DEFAULT '{}',
+
   -- Status
   is_active BOOLEAN DEFAULT TRUE,
-  
+
   -- Timestamps
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
