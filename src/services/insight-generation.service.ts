@@ -185,16 +185,23 @@ export class InsightGenerationService {
   ): string {
     const requiresData = userPrefs?.requires_data ?? false;
 
+    // Format time of day for display
+    const formatTime = (time: string) => {
+      if (time === 'late_night') return 'late night';
+      return time;
+    };
+
+    const highTimeFormatted = formatTime(highTime);
+    const lowTimeFormatted = formatTime(lowTime);
+    const energyDiff = stats[highTime].avgEnergy - stats[lowTime].avgEnergy;
+    const percentDiff = Math.round((energyDiff / stats[lowTime].avgEnergy) * 100);
+
     if (requiresData) {
-      // Data-driven framing
-      return `Pattern detected: ${highTime} energy (${stats[highTime].avgEnergy}/5) is ${(
-        stats[highTime].avgEnergy - stats[lowTime].avgEnergy
-      ).toFixed(1)} points higher than ${lowTime} (${stats[lowTime].avgEnergy}/5). Based on ${
-        stats[highTime].count
-      } ${highTime} check-ins and ${stats[lowTime].count} ${lowTime} check-ins.`;
+      // Data-driven framing with clear metrics
+      return `Your ${highTimeFormatted} check-ins show ${percentDiff}% higher energy levels (${stats[highTime].avgEnergy}/5) compared to ${lowTimeFormatted} (${stats[lowTime].avgEnergy}/5). This pattern appeared consistently across ${stats[highTime].count} ${highTimeFormatted} and ${stats[lowTime].count} ${lowTimeFormatted} check-ins.`;
     } else {
-      // Narrative framing
-      return `You seem to have more energy in the ${highTime} compared to the ${lowTime}. This pattern has appeared across multiple check-ins.`;
+      // Narrative framing - clear and conversational
+      return `You tend to have more energy in the ${highTimeFormatted} compared to the ${lowTimeFormatted}. Across multiple check-ins, your ${highTimeFormatted} energy averages ${stats[highTime].avgEnergy} out of 5, while ${lowTimeFormatted} averages ${stats[lowTime].avgEnergy} out of 5.`;
     }
   }
 
@@ -272,16 +279,20 @@ export class InsightGenerationService {
       // More than half of check-ins have negative language
       const requiresExamples = userPrefs?.requires_examples ?? false;
 
-      let insightText = `Your ${mostNegativeTime} check-ins tend to use more negative language (words like "overwhelming", "anxious", "frustrated").`;
+      // Format time of day
+      const timeFormatted = mostNegativeTime === 'late_night' ? 'late night' : mostNegativeTime;
+      const percentNegative = Math.round(maxNegRatio * 100);
+
+      let insightText = `Your language becomes more negative in ${timeFormatted} check-ins. About ${percentNegative}% of your ${timeFormatted} responses contain words like "overwhelming," "anxious," or "frustrated," suggesting this may be a challenging time for you.`;
 
       if (requiresExamples) {
         const examples = checkIns
-          .filter((c) => c.time_of_day === mostNegativeTime)
-          .map((c) => c.response?.substring(0, 50) + '...')
+          .filter((c) => c.time_of_day === mostNegativeTime && c.response)
+          .map((c) => c.response!.substring(0, 50))
           .slice(0, 2);
 
         if (examples.length > 0) {
-          insightText += ` Examples: "${examples.join('", "')}"`;
+          insightText += ` For example: "${examples.join('..." and "...')}"`;
         }
       }
 
@@ -291,7 +302,8 @@ export class InsightGenerationService {
         confidence: Math.min(0.8, maxNegRatio),
         supporting_evidence: {
           time_of_day: mostNegativeTime,
-          stats: byTimeOfDay,
+          negative_ratio: maxNegRatio,
+          total_check_ins: byTimeOfDay[mostNegativeTime].total,
         },
       };
     }
@@ -324,16 +336,17 @@ export class InsightGenerationService {
 
       if (correlation >= 0.7) {
         // Strong correlation
+        const correlationPercent = Math.round(correlation * 100);
+        const insightText = `When your energy is low, your focus tends to drop significantly. In ${correlationPercent}% of check-ins where you reported energy below 3 out of 5, your focus was also low. This suggests that boosting your energy could help improve your focus.`;
+
         return {
           pattern_type: 'energy_correlation',
-          insight_text: `When your energy is low (below 3/5), your focus tends to be low as well (${Math.round(
-            correlation * 100
-          )}% of the time). This suggests energy and focus are linked for you.`,
+          insight_text: insightText,
           confidence: correlation,
           supporting_evidence: {
-            low_energy_count: lowEnergyCheckIns.length,
-            low_focus_count: lowFocusCount,
-            correlation: Math.round(correlation * 100) / 100,
+            low_energy_instances: lowEnergyCheckIns.length,
+            also_low_focus: lowFocusCount,
+            correlation_strength: correlationPercent,
           },
         };
       }
@@ -343,12 +356,67 @@ export class InsightGenerationService {
   }
 
   /**
+   * Validate and sanitize insight text
+   * Ensures text is human-readable and not malformed data
+   */
+  private validateInsightText(insight: any): boolean {
+    if (!insight || !insight.insight_text) {
+      logger.warn('Insight missing insight_text field');
+      return false;
+    }
+
+    const text = insight.insight_text;
+
+    // Must be a string
+    if (typeof text !== 'string') {
+      logger.warn('Insight text is not a string:', typeof text);
+      return false;
+    }
+
+    // Must have reasonable length
+    if (text.length < 10 || text.length > 1000) {
+      logger.warn('Insight text has invalid length:', text.length);
+      return false;
+    }
+
+    // Should not look like JSON or raw data
+    // Check for high density of special characters
+    const specialChars = text.match(/[{}\[\]:,]/g) || [];
+    const specialCharRatio = specialChars.length / text.length;
+
+    if (specialCharRatio > 0.15) {
+      logger.warn('Insight text appears to contain raw data (too many brackets/braces):', {
+        text: text.substring(0, 100),
+        ratio: specialCharRatio,
+      });
+      return false;
+    }
+
+    // Should start with a capital letter or number
+    if (!/^[A-Z0-9]/.test(text)) {
+      logger.warn('Insight text does not start with capital letter:', text.substring(0, 50));
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
    * Save insights to database
    */
   private async saveInsights(taskId: string, userId: string, insights: any[]): Promise<any[]> {
     const savedInsights = [];
 
     for (const insight of insights) {
+      // Validate insight text before saving
+      if (!this.validateInsightText(insight)) {
+        logger.warn('Skipping invalid insight', {
+          pattern_type: insight.pattern_type,
+          text_preview: insight.insight_text?.substring(0, 100),
+        });
+        continue;
+      }
+
       const query = `
         INSERT INTO task_insights (
           task_id,
@@ -375,6 +443,11 @@ export class InsightGenerationService {
       try {
         const result = await this.pool.query(query, values);
         savedInsights.push(result.rows[0]);
+        logger.info('Saved valid insight', {
+          id: result.rows[0].id,
+          pattern_type: insight.pattern_type,
+          text_preview: insight.insight_text.substring(0, 60) + '...',
+        });
       } catch (error: any) {
         logger.error('Error saving insight:', error);
         // Continue with other insights
