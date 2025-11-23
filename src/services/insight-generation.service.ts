@@ -389,8 +389,8 @@ export class InsightGenerationService {
    */
   async getPendingInsights(userId: string): Promise<any[]> {
     const query = `
-      SELECT * FROM pending_insights
-      WHERE user_id = $1
+      SELECT * FROM task_insights
+      WHERE user_id = $1 AND status = 'proposed'
       ORDER BY created_at ASC
     `;
 

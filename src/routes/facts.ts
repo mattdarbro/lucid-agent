@@ -1,9 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { pool } from '../db';
 import { logger } from '../logger';
-import { FactService } from '../services/fact.service';
-import { VectorService } from '../services/vector.service';
-import { MessageService } from '../services/message.service';
+import { factService, messageService } from '../services';
 import {
   createFactSchema,
   updateFactSchema,
@@ -16,9 +13,6 @@ import {
 import { z } from 'zod';
 
 const router = Router();
-const vectorService = new VectorService();
-const factService = new FactService(pool, vectorService);
-const messageService = new MessageService(pool, vectorService);
 
 /**
  * Validation middleware helper
@@ -234,7 +228,7 @@ router.get('/:id', async (req: Request, res: Response) => {
  * Lists all facts for a specific user
  *
  * Path parameters:
- * - user_id: string - UUID of the user
+ * - user_id: string - UUID of the user (from mount path)
  *
  * Query parameters:
  * - limit: number (optional) - Maximum facts to return (default: 50)
@@ -243,7 +237,7 @@ router.get('/:id', async (req: Request, res: Response) => {
  * - is_active: boolean (optional) - Filter by active status
  * - min_confidence: number (optional) - Minimum confidence threshold
  */
-router.get('/users/:user_id/facts', async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const { user_id } = userIdParamSchema.parse(req.params);
     const queryParams = factListQuerySchema.parse(req.query);

@@ -1,10 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { pool } from '../db';
 import { logger } from '../logger';
-import { ConversationService } from '../services/conversation.service';
-import { MessageService } from '../services/message.service';
-import { SummaryService } from '../services/summary.service';
-import { VectorService } from '../services/vector.service';
+import { conversationService, messageService, summaryService } from '../services';
 import {
   createConversationSchema,
   updateConversationSchema,
@@ -16,10 +12,6 @@ import { summaryListQuerySchema } from '../validation/summary.validation';
 import { z } from 'zod';
 
 const router = Router();
-const conversationService = new ConversationService(pool);
-const vectorService = new VectorService();
-const messageService = new MessageService(pool, vectorService);
-const summaryService = new SummaryService(pool, vectorService);
 
 /**
  * Validation middleware helper
