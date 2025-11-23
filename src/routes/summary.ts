@@ -1,8 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { pool } from '../db';
 import { logger } from '../logger';
-import { SummaryService } from '../services/summary.service';
-import { VectorService } from '../services/vector.service';
+import { summaryService } from '../services';
 import {
   createSummarySchema,
   generateSummarySchema,
@@ -13,8 +11,6 @@ import {
 import { z } from 'zod';
 
 const router = Router();
-const vectorService = new VectorService();
-const summaryService = new SummaryService(pool, vectorService);
 
 /**
  * Validation middleware helper

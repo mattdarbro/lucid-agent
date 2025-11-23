@@ -1,8 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { pool } from '../db';
 import { logger } from '../logger';
-import { MessageService } from '../services/message.service';
-import { VectorService } from '../services/vector.service';
+import { messageService } from '../services';
 import {
   createMessageSchema,
   messageIdSchema,
@@ -13,8 +11,6 @@ import {
 import { z } from 'zod';
 
 const router = Router();
-const vectorService = new VectorService();
-const messageService = new MessageService(pool, vectorService);
 
 /**
  * Validation middleware helper

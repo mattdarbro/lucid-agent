@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { logger } from '../logger';
-import { InsightGenerationService } from '../services/insight-generation.service';
+import { insightGenerationService } from '../services';
 import { z } from 'zod';
 
 const router = Router();
-const insightService = new InsightGenerationService(pool);
+const insightService = insightGenerationService;
 
 /**
  * Validation schemas
