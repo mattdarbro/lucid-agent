@@ -14,15 +14,19 @@ CREATE EXTENSION IF NOT EXISTS "vector"; -- for pgvector (semantic search)
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   external_id VARCHAR(255) UNIQUE NOT NULL, -- iOS app user ID
-  
+
   -- User metadata
   name VARCHAR(255),
   email VARCHAR(255),
   timezone VARCHAR(50) DEFAULT 'UTC',
-  
+
   -- Preferences
   preferences JSONB DEFAULT '{}',
-  
+
+  -- Push notifications
+  push_token TEXT, -- Device push notification token for iOS
+  push_token_updated_at TIMESTAMP,
+
   -- Timestamps
   created_at TIMESTAMP DEFAULT NOW(),
   last_active_at TIMESTAMP DEFAULT NOW()
@@ -623,11 +627,44 @@ WHERE ps.id IN (
 );
 
 -- ============================================================================
+-- Library System (Phase 2)
+-- ============================================================================
+
+CREATE TABLE library_entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+  -- Entry type: lucid's autonomous thoughts vs user's own reflections
+  entry_type TEXT NOT NULL CHECK (entry_type IN ('lucid_thought', 'user_reflection')),
+
+  -- Content
+  title TEXT,
+  content TEXT NOT NULL,
+
+  -- Temporal context
+  time_of_day TEXT CHECK (time_of_day IN ('morning', 'afternoon', 'evening', 'night')),
+
+  -- Optional link to source conversation
+  related_conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
+
+  -- Metadata for additional context
+  metadata JSONB DEFAULT '{}'::jsonb,
+
+  -- Timestamps
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_library_user_time ON library_entries(user_id, created_at DESC);
+CREATE INDEX idx_library_time_of_day ON library_entries(user_id, time_of_day);
+CREATE INDEX idx_library_entry_type ON library_entries(user_id, entry_type);
+
+-- ============================================================================
 -- Sample Data (Optional - for testing)
 -- ============================================================================
 
 -- Uncomment to insert sample user
--- INSERT INTO users (external_id, name, email, timezone) 
+-- INSERT INTO users (external_id, name, email, timezone)
 -- VALUES ('ios_user_123', 'Matt', 'matt@example.com', 'America/Los_Angeles');
 
 -- ============================================================================
