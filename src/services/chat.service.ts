@@ -7,6 +7,7 @@ import { VectorService } from './vector.service';
 import { ContextAdaptationService } from './context-adaptation.service';
 import { AutonomousThoughtService } from './autonomous-thought.service';
 import { ProfileService } from './profile.service';
+import { MemoryService } from './memory.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
 
 /**
@@ -22,6 +23,7 @@ export class ChatService {
   private contextAdaptationService: ContextAdaptationService;
   private thoughtService: AutonomousThoughtService;
   private profileService: ProfileService;
+  private memoryService: MemoryService;
 
   constructor(pool: Pool, supabase: SupabaseClient, anthropicApiKey?: string) {
     this.pool = pool;
@@ -35,6 +37,7 @@ export class ChatService {
     this.contextAdaptationService = new ContextAdaptationService(pool, anthropicApiKey);
     this.thoughtService = new AutonomousThoughtService(pool, supabase);
     this.profileService = new ProfileService(pool);
+    this.memoryService = new MemoryService(pool);
   }
 
   /**
@@ -71,6 +74,24 @@ export class ChatService {
       const profile = await this.profileService.getUserProfile(input.user_id);
       const chatConfig = profile.chat;
 
+      // Fetch user facts for memory context (enabled by default or via profile)
+      const includeFacts = chatConfig?.includeFacts ?? true;
+      const maxFacts = profile.memory?.maxContextFacts ?? 10;
+      let memoryContext = '';
+      let userFacts: any[] = [];
+
+      if (includeFacts) {
+        userFacts = await this.memoryService.getRelevantFacts(input.user_id, maxFacts);
+        memoryContext = this.memoryService.formatFactsForPrompt(userFacts);
+      }
+
+      if (userFacts.length > 0) {
+        logger.debug('Injecting memory context into chat', {
+          user_id: input.user_id,
+          fact_count: userFacts.length,
+        });
+      }
+
       // Check for active emotional context adaptation (only if feature enabled)
       let adaptation = null;
       if (profile.features.emotionalIntelligence && chatConfig?.includeEmotionalContext) {
@@ -84,9 +105,15 @@ export class ChatService {
         recentThoughts = await this.thoughtService.getRecentUnsharedThoughts(input.user_id, maxThoughts);
       }
 
-      // Build system prompt with emotional intelligence
+      // Build system prompt with memory and emotional intelligence
       let systemPrompt = input.system_prompt ||
-        'You are Lucid, an emotionally intelligent AI assistant. Be helpful, empathetic, and adaptive.';
+        'You are Lucid, a thoughtful AI companion who remembers conversations and develops understanding over time. Be helpful, empathetic, and adaptive.';
+
+      // Inject memory context (facts about the user)
+      if (memoryContext) {
+        systemPrompt += memoryContext;
+        systemPrompt += '\n\nUse this knowledge naturally in conversation. Don\'t just list facts - weave them into your responses when relevant. Reference what you know to show you remember and care.';
+      }
 
       // Inject emotional context if adaptation exists
       if (adaptation && adaptation.tone_directive) {
