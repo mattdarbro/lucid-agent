@@ -19,6 +19,7 @@ import thoughtNotificationsRouter from './routes/thought-notifications';
 import multiDayTasksRouter from './routes/multi-day-tasks';
 import taskInsightsRouter from './routes/task-insights';
 import { SchedulerService } from './services/scheduler.service';
+import { BackgroundJobsService } from './services/background-jobs.service';
 
 // Validate configuration on startup
 try {
@@ -148,6 +149,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // Initialize scheduler (will be started if autonomous agents are enabled)
 let scheduler: SchedulerService | null = null;
+let backgroundJobs: BackgroundJobsService | null = null;
 
 async function startServer() {
   try {
@@ -186,6 +188,16 @@ async function startServer() {
       if (config.features.webResearch) {
         logger.info('🔍 Web research: ENABLED');
       }
+
+      // Start background jobs for automatic fact extraction
+      try {
+        backgroundJobs = new BackgroundJobsService(pool);
+        backgroundJobs.start();
+        logger.info('📚 Background jobs: STARTED (fact extraction every 5 minutes)');
+      } catch (error) {
+        logger.error('Failed to start background jobs:', error);
+        logger.warn('⚠️  Continuing without background fact extraction');
+      }
     });
 
     // Graceful shutdown handlers
@@ -196,6 +208,12 @@ async function startServer() {
       if (scheduler) {
         logger.info('Stopping scheduler...');
         scheduler.stop();
+      }
+
+      // Stop background jobs if running
+      if (backgroundJobs) {
+        logger.info('Stopping background jobs...');
+        backgroundJobs.stop();
       }
 
       server.close(async () => {

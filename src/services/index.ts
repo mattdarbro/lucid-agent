@@ -17,6 +17,7 @@ import { ChatService } from './chat.service';
 import { SummaryService } from './summary.service';
 import { PersonalityService } from './personality.service';
 import { InsightGenerationService } from './insight-generation.service';
+import { MemoryService } from './memory.service';
 import { logger } from '../logger';
 
 // ============================================================================
@@ -36,6 +37,7 @@ export const chatService = new ChatService(pool, supabase);
 export const summaryService = new SummaryService(pool, vectorService);
 export const personalityService = new PersonalityService(pool);
 export const insightGenerationService = new InsightGenerationService(pool);
+export const memoryService = new MemoryService(pool);
 
 logger.info('Service container initialized successfully');
 
@@ -53,6 +55,7 @@ export const services = {
   summary: summaryService,
   personality: personalityService,
   insightGeneration: insightGenerationService,
+  memory: memoryService,
 };
 
 export default services;

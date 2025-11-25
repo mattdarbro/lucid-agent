@@ -12,13 +12,13 @@ export class ProfileService {
   constructor(private pool: Pool) {}
 
   /**
-   * Get user's active profile
+   * Get user's active profile with any settings overrides applied
    * Falls back to Full Lucid if not set
    */
   async getUserProfile(userId: string): Promise<LucidProfile> {
     try {
       const result = await this.pool.query(
-        'SELECT profile_id FROM user_profiles WHERE user_id = $1',
+        'SELECT profile_id, settings_overrides FROM user_profiles WHERE user_id = $1',
         [userId]
       );
 
@@ -27,20 +27,65 @@ export class ProfileService {
         return FULL_LUCID_PROFILE;
       }
 
-      const profileId = result.rows[0].profile_id;
-      const profile = getProfile(profileId);
+      const { profile_id: profileId, settings_overrides: overrides } = result.rows[0];
+      const baseProfile = getProfile(profileId);
 
-      if (!profile) {
+      if (!baseProfile) {
         logger.warn('Invalid profile_id in database, using Full Lucid', { userId, profileId });
         return FULL_LUCID_PROFILE;
       }
 
-      logger.debug('Retrieved user profile', { userId, profileId });
-      return profile;
+      // If no overrides, return base profile
+      if (!overrides || Object.keys(overrides).length === 0) {
+        logger.debug('Retrieved user profile', { userId, profileId });
+        return baseProfile;
+      }
+
+      // Merge overrides with base profile
+      const mergedProfile = this.mergeProfileOverrides(baseProfile, overrides);
+      logger.debug('Retrieved user profile with overrides', { userId, profileId, overrides });
+      return mergedProfile;
     } catch (error) {
       logger.error('Failed to get user profile', { userId, error });
       return FULL_LUCID_PROFILE;
     }
+  }
+
+  /**
+   * Merge user overrides into a base profile
+   */
+  private mergeProfileOverrides(baseProfile: LucidProfile, overrides: Record<string, any>): LucidProfile {
+    const merged = { ...baseProfile };
+
+    // Merge features
+    if (overrides.features) {
+      merged.features = { ...baseProfile.features, ...overrides.features };
+    }
+
+    // Merge memory settings
+    if (overrides.memory) {
+      merged.memory = { ...baseProfile.memory, ...overrides.memory };
+    }
+
+    // Merge chat settings
+    if (overrides.chat) {
+      merged.chat = { ...baseProfile.chat, ...overrides.chat };
+    }
+
+    // Merge other sections as needed
+    if (overrides.emotionalIntelligence) {
+      merged.emotionalIntelligence = { ...baseProfile.emotionalIntelligence, ...overrides.emotionalIntelligence };
+    }
+
+    if (overrides.agents) {
+      merged.agents = { ...baseProfile.agents, ...overrides.agents };
+    }
+
+    if (overrides.research) {
+      merged.research = { ...baseProfile.research, ...overrides.research };
+    }
+
+    return merged;
   }
 
   /**
@@ -82,6 +127,94 @@ export class ProfileService {
    */
   getProfileById(profileId: string): LucidProfile | null {
     return getProfile(profileId);
+  }
+
+  /**
+   * Get user's settings overrides
+   */
+  async getUserOverrides(userId: string): Promise<Record<string, any>> {
+    try {
+      const result = await this.pool.query(
+        'SELECT settings_overrides FROM user_profiles WHERE user_id = $1',
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        return {};
+      }
+
+      return result.rows[0].settings_overrides || {};
+    } catch (error) {
+      logger.error('Failed to get user overrides', { userId, error });
+      return {};
+    }
+  }
+
+  /**
+   * Set user's settings overrides (replaces all overrides)
+   */
+  async setUserOverrides(userId: string, overrides: Record<string, any>): Promise<void> {
+    try {
+      await this.pool.query(
+        `INSERT INTO user_profiles (user_id, profile_id, settings_overrides)
+         VALUES ($1, 'full-lucid', $2)
+         ON CONFLICT (user_id)
+         DO UPDATE SET settings_overrides = $2, updated_at = NOW()`,
+        [userId, JSON.stringify(overrides)]
+      );
+
+      logger.info('User settings overrides updated', { userId, overrides });
+    } catch (error) {
+      logger.error('Failed to set user overrides', { userId, error });
+      throw new Error('Failed to update settings');
+    }
+  }
+
+  /**
+   * Update specific settings (merges with existing overrides)
+   */
+  async updateUserSettings(userId: string, updates: Record<string, any>): Promise<Record<string, any>> {
+    const currentOverrides = await this.getUserOverrides(userId);
+
+    // Deep merge updates into current overrides
+    const newOverrides = this.deepMerge(currentOverrides, updates);
+
+    await this.setUserOverrides(userId, newOverrides);
+    return newOverrides;
+  }
+
+  /**
+   * Clear all settings overrides for a user
+   */
+  async clearUserOverrides(userId: string): Promise<void> {
+    try {
+      await this.pool.query(
+        `UPDATE user_profiles SET settings_overrides = '{}'::jsonb, updated_at = NOW() WHERE user_id = $1`,
+        [userId]
+      );
+
+      logger.info('User settings overrides cleared', { userId });
+    } catch (error) {
+      logger.error('Failed to clear user overrides', { userId, error });
+      throw new Error('Failed to clear settings');
+    }
+  }
+
+  /**
+   * Deep merge helper
+   */
+  private deepMerge(target: Record<string, any>, source: Record<string, any>): Record<string, any> {
+    const result = { ...target };
+
+    for (const key of Object.keys(source)) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+        result[key] = this.deepMerge(result[key] || {}, source[key]);
+      } else {
+        result[key] = source[key];
+      }
+    }
+
+    return result;
   }
 
   /**

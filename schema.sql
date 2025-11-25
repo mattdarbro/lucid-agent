@@ -42,6 +42,9 @@ CREATE TABLE user_profiles (
   -- Profile selection
   profile_id VARCHAR(50) NOT NULL, -- 'full-lucid', 'decision-assistant', 'news-digest', 'simple-chat'
 
+  -- Settings overrides (allows per-user feature toggles without changing profile)
+  settings_overrides JSONB DEFAULT '{}'::jsonb,
+
   -- Timestamps
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
@@ -79,12 +82,14 @@ CREATE TABLE conversations (
   -- Timestamps
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
-  ended_at TIMESTAMP
+  ended_at TIMESTAMP,
+  last_fact_extraction_at TIMESTAMP -- When facts were last extracted from this conversation
 );
 
 CREATE INDEX idx_conversations_user ON conversations(user_id);
 CREATE INDEX idx_conversations_active ON conversations(user_id, is_active);
 CREATE INDEX idx_conversations_time_of_day ON conversations(user_id, time_of_day);
+CREATE INDEX idx_conversations_fact_extraction ON conversations(last_fact_extraction_at NULLS FIRST, updated_at DESC) WHERE is_active = true;
 
 -- Auto-populate time_of_day based on created_at
 CREATE OR REPLACE FUNCTION set_time_of_day()
