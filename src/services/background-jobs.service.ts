@@ -4,6 +4,7 @@ import { logger } from '../logger';
 import { FactService } from './fact.service';
 import { MessageService } from './message.service';
 import { VectorService } from './vector.service';
+import { ProfileService } from './profile.service';
 
 /**
  * BackgroundJobsService
@@ -11,11 +12,14 @@ import { VectorService } from './vector.service';
  * Handles scheduled background tasks for the Lucid agent:
  * - Automatic fact extraction from conversations
  * - Future: Memory consolidation, insight generation, etc.
+ *
+ * Respects per-user profile settings - only processes users with fact extraction enabled.
  */
 export class BackgroundJobsService {
   private pool: Pool;
   private factService: FactService;
   private messageService: MessageService;
+  private profileService: ProfileService;
   private factExtractionJob: cron.ScheduledTask | null = null;
   private isRunning: boolean = false;
 
@@ -24,6 +28,7 @@ export class BackgroundJobsService {
     const vectorService = new VectorService();
     this.factService = new FactService(pool, vectorService);
     this.messageService = new MessageService(pool, vectorService);
+    this.profileService = new ProfileService(pool);
   }
 
   /**
@@ -105,6 +110,21 @@ export class BackgroundJobsService {
 
       for (const row of result.rows) {
         try {
+          // Check if user has fact extraction enabled in their profile
+          const profile = await this.profileService.getUserProfile(row.user_id);
+          const factExtractionEnabled = profile.features.memorySystem &&
+            (profile.memory?.factExtraction ?? true);
+
+          if (!factExtractionEnabled) {
+            logger.debug(`[BACKGROUND] Skipping fact extraction for user ${row.user_id} (disabled in profile)`);
+            // Still mark as processed to avoid re-checking constantly
+            await this.pool.query(
+              'UPDATE conversations SET last_fact_extraction_at = NOW() WHERE id = $1',
+              [row.conversation_id]
+            );
+            continue;
+          }
+
           await this.extractFactsForConversation(row.conversation_id, row.user_id);
 
           // Mark extraction done

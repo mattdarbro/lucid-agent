@@ -143,4 +143,109 @@ router.put('/user/:userId', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /v1/profiles/user/:userId/settings
+ *
+ * Get user's current settings (merged profile + overrides)
+ * Useful for iOS to show current feature states
+ */
+router.get('/user/:userId/settings', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    const profile = await profileService.getUserProfile(userId);
+    const overrides = await profileService.getUserOverrides(userId);
+
+    res.status(200).json({
+      user_id: userId,
+      features: profile.features,
+      memory: profile.memory,
+      chat: profile.chat,
+      overrides: overrides,
+    });
+  } catch (error: any) {
+    logger.error('Error in GET /v1/profiles/user/:userId/settings:', error);
+    res.status(500).json({
+      error: 'Failed to get settings',
+      details: error.message,
+    });
+  }
+});
+
+/**
+ * PATCH /v1/profiles/user/:userId/settings
+ *
+ * Update specific settings for a user
+ * This is the main endpoint for iOS to toggle features
+ *
+ * Request body examples:
+ * - Disable fact extraction: { "memory": { "factExtraction": false } }
+ * - Disable memory entirely: { "features": { "memorySystem": false } }
+ * - Change max facts in context: { "memory": { "maxContextFacts": 5 } }
+ */
+router.patch('/user/:userId/settings', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const updates = req.body;
+
+    if (!updates || Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        error: 'No settings provided',
+        example: {
+          features: { memorySystem: false },
+          memory: { factExtraction: false },
+        },
+      });
+    }
+
+    const newOverrides = await profileService.updateUserSettings(userId, updates);
+    const profile = await profileService.getUserProfile(userId);
+
+    logger.info('User settings updated', { userId, updates });
+
+    res.status(200).json({
+      user_id: userId,
+      message: 'Settings updated successfully',
+      features: profile.features,
+      memory: profile.memory,
+      chat: profile.chat,
+      overrides: newOverrides,
+    });
+  } catch (error: any) {
+    logger.error('Error in PATCH /v1/profiles/user/:userId/settings:', error);
+    res.status(500).json({
+      error: 'Failed to update settings',
+      details: error.message,
+    });
+  }
+});
+
+/**
+ * DELETE /v1/profiles/user/:userId/settings
+ *
+ * Clear all settings overrides, revert to base profile defaults
+ */
+router.delete('/user/:userId/settings', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    await profileService.clearUserOverrides(userId);
+    const profile = await profileService.getUserProfile(userId);
+
+    res.status(200).json({
+      user_id: userId,
+      message: 'Settings reset to profile defaults',
+      features: profile.features,
+      memory: profile.memory,
+      chat: profile.chat,
+    });
+  } catch (error: any) {
+    logger.error('Error in DELETE /v1/profiles/user/:userId/settings:', error);
+    res.status(500).json({
+      error: 'Failed to reset settings',
+      details: error.message,
+    });
+  }
+});
+
 export default router;

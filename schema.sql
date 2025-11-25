@@ -42,6 +42,9 @@ CREATE TABLE user_profiles (
   -- Profile selection
   profile_id VARCHAR(50) NOT NULL, -- 'full-lucid', 'decision-assistant', 'news-digest', 'simple-chat'
 
+  -- Settings overrides (allows per-user feature toggles without changing profile)
+  settings_overrides JSONB DEFAULT '{}'::jsonb,
+
   -- Timestamps
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
