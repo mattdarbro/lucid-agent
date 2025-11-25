@@ -4,6 +4,7 @@ import { logger } from '../logger';
 import { UserService } from '../services/user.service';
 import { ThoughtNotificationService } from '../services/thought-notification.service';
 import { MultiDayTaskService } from '../services/multi-day-task.service';
+import { PushNotificationService } from '../services/push-notification.service';
 import {
   createUserSchema,
   updateUserSchema,
@@ -17,6 +18,7 @@ const router = Router();
 const userService = new UserService(pool);
 const notificationService = new ThoughtNotificationService(pool);
 const taskService = new MultiDayTaskService(pool);
+const pushService = new PushNotificationService(pool);
 
 /**
  * Validation middleware helper
@@ -379,6 +381,90 @@ router.delete('/:external_id', async (req: Request, res: Response) => {
 
     logger.error('Error in DELETE /v1/users/:external_id:', error);
     res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+/**
+ * POST /v1/users/:user_id/push-token
+ *
+ * Register a push notification token for a user
+ *
+ * Path parameters:
+ * - user_id: string - UUID of the user
+ *
+ * Request body:
+ * - push_token: string - The device push token (APNs or Expo)
+ */
+router.post('/:user_id/push-token', async (req: Request, res: Response) => {
+  try {
+    const userIdSchema = z.object({
+      user_id: z.string().uuid(),
+    });
+
+    const bodySchema = z.object({
+      push_token: z.string().min(1),
+    });
+
+    const { user_id } = userIdSchema.parse(req.params);
+    const { push_token } = bodySchema.parse(req.body);
+
+    await pushService.registerPushToken(user_id, push_token);
+
+    res.json({
+      success: true,
+      message: 'Push token registered successfully',
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in POST /v1/users/:user_id/push-token:', error);
+    res.status(500).json({ error: 'Failed to register push token' });
+  }
+});
+
+/**
+ * DELETE /v1/users/:user_id/push-token
+ *
+ * Remove push notification token for a user
+ *
+ * Path parameters:
+ * - user_id: string - UUID of the user
+ */
+router.delete('/:user_id/push-token', async (req: Request, res: Response) => {
+  try {
+    const userIdSchema = z.object({
+      user_id: z.string().uuid(),
+    });
+
+    const { user_id } = userIdSchema.parse(req.params);
+
+    await pushService.removePushToken(user_id);
+
+    res.json({
+      success: true,
+      message: 'Push token removed successfully',
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in DELETE /v1/users/:user_id/push-token:', error);
+    res.status(500).json({ error: 'Failed to remove push token' });
   }
 });
 

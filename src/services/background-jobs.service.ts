@@ -5,22 +5,25 @@ import { FactService } from './fact.service';
 import { MessageService } from './message.service';
 import { VectorService } from './vector.service';
 import { ProfileService } from './profile.service';
+import { MorningReflectionAgent } from '../agents/morning-reflection.agent';
 
 /**
  * BackgroundJobsService
  *
  * Handles scheduled background tasks for the Lucid agent:
  * - Automatic fact extraction from conversations
- * - Future: Memory consolidation, insight generation, etc.
+ * - Morning reflections (autonomous thinking)
  *
- * Respects per-user profile settings - only processes users with fact extraction enabled.
+ * Respects per-user profile settings - only processes users with features enabled.
  */
 export class BackgroundJobsService {
   private pool: Pool;
   private factService: FactService;
   private messageService: MessageService;
   private profileService: ProfileService;
+  private morningReflectionAgent: MorningReflectionAgent;
   private factExtractionJob: cron.ScheduledTask | null = null;
+  private morningReflectionJob: cron.ScheduledTask | null = null;
   private isRunning: boolean = false;
 
   constructor(pool: Pool) {
@@ -29,6 +32,7 @@ export class BackgroundJobsService {
     this.factService = new FactService(pool, vectorService);
     this.messageService = new MessageService(pool, vectorService);
     this.profileService = new ProfileService(pool);
+    this.morningReflectionAgent = new MorningReflectionAgent(pool);
   }
 
   /**
@@ -41,6 +45,7 @@ export class BackgroundJobsService {
     }
 
     this.startFactExtractionJob();
+    this.startMorningReflectionJob();
     this.isRunning = true;
     logger.info('[BACKGROUND] Background jobs started');
   }
@@ -52,6 +57,10 @@ export class BackgroundJobsService {
     if (this.factExtractionJob) {
       this.factExtractionJob.stop();
       this.factExtractionJob = null;
+    }
+    if (this.morningReflectionJob) {
+      this.morningReflectionJob.stop();
+      this.morningReflectionJob = null;
     }
     this.isRunning = false;
     logger.info('[BACKGROUND] Background jobs stopped');
@@ -215,5 +224,91 @@ export class BackgroundJobsService {
    */
   async triggerFactExtraction(): Promise<void> {
     await this.runFactExtraction();
+  }
+
+  /**
+   * Starts the morning reflection job
+   * Runs every day at 7am to generate reflections for active users
+   */
+  private startMorningReflectionJob(): void {
+    // Run every day at 7:00 AM
+    this.morningReflectionJob = cron.schedule('0 7 * * *', async () => {
+      await this.runMorningReflections();
+    });
+
+    logger.info('[BACKGROUND] Morning reflection job scheduled (daily at 7:00 AM)');
+  }
+
+  /**
+   * Generate morning reflections for all eligible users
+   */
+  private async runMorningReflections(): Promise<void> {
+    try {
+      logger.info('[BACKGROUND] Running morning reflections');
+
+      // Get all active users (active in last 7 days)
+      const result = await this.pool.query(`
+        SELECT id FROM users
+        WHERE last_active_at > NOW() - INTERVAL '7 days'
+      `);
+
+      if (result.rows.length === 0) {
+        logger.debug('[BACKGROUND] No active users for morning reflections');
+        return;
+      }
+
+      logger.info(`[BACKGROUND] Processing morning reflections for ${result.rows.length} users`);
+
+      let successCount = 0;
+      let skipCount = 0;
+
+      for (const user of result.rows) {
+        try {
+          // Check if should generate (respects user settings, avoids duplicates)
+          const shouldGenerate = await this.morningReflectionAgent.shouldGenerateReflection(user.id);
+
+          if (!shouldGenerate) {
+            skipCount++;
+            continue;
+          }
+
+          const entry = await this.morningReflectionAgent.generateReflection(user.id);
+
+          if (entry) {
+            successCount++;
+            logger.info(`[BACKGROUND] Generated morning reflection for user ${user.id}`);
+          } else {
+            skipCount++;
+          }
+        } catch (error: any) {
+          logger.error(`[BACKGROUND] Failed to generate reflection for user ${user.id}:`, {
+            error: error.message,
+          });
+        }
+
+        // Delay between users to avoid rate limits
+        await this.sleep(3000);
+      }
+
+      logger.info(`[BACKGROUND] Morning reflections complete: ${successCount} generated, ${skipCount} skipped`);
+    } catch (error: any) {
+      logger.error('[BACKGROUND] Morning reflection job failed:', {
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * Manually trigger morning reflections (useful for testing)
+   */
+  async triggerMorningReflections(): Promise<void> {
+    await this.runMorningReflections();
+  }
+
+  /**
+   * Generate a morning reflection for a specific user (useful for testing)
+   */
+  async triggerReflectionForUser(userId: string): Promise<any> {
+    return this.morningReflectionAgent.generateReflection(userId);
   }
 }
