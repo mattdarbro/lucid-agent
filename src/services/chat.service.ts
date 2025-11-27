@@ -7,6 +7,7 @@ import { VectorService } from './vector.service';
 import { ContextAdaptationService } from './context-adaptation.service';
 import { AutonomousThoughtService } from './autonomous-thought.service';
 import { ThoughtService } from './thought.service';
+import { TopicService } from './topic.service';
 import { ProfileService } from './profile.service';
 import { MemoryService } from './memory.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
@@ -27,6 +28,7 @@ export class ChatService {
   private contextAdaptationService: ContextAdaptationService;
   private autonomousThoughtService: AutonomousThoughtService;
   private deepThoughtService: ThoughtService;
+  private topicService: TopicService;
   private profileService: ProfileService;
   private memoryService: MemoryService;
 
@@ -42,6 +44,7 @@ export class ChatService {
     this.contextAdaptationService = new ContextAdaptationService(pool, anthropicApiKey);
     this.autonomousThoughtService = new AutonomousThoughtService(pool, supabase);
     this.deepThoughtService = new ThoughtService(pool, anthropicApiKey);
+    this.topicService = new TopicService(pool, anthropicApiKey);
     this.profileService = new ProfileService(pool);
     this.memoryService = new MemoryService(pool);
   }
@@ -51,12 +54,14 @@ export class ChatService {
    * Stores both user message and assistant response
    *
    * For complex questions, also generates a Library entry with deep analysis
+   * Detects topic shifts for visual segmentation
    */
   async chat(input: ChatCompletionInput): Promise<{
     user_message: any;
     assistant_message: any;
     response: string;
     libraryEntry?: { id: string; title: string | null } | null;
+    topicShift?: { tag: string; color: string } | null;
   }> {
     try {
       // Store user message first
@@ -82,6 +87,43 @@ export class ChatService {
       // Get user's profile configuration
       const profile = await this.profileService.getUserProfile(input.user_id);
       const chatConfig = profile.chat;
+
+      // LUCID: Detect topic shifts for visual segmentation
+      let topicShift: { tag: string; color: string } | null = null;
+      try {
+        // Calculate time since last message
+        const lastMessage = history.length > 1 ? history[history.length - 2] : null;
+        const timeSinceLastMessage = lastMessage?.created_at
+          ? (Date.now() - new Date(lastMessage.created_at).getTime()) / 1000
+          : 0;
+
+        const shiftResult = await this.topicService.detectTopicShift(
+          input.user_id,
+          input.conversation_id,
+          input.message,
+          messages.slice(0, -1), // Exclude the message we just added
+          timeSinceLastMessage
+        );
+
+        if (shiftResult.shifted && shiftResult.suggestedTag && shiftResult.color) {
+          topicShift = { tag: shiftResult.suggestedTag, color: shiftResult.color };
+
+          // Start a new topic segment in the database
+          await this.topicService.startSegment(
+            input.conversation_id,
+            shiftResult.suggestedTag,
+            shiftResult.detectionMethod || 'semantic_shift'
+          );
+
+          logger.info('Topic shift detected', {
+            conversation_id: input.conversation_id,
+            tag: shiftResult.suggestedTag,
+            method: shiftResult.detectionMethod,
+          });
+        }
+      } catch (topicError) {
+        logger.warn('Topic detection failed, continuing without:', topicError);
+      }
 
       // LUCID: Try deep thought for complex questions
       // Complex questions generate Library entries + concise chat responses
@@ -114,6 +156,7 @@ export class ChatService {
           libraryEntry: thoughtResult.libraryEntry
             ? { id: thoughtResult.libraryEntry.id, title: thoughtResult.libraryEntry.title }
             : null,
+          topicShift,
         };
       }
 
@@ -244,6 +287,7 @@ export class ChatService {
         user_message: userMessage,
         assistant_message: assistantMessage,
         response: assistantResponse,
+        topicShift,
       };
     } catch (error: any) {
       logger.error('Error in chat completion:', {
