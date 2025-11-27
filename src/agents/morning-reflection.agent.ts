@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../logger';
 import { MemoryService } from '../services/memory.service';
 import { ProfileService } from '../services/profile.service';
+import { VectorService } from '../services/vector.service';
 
 /**
  * Library entry for storing reflections
@@ -39,6 +40,7 @@ export class MorningReflectionAgent {
   private anthropic: Anthropic;
   private memoryService: MemoryService;
   private profileService: ProfileService;
+  private vectorService: VectorService;
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
@@ -47,6 +49,7 @@ export class MorningReflectionAgent {
     });
     this.memoryService = new MemoryService(pool);
     this.profileService = new ProfileService(pool);
+    this.vectorService = new VectorService();
   }
 
   /**
@@ -239,19 +242,32 @@ Do not include any other text outside this format.`;
   }
 
   /**
-   * Store the reflection in the library
+   * Store the reflection in the library with embedding for semantic search
    */
   private async storeInLibrary(userId: string, reflection: Reflection): Promise<LibraryEntry> {
+    // Generate embedding for semantic search
+    let embedding: number[] | null = null;
+    try {
+      const textForEmbedding = `${reflection.title} ${reflection.content}`.trim();
+      embedding = await this.vectorService.generateEmbedding(textForEmbedding);
+    } catch (embeddingError) {
+      logger.warn('[MORNING AGENT] Failed to generate embedding:', { error: embeddingError });
+    }
+
+    const embeddingString = embedding ? `[${embedding.join(',')}]` : null;
+
     const result = await this.pool.query(
       `INSERT INTO library_entries
-       (user_id, entry_type, title, content, time_of_day, metadata)
-       VALUES ($1, 'lucid_thought', $2, $3, 'morning', $4)
-       RETURNING *`,
+       (user_id, entry_type, title, content, time_of_day, metadata, embedding)
+       VALUES ($1, 'lucid_thought', $2, $3, 'morning', $4, $5::vector)
+       RETURNING id, user_id, entry_type, title, content, time_of_day,
+                 related_conversation_id, metadata, created_at, updated_at`,
       [
         userId,
         reflection.title,
         reflection.content,
         JSON.stringify({ thought_type: 'morning_reflection', generated_at: new Date().toISOString() }),
+        embeddingString,
       ]
     );
 

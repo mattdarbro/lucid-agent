@@ -2,8 +2,10 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { logger } from '../logger';
 import { z } from 'zod';
+import { VectorService } from '../services/vector.service';
 
 const router = Router();
+const vectorService = new VectorService();
 
 /**
  * Validation schemas
@@ -140,18 +142,32 @@ router.post('/', async (req: Request, res: Response) => {
 
     const timeOfDay = body.time_of_day || getCurrentTimeOfDay();
 
+    // Generate embedding for semantic search
+    let embedding: number[] | null = null;
+    try {
+      const textForEmbedding = `${body.title || ''} ${body.content}`.trim();
+      embedding = await vectorService.generateEmbedding(textForEmbedding);
+    } catch (embeddingError) {
+      // Log but don't fail - embedding is optional
+      logger.warn('Failed to generate embedding for library entry', { error: embeddingError });
+    }
+
+    const embeddingString = embedding ? `[${embedding.join(',')}]` : null;
+
     const result = await pool.query(
       `INSERT INTO library_entries
-       (user_id, entry_type, title, content, time_of_day)
-       VALUES ($1, 'user_reflection', $2, $3, $4)
-       RETURNING *`,
-      [body.user_id, body.title || null, body.content, timeOfDay]
+       (user_id, entry_type, title, content, time_of_day, embedding)
+       VALUES ($1, 'user_reflection', $2, $3, $4, $5::vector)
+       RETURNING id, user_id, entry_type, title, content, time_of_day,
+                 related_conversation_id, metadata, created_at, updated_at`,
+      [body.user_id, body.title || null, body.content, timeOfDay, embeddingString]
     );
 
     logger.info('Library entry created', {
       id: result.rows[0].id,
       user_id: body.user_id,
       entry_type: 'user_reflection',
+      has_embedding: !!embedding,
     });
 
     res.status(201).json({ entry: result.rows[0] });
@@ -276,6 +292,78 @@ router.delete('/:id', async (req: Request, res: Response) => {
     logger.error('Error in DELETE /v1/library/:id:', error);
     res.status(500).json({
       error: 'Failed to delete entry',
+      details: error.message,
+    });
+  }
+});
+
+/**
+ * GET /v1/library/search
+ *
+ * Semantic search across library entries
+ *
+ * Query parameters:
+ * - user_id: string (required) - UUID of the user
+ * - query: string (required) - Search query text
+ * - limit: number (optional) - Max entries to return (default: 5)
+ * - entry_type: string (optional) - Filter by entry type
+ */
+router.get('/search', async (req: Request, res: Response) => {
+  try {
+    const { user_id, query, limit = '5', entry_type } = req.query;
+
+    if (!user_id || typeof user_id !== 'string') {
+      return res.status(400).json({ error: 'user_id is required' });
+    }
+
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ error: 'query is required' });
+    }
+
+    // Generate embedding for the search query
+    const queryEmbedding = await vectorService.generateEmbedding(query);
+
+    // Format embedding for PostgreSQL vector type
+    const embeddingString = `[${queryEmbedding.join(',')}]`;
+
+    // Build the search query
+    let searchQuery = `
+      SELECT
+        id, user_id, entry_type, title, content, time_of_day,
+        related_conversation_id, metadata, created_at, updated_at,
+        1 - (embedding <=> $1::vector) as similarity
+      FROM library_entries
+      WHERE user_id = $2
+        AND embedding IS NOT NULL
+    `;
+    const params: any[] = [embeddingString, user_id];
+
+    if (entry_type && typeof entry_type === 'string') {
+      searchQuery += ` AND entry_type = $${params.length + 1}`;
+      params.push(entry_type);
+    }
+
+    searchQuery += ` ORDER BY embedding <=> $1::vector`;
+    searchQuery += ` LIMIT $${params.length + 1}`;
+    params.push(parseInt(limit as string, 10));
+
+    const result = await pool.query(searchQuery, params);
+
+    logger.info('Library semantic search', {
+      user_id,
+      query: query.slice(0, 50),
+      results: result.rows.length,
+    });
+
+    res.status(200).json({
+      entries: result.rows,
+      query,
+      count: result.rows.length,
+    });
+  } catch (error: any) {
+    logger.error('Error in GET /v1/library/search:', error);
+    res.status(500).json({
+      error: 'Failed to search library',
       details: error.message,
     });
   }
