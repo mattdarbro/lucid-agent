@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../logger';
+import { pool } from '../db';
 import { conversationService, messageService, summaryService } from '../services';
 import {
   createConversationSchema,
@@ -317,6 +318,50 @@ router.get('/:id/summaries', async (req: Request, res: Response) => {
 
     logger.error('Error in GET /v1/conversations/:id/summaries:', error);
     res.status(500).json({ error: 'Failed to fetch summaries' });
+  }
+});
+
+/**
+ * GET /v1/conversations/:id/segments
+ *
+ * Get topic segments for a conversation (for visual segmentation)
+ *
+ * Path parameters:
+ * - id: string - UUID of the conversation
+ *
+ * Response:
+ * - segments: Array of { id, topic_tag, background_color, started_at, ended_at, detection_method }
+ */
+router.get('/:id/segments', async (req: Request, res: Response) => {
+  try {
+    const { id } = conversationIdSchema.parse(req.params);
+
+    const result = await pool.query(
+      `SELECT id, topic_tag, background_color, started_at, ended_at, detection_method
+       FROM conversation_segments
+       WHERE conversation_id = $1
+       ORDER BY started_at ASC`,
+      [id]
+    );
+
+    res.json({
+      segments: result.rows,
+      count: result.rows.length,
+      conversation_id: id,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in GET /v1/conversations/:id/segments:', error);
+    res.status(500).json({ error: 'Failed to fetch segments' });
   }
 });
 
