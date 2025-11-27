@@ -62,6 +62,9 @@ export interface LucidProfile {
     maxThoughtsInContext: number;
     defaultTemperature: number;
     defaultModel: string;
+    // Brevity controls (LUCID principle: 50-150 words for chat)
+    maxTokens: number; // API max_tokens (~250 for 150 words)
+    maxResponseWords: number; // Programmatic word limit enforcement
   };
 }
 
@@ -157,6 +160,8 @@ export const FULL_LUCID_PROFILE: LucidProfile = {
     maxThoughtsInContext: 5,
     defaultTemperature: 0.7,
     defaultModel: 'claude-sonnet-4-5-20250929',
+    maxTokens: 250,
+    maxResponseWords: 150,
   },
 };
 
@@ -232,6 +237,8 @@ export const DECISION_ASSISTANT_PROFILE: LucidProfile = {
     maxThoughtsInContext: 0,
     defaultTemperature: 0.3, // More analytical
     defaultModel: 'claude-sonnet-4-5-20250929',
+    maxTokens: 250,
+    maxResponseWords: 150,
   },
 };
 
@@ -318,6 +325,8 @@ export const NEWS_DIGEST_PROFILE: LucidProfile = {
     maxThoughtsInContext: 10, // More news insights
     defaultTemperature: 0.5,
     defaultModel: 'claude-sonnet-4-5-20250929',
+    maxTokens: 250,
+    maxResponseWords: 150,
   },
 };
 
@@ -354,6 +363,8 @@ export const SIMPLE_CHAT_PROFILE: LucidProfile = {
     maxThoughtsInContext: 0,
     defaultTemperature: 0.7,
     defaultModel: 'claude-sonnet-4-5-20250929',
+    maxTokens: 250,
+    maxResponseWords: 150,
   },
 };
 
@@ -382,6 +393,8 @@ export const CUSTOM_PROFILE_TEMPLATE: LucidProfile = {
     maxThoughtsInContext: 5,
     defaultTemperature: 0.7,
     defaultModel: 'claude-sonnet-4-5-20250929',
+    maxTokens: 250,
+    maxResponseWords: 150,
   },
 };
 

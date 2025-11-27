@@ -634,8 +634,13 @@ CREATE TABLE library_entries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
-  -- Entry type: lucid's autonomous thoughts vs user's own reflections
-  entry_type TEXT NOT NULL CHECK (entry_type IN ('lucid_thought', 'user_reflection')),
+  -- Entry type: LUCID thoughts, user reflections, debate syntheses, or research journals
+  entry_type TEXT NOT NULL CHECK (entry_type IN (
+    'lucid_thought',      -- LUCID's deep thinking
+    'user_reflection',    -- User's long-form writing
+    'versus_synthesis',   -- Debate summaries from Lu & Cid
+    'research_journal'    -- User's observations about LUCID
+  )),
 
   -- Content
   title TEXT,
@@ -650,6 +655,9 @@ CREATE TABLE library_entries (
   -- Metadata for additional context
   metadata JSONB DEFAULT '{}'::jsonb,
 
+  -- Vector embedding for semantic search
+  embedding vector(1536),
+
   -- Timestamps
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
@@ -658,6 +666,7 @@ CREATE TABLE library_entries (
 CREATE INDEX idx_library_user_time ON library_entries(user_id, created_at DESC);
 CREATE INDEX idx_library_time_of_day ON library_entries(user_id, time_of_day);
 CREATE INDEX idx_library_entry_type ON library_entries(user_id, entry_type);
+CREATE INDEX idx_library_embedding ON library_entries USING ivfflat (embedding vector_cosine_ops);
 
 -- ============================================================================
 -- Sample Data (Optional - for testing)

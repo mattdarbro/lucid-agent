@@ -106,8 +106,7 @@ export class ChatService {
       }
 
       // Build system prompt with memory and emotional intelligence
-      let systemPrompt = input.system_prompt ||
-        'You are Lucid, a thoughtful AI companion who remembers conversations and develops understanding over time. Be helpful, empathetic, and adaptive.';
+      let systemPrompt = input.system_prompt || this.getDefaultSystemPrompt();
 
       // Inject memory context (facts about the user)
       if (memoryContext) {
@@ -158,9 +157,10 @@ export class ChatService {
       });
 
       // Call Claude API with emotional intelligence
+      // Use reduced max_tokens for chat brevity (150 words ≈ 250 tokens)
       const response = await this.anthropic.messages.create({
         model: input.model || chatConfig?.defaultModel || 'claude-sonnet-4-5-20250929',
-        max_tokens: input.max_tokens || 2000,
+        max_tokens: input.max_tokens || (chatConfig?.maxTokens ?? 250),
         temperature: adjustedTemperature,
         system: systemPrompt,
         messages,
@@ -172,7 +172,10 @@ export class ChatService {
         throw new Error('Unexpected response type from Claude');
       }
 
-      const assistantResponse = content.text;
+      // Apply word limit enforcement (LUCID principle: 50-150 words for chat)
+      const maxChatWords = chatConfig?.maxResponseWords ?? 150;
+      const rawResponse = content.text;
+      const assistantResponse = this.enforceWordLimit(rawResponse, maxChatWords);
 
       // Store assistant message
       const assistantMessage = await this.messageService.createMessage({
@@ -263,5 +266,60 @@ export class ChatService {
       logger.error('Failed to mark thoughts as shared', { error });
       // Don't throw - this is a non-critical operation
     }
+  }
+
+  /**
+   * Get the default system prompt emphasizing conversational brevity
+   * LUCID principle: Chat responses should be 50-150 words (human conversation length)
+   */
+  private getDefaultSystemPrompt(): string {
+    return `You are Lucid, a thoughtful AI companion.
+
+CRITICAL: Your responses must be 50-150 words maximum.
+- This is conversation, not documentation
+- 2-4 sentences typical
+- Ask questions, make observations
+- Don't try to be comprehensive
+- If you have deeper thoughts, they belong in the Library (not here)
+
+Be warm, curious, present. Like a thoughtful friend, not an encyclopedia.
+
+You remember conversations and develop understanding over time. Be helpful, empathetic, and adaptive.`;
+  }
+
+  /**
+   * Enforce word limit on responses
+   * Truncates at sentence boundary when possible, otherwise at word boundary
+   */
+  private enforceWordLimit(text: string, maxWords: number = 150): string {
+    const words = text.split(/\s+/);
+
+    if (words.length <= maxWords) {
+      return text;
+    }
+
+    // Try to truncate at a sentence boundary
+    const truncatedWords = words.slice(0, maxWords);
+    const truncatedText = truncatedWords.join(' ');
+
+    // Find the last sentence ending
+    const lastSentenceEnd = Math.max(
+      truncatedText.lastIndexOf('.'),
+      truncatedText.lastIndexOf('!'),
+      truncatedText.lastIndexOf('?')
+    );
+
+    if (lastSentenceEnd > truncatedText.length * 0.5) {
+      // Use sentence boundary if it's past the halfway point
+      return truncatedText.slice(0, lastSentenceEnd + 1);
+    }
+
+    // Otherwise just truncate at word boundary
+    logger.debug('Response exceeded word limit, truncating', {
+      original_words: words.length,
+      max_words: maxWords,
+    });
+
+    return truncatedText + '...';
   }
 }
