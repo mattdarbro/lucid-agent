@@ -6,14 +6,18 @@ import { MessageService } from './message.service';
 import { VectorService } from './vector.service';
 import { ContextAdaptationService } from './context-adaptation.service';
 import { AutonomousThoughtService } from './autonomous-thought.service';
+import { ThoughtService } from './thought.service';
 import { ProfileService } from './profile.service';
 import { MemoryService } from './memory.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
 
 /**
  * ChatService handles AI conversation using Claude
- * Now with emotional intelligence and autonomous thought integration!
- * Uses profile settings for modular behavior
+ *
+ * Key LUCID principles implemented:
+ * - Thinking (Library) and chatting (Room) are separate
+ * - Complex questions generate Library entries + concise chat responses
+ * - Chat responses are 50-150 words (human conversation length)
  */
 export class ChatService {
   private pool: Pool;
@@ -21,7 +25,8 @@ export class ChatService {
   private anthropic: Anthropic;
   private messageService: MessageService;
   private contextAdaptationService: ContextAdaptationService;
-  private thoughtService: AutonomousThoughtService;
+  private autonomousThoughtService: AutonomousThoughtService;
+  private deepThoughtService: ThoughtService;
   private profileService: ProfileService;
   private memoryService: MemoryService;
 
@@ -35,7 +40,8 @@ export class ChatService {
     const vectorService = new VectorService();
     this.messageService = new MessageService(pool, vectorService);
     this.contextAdaptationService = new ContextAdaptationService(pool, anthropicApiKey);
-    this.thoughtService = new AutonomousThoughtService(pool, supabase);
+    this.autonomousThoughtService = new AutonomousThoughtService(pool, supabase);
+    this.deepThoughtService = new ThoughtService(pool, anthropicApiKey);
     this.profileService = new ProfileService(pool);
     this.memoryService = new MemoryService(pool);
   }
@@ -43,11 +49,14 @@ export class ChatService {
   /**
    * Generates a chat completion using Claude
    * Stores both user message and assistant response
+   *
+   * For complex questions, also generates a Library entry with deep analysis
    */
   async chat(input: ChatCompletionInput): Promise<{
     user_message: any;
     assistant_message: any;
     response: string;
+    libraryEntry?: { id: string; title: string | null } | null;
   }> {
     try {
       // Store user message first
@@ -73,6 +82,42 @@ export class ChatService {
       // Get user's profile configuration
       const profile = await this.profileService.getUserProfile(input.user_id);
       const chatConfig = profile.chat;
+
+      // LUCID: Try deep thought for complex questions
+      // Complex questions generate Library entries + concise chat responses
+      const thoughtResult = await this.deepThoughtService.generateThoughtWithLibrary(
+        input.user_id,
+        input.conversation_id,
+        input.message,
+        messages
+      );
+
+      // If deep thought generated a response, use it and return early
+      if (thoughtResult.chatResponse) {
+        const assistantMessage = await this.messageService.createMessage({
+          conversation_id: input.conversation_id,
+          user_id: input.user_id,
+          role: 'assistant',
+          content: thoughtResult.chatResponse,
+        });
+
+        logger.info('Deep thought response generated', {
+          conversation_id: input.conversation_id,
+          library_entry_id: thoughtResult.libraryEntry?.id,
+          response_length: thoughtResult.chatResponse.length,
+        });
+
+        return {
+          user_message: userMessage,
+          assistant_message: assistantMessage,
+          response: thoughtResult.chatResponse,
+          libraryEntry: thoughtResult.libraryEntry
+            ? { id: thoughtResult.libraryEntry.id, title: thoughtResult.libraryEntry.title }
+            : null,
+        };
+      }
+
+      // Simple question - proceed with normal chat flow
 
       // Fetch user facts for memory context (enabled by default or via profile)
       const includeFacts = chatConfig?.includeFacts ?? true;
@@ -102,7 +147,7 @@ export class ChatService {
       let recentThoughts: any[] = [];
       if (profile.features.autonomousAgents && chatConfig?.includeAutonomousThoughts) {
         const maxThoughts = chatConfig?.maxThoughtsInContext ?? 5;
-        recentThoughts = await this.thoughtService.getRecentUnsharedThoughts(input.user_id, maxThoughts);
+        recentThoughts = await this.autonomousThoughtService.getRecentUnsharedThoughts(input.user_id, maxThoughts);
       }
 
       // Build system prompt with memory and emotional intelligence
@@ -254,7 +299,7 @@ export class ChatService {
       if (hasReference) {
         // Mark all thoughts as shared since we injected them into context
         for (const thought of thoughts) {
-          await this.thoughtService.shareThought(thought.id);
+          await this.autonomousThoughtService.shareThought(thought.id);
         }
 
         logger.debug('Marked thoughts as shared', {
