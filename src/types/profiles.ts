@@ -65,6 +65,8 @@ export interface LucidProfile {
     // Brevity controls (LUCID principle: 50-150 words for chat)
     maxTokens: number; // API max_tokens (~250 for 150 words)
     maxResponseWords: number; // Programmatic word limit enforcement
+    // Deep thinking controls
+    forceDeepThinking: boolean; // Bypass complexity assessment, always generate Library entries
   };
 }
 
@@ -162,6 +164,94 @@ export const FULL_LUCID_PROFILE: LucidProfile = {
     defaultModel: 'claude-sonnet-4-5-20250929',
     maxTokens: 250,
     maxResponseWords: 150,
+    forceDeepThinking: false,
+  },
+};
+
+/**
+ * Dev Lucid Profile
+ * For development/testing - forces deep thinking on every message
+ * Library entries are always created regardless of message complexity
+ */
+export const DEV_LUCID_PROFILE: LucidProfile = {
+  id: 'dev-lucid',
+  name: 'Dev Lucid',
+  description: 'Development profile with forced deep thinking on every turn',
+
+  features: {
+    emotionalIntelligence: true,
+    personalityTracking: true,
+    memorySystem: true,
+    autonomousAgents: true,
+    webResearch: true,
+    semanticSearch: true,
+  },
+
+  emotionalIntelligence: {
+    trackBigFive: true,
+    detectEmotionalStates: true,
+    adaptBehavior: true,
+    modifyTemperature: true,
+    adjustSchedule: true,
+  },
+
+  agents: {
+    enabled: true,
+    pollInterval: 60,
+    types: [
+      {
+        type: 'morning_reflection',
+        enabled: true,
+        schedule: '0 7 * * *',
+        priority: 5,
+      },
+      {
+        type: 'midday_curiosity',
+        enabled: true,
+        schedule: '0 12 * * *',
+        priority: 7,
+      },
+      {
+        type: 'evening_consolidation',
+        enabled: true,
+        schedule: '0 20 * * *',
+        priority: 6,
+      },
+      {
+        type: 'night_dream',
+        enabled: true,
+        schedule: '0 2 * * *',
+        priority: 4,
+      },
+    ],
+  },
+
+  research: {
+    enabled: true,
+    executionInterval: 300,
+    maxTasksPerCycle: 3,
+    defaultSearchDepth: 'basic',
+    autoCreateTasks: true,
+  },
+
+  memory: {
+    factExtraction: true,
+    evidenceTracking: true,
+    summaryGeneration: true,
+    confidenceThreshold: 0.5,
+    maxContextFacts: 20,
+  },
+
+  chat: {
+    includeAutonomousThoughts: true,
+    includeEmotionalContext: true,
+    includeFacts: true,
+    maxThoughtsInContext: 5,
+    defaultTemperature: 0.7,
+    defaultModel: 'claude-sonnet-4-5-20250929',
+    maxTokens: 250,
+    maxResponseWords: 150,
+    forceDeepThinking: true, // KEY: Always generate Library entries
   },
 };
 
@@ -239,6 +329,7 @@ export const DECISION_ASSISTANT_PROFILE: LucidProfile = {
     defaultModel: 'claude-sonnet-4-5-20250929',
     maxTokens: 250,
     maxResponseWords: 150,
+    forceDeepThinking: false,
   },
 };
 
@@ -327,6 +418,7 @@ export const NEWS_DIGEST_PROFILE: LucidProfile = {
     defaultModel: 'claude-sonnet-4-5-20250929',
     maxTokens: 250,
     maxResponseWords: 150,
+    forceDeepThinking: false,
   },
 };
 
@@ -365,6 +457,7 @@ export const SIMPLE_CHAT_PROFILE: LucidProfile = {
     defaultModel: 'claude-sonnet-4-5-20250929',
     maxTokens: 250,
     maxResponseWords: 150,
+    forceDeepThinking: false,
   },
 };
 
@@ -395,6 +488,7 @@ export const CUSTOM_PROFILE_TEMPLATE: LucidProfile = {
     defaultModel: 'claude-sonnet-4-5-20250929',
     maxTokens: 250,
     maxResponseWords: 150,
+    forceDeepThinking: false,
   },
 };
 
@@ -404,6 +498,7 @@ export const CUSTOM_PROFILE_TEMPLATE: LucidProfile = {
 
 export const AVAILABLE_PROFILES: Record<string, LucidProfile> = {
   'full-lucid': FULL_LUCID_PROFILE,
+  'dev-lucid': DEV_LUCID_PROFILE,
   'decision-assistant': DECISION_ASSISTANT_PROFILE,
   'news-digest': NEWS_DIGEST_PROFILE,
   'simple-chat': SIMPLE_CHAT_PROFILE,
