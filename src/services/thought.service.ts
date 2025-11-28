@@ -63,7 +63,7 @@ export class ThoughtService {
   private anthropic: Anthropic;
   private memoryService: MemoryService;
   private vectorService: VectorService;
-  private readonly model = 'claude-sonnet-4-20250514';
+  private readonly model = 'claude-opus-4-5-20251101';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
