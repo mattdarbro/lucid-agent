@@ -250,7 +250,7 @@ export class ChatService {
       // Call Claude API with emotional intelligence
       // Use reduced max_tokens for chat brevity (150 words ≈ 250 tokens)
       const response = await this.anthropic.messages.create({
-        model: input.model || chatConfig?.defaultModel || 'claude-sonnet-4-5-20250929',
+        model: input.model || chatConfig?.defaultModel || 'claude-opus-4-5-20251101',
         max_tokens: input.max_tokens || (chatConfig?.maxTokens ?? 250),
         temperature: adjustedTemperature,
         system: systemPrompt,
