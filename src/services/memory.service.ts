@@ -39,7 +39,7 @@ export class MemoryService {
          LEFT JOIN evidence e ON e.fact_id = f.id
          WHERE f.user_id = $1
            AND f.is_active = true
-           AND f.confidence > 0.5
+           AND f.confidence >= 0.5
          GROUP BY f.id
          ORDER BY f.confidence DESC, f.last_mentioned_at DESC NULLS LAST
          LIMIT $2`,
@@ -82,7 +82,7 @@ export class MemoryService {
          LEFT JOIN evidence e ON e.fact_id = f.id
          WHERE f.user_id = $1
            AND f.is_active = true
-           AND f.confidence > 0.5
+           AND f.confidence >= 0.5
            AND f.category = ANY($2)
          GROUP BY f.id
          ORDER BY f.confidence DESC, f.last_mentioned_at DESC NULLS LAST
