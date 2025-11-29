@@ -413,4 +413,112 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /v1/users/:user_id/facts/debug
+ *
+ * Debug endpoint to diagnose fact extraction issues
+ *
+ * Path parameters:
+ * - user_id: string - UUID of the user
+ */
+router.get('/debug', async (req: Request, res: Response) => {
+  try {
+    const { user_id } = userIdParamSchema.parse(req.params);
+    const { pool } = require('../index');
+    const { ProfileService } = require('../services/profile.service');
+    const profileService = new ProfileService(pool);
+
+    // Get profile settings
+    const profile = await profileService.getUserProfile(user_id);
+
+    // Get fact counts
+    const factCountResult = await pool.query(
+      'SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE is_active = true) as active, COUNT(*) FILTER (WHERE confidence >= 0.5 AND is_active = true) as displayable FROM facts WHERE user_id = $1',
+      [user_id]
+    );
+
+    // Get conversation stats
+    const conversationStats = await pool.query(
+      `SELECT
+        COUNT(*) as total_conversations,
+        COUNT(*) FILTER (WHERE (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) >= 5) as conversations_with_5plus_messages,
+        COUNT(*) FILTER (WHERE last_fact_extraction_at IS NULL) as never_extracted,
+        COUNT(*) FILTER (WHERE last_fact_extraction_at IS NOT NULL) as extracted_at_least_once,
+        COUNT(*) FILTER (WHERE updated_at > NOW() - INTERVAL '24 hours') as active_last_24h
+       FROM conversations c
+       WHERE user_id = $1`,
+      [user_id]
+    );
+
+    // Get recent facts
+    const recentFacts = await pool.query(
+      'SELECT id, content, category, confidence, is_active, created_at FROM facts WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5',
+      [user_id]
+    );
+
+    // Get conversations needing extraction
+    const needsExtraction = await pool.query(
+      `SELECT c.id, c.title, c.updated_at, c.last_fact_extraction_at, COUNT(m.id) as message_count
+       FROM conversations c
+       LEFT JOIN messages m ON m.conversation_id = c.id
+       WHERE c.user_id = $1
+         AND (c.last_fact_extraction_at IS NULL OR c.last_fact_extraction_at < NOW() - INTERVAL '10 minutes')
+         AND c.updated_at > NOW() - INTERVAL '24 hours'
+       GROUP BY c.id
+       HAVING COUNT(m.id) >= 5
+       ORDER BY c.updated_at DESC
+       LIMIT 5`,
+      [user_id]
+    );
+
+    res.json({
+      user_id,
+      profile: {
+        id: profile.id,
+        name: profile.name,
+        features: {
+          memorySystem: profile.features.memorySystem,
+        },
+        memory: profile.memory,
+      },
+      facts: {
+        total: parseInt(factCountResult.rows[0].total),
+        active: parseInt(factCountResult.rows[0].active),
+        displayable: parseInt(factCountResult.rows[0].displayable),
+        recent: recentFacts.rows,
+      },
+      conversations: conversationStats.rows[0],
+      needs_extraction: needsExtraction.rows,
+      diagnostic: {
+        fact_extraction_enabled: profile.features.memorySystem && (profile.memory?.factExtraction ?? true),
+        confidence_threshold: profile.memory?.confidenceThreshold ?? 0.5,
+        max_context_facts: profile.memory?.maxContextFacts ?? 10,
+        explanation: {
+          displayable_facts: 'Facts with confidence >= 0.5 AND is_active = true (these appear in chat)',
+          needs_extraction: 'Conversations with 5+ messages that need fact extraction',
+          background_job: 'Runs every 5 minutes, processes up to 10 conversations per run',
+          filters: [
+            'Conversation must have 5+ messages',
+            'Conversation must be active in last 24 hours',
+            'Conversation must not have been extracted in last 10 minutes',
+          ],
+        },
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in GET /v1/users/:user_id/facts/debug:', error);
+    res.status(500).json({ error: 'Failed to fetch debug info' });
+  }
+});
+
 export default router;
