@@ -416,7 +416,11 @@ Your conversational response (do NOT include the library link - it will be added
   /**
    * Search Library for relevant entries
    */
-  private async searchLibrary(
+  /**
+   * Search library entries using semantic similarity
+   * Public method to allow chat service to retrieve relevant library context
+   */
+  async searchLibrary(
     userId: string,
     query: string,
     limit: number = 3

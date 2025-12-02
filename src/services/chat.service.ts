@@ -196,6 +196,23 @@ export class ChatService {
         recentThoughts = await this.autonomousThoughtService.getRecentUnsharedThoughts(input.user_id, maxThoughts);
       }
 
+      // Fetch relevant library entries (deep thoughts, reflections, journal entries)
+      // This enables Lucid to reference previous deep analysis in conversation
+      let libraryEntries: Array<{ title: string | null; content: string }> = [];
+      try {
+        libraryEntries = await this.deepThoughtService.searchLibrary(input.user_id, input.message, 3);
+
+        if (libraryEntries.length > 0) {
+          logger.debug('Injecting library context into chat', {
+            user_id: input.user_id,
+            entry_count: libraryEntries.length,
+          });
+        }
+      } catch (error) {
+        logger.warn('Failed to retrieve library entries for chat context:', error);
+        // Continue without library context
+      }
+
       // Build system prompt with memory and emotional intelligence
       let systemPrompt = input.system_prompt || this.getDefaultSystemPrompt();
 
@@ -230,6 +247,26 @@ export class ChatService {
           user_id: input.user_id,
           thought_count: recentThoughts.length,
           thought_types: recentThoughts.map(t => t.thought_type),
+        });
+      }
+
+      // Inject relevant library entries if any exist
+      if (libraryEntries.length > 0) {
+        systemPrompt += '\n\n📚 LIBRARY CONTEXT:\n';
+        systemPrompt += 'Relevant entries from your Library (deep thoughts, reflections, journal entries):\n\n';
+        libraryEntries.forEach((entry, index) => {
+          const title = entry.title || 'Untitled Entry';
+          const preview = entry.content.length > 300
+            ? entry.content.substring(0, 300) + '...'
+            : entry.content;
+          systemPrompt += `${index + 1}. "${title}"\n${preview}\n\n`;
+        });
+        systemPrompt += 'You can reference these previous thoughts naturally in conversation. They represent your deeper analysis on related topics.';
+
+        logger.debug('Injecting library entries into chat', {
+          user_id: input.user_id,
+          entry_count: libraryEntries.length,
+          titles: libraryEntries.map(e => e.title || 'Untitled'),
         });
       }
 
