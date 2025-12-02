@@ -22,6 +22,7 @@ import { SchedulerService } from './services/scheduler.service';
 import { BackgroundJobsService } from './services/background-jobs.service';
 import libraryRouter from './routes/library';
 import versusRouter from './routes/versus';
+import syncRouter from './routes/sync';
 
 // Validate configuration on startup
 try {
@@ -132,6 +133,9 @@ app.use('/v1/library', libraryRouter);
 
 // Versus Mode (Phase F - Lu & Cid debates)
 app.use('/v1/versus', versusRouter);
+
+// Manual Sync endpoints (trigger fact extraction and reflections on-demand)
+app.use('/v1/sync', syncRouter);
 
 // TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);
