@@ -67,7 +67,9 @@ See [DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md) for full details.
 
 - Node.js 18+
 - A Supabase project (or PostgreSQL with pgvector)
-- OpenAI API key
+- OpenAI API key (for embeddings)
+- Anthropic API key (for chat/LLM)
+- Tavily API key (optional, for web research)
 - Studio API running (from `studio-api` project)
 
 ### 2. Create Supabase Project
@@ -97,12 +99,23 @@ SUPABASE_SERVICE_KEY=your-service-role-key
 # Database URL (from Supabase settings > Database > Connection string > URI)
 DATABASE_URL=postgresql://postgres:[password]@db.[project].supabase.co:5432/postgres
 
-# OpenAI
+# OpenAI (for embeddings)
 OPENAI_API_KEY=sk-...
+
+# Anthropic (for chat/LLM)
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Tavily (optional, for web research)
+TAVILY_API_KEY=tvly-...
 
 # Studio API (from your studio-api project)
 STUDIO_API_URL=http://localhost:3000
 STUDIO_APP_KEY=your-app-key-from-env
+
+# Feature Flags
+ENABLE_AUTONOMOUS_AGENTS=true
+ENABLE_WEB_RESEARCH=true   # Requires TAVILY_API_KEY
+ENABLE_DREAMS=true
 ```
 
 ### 4. Install Dependencies
@@ -160,14 +173,14 @@ You should see:
 - [ ] Integration with studio-api for model calls
 
 ### 🤖 Phase 4: Autonomy
-- [ ] Background job system (cron or BullMQ)
-- [ ] Morning reflection agent (7-10am)
+- [x] Background job system (cron-based)
+- [x] Morning reflection agent (7am daily)
 - [ ] Midday curiosity agent (12-2pm)
 - [ ] Evening consolidation agent (8-11pm)
 - [ ] Night dream processor (2-4am)
-- [ ] Circadian prompt templates
-- [ ] Web research integration
-- [ ] Thought sharing with user
+- [x] Circadian prompt templates
+- [x] Web research integration (Tavily API)
+- [x] Thought sharing with user
 
 ## API Endpoints (Planned)
 
