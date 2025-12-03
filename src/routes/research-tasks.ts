@@ -132,6 +132,28 @@ export function createResearchTaskRouter(pool: Pool, supabase: SupabaseClient): 
   });
 
   /**
+   * POST /research-tasks/executor/reset-stuck
+   * Reset tasks stuck in 'in_progress' status
+   */
+  router.post('/executor/reset-stuck', async (req: Request, res: Response) => {
+    try {
+      const stuckAfterMinutes = req.body.stuck_after_minutes || 10;
+
+      logger.info('Manual reset of stuck tasks triggered', { stuckAfterMinutes });
+
+      const resetCount = await researchService.resetStuckTasks(stuckAfterMinutes);
+
+      res.json({
+        success: true,
+        tasksReset: resetCount,
+      });
+    } catch (error: any) {
+      logger.error('Failed to reset stuck tasks via API', { error: error.message });
+      res.status(500).json({ error: 'Failed to reset stuck tasks' });
+    }
+  });
+
+  /**
    * GET /research-tasks/:id
    * Get a specific research task
    */
