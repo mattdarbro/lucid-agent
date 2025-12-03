@@ -9,6 +9,7 @@ import {
   listResearchTasksSchema,
 } from '../validation/research-task.validation';
 import { logger } from '../logger';
+import { config } from '../config';
 
 export function createResearchTaskRouter(pool: Pool, supabase: SupabaseClient): Router {
   const router = Router();
@@ -98,10 +99,15 @@ export function createResearchTaskRouter(pool: Pool, supabase: SupabaseClient): 
     try {
       const status = researchExecutor.getAvailabilityStatus();
       const isProcessing = researchExecutor.isCurrentlyProcessing();
+      const cronEnabled = config.features.webResearch;
 
       res.json({
         ...status,
         isProcessing,
+        cronEnabled,
+        cronEnabledReason: cronEnabled
+          ? 'ENABLE_WEB_RESEARCH=true is set'
+          : 'ENABLE_WEB_RESEARCH is not set to true - research tasks will be created but never executed',
       });
     } catch (error: any) {
       logger.error('Failed to get research executor status', { error: error.message });

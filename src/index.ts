@@ -181,9 +181,14 @@ async function startServer() {
       logger.info(`ℹ️  Info: http://localhost:${PORT}/info`);
       logger.info(`🔗 Studio API: ${config.studioApi.url}`);
 
-      if (config.features.autonomousAgents) {
-        logger.info('🤖 Autonomous agents: ENABLED');
+      // Log feature flag status clearly
+      logger.info('=== Feature Flags ===');
+      logger.info(`🤖 Autonomous agents: ${config.features.autonomousAgents ? 'ENABLED' : 'DISABLED'}`);
+      logger.info(`💭 Dreams: ${config.features.dreams ? 'ENABLED' : 'DISABLED'}`);
+      logger.info(`🔍 Web research: ${config.features.webResearch ? 'ENABLED' : 'DISABLED'}`);
+      logger.info('=====================');
 
+      if (config.features.autonomousAgents) {
         // Start the scheduler for autonomous agents
         try {
           scheduler = new SchedulerService(pool, supabase);
@@ -193,12 +198,8 @@ async function startServer() {
           logger.error('Failed to start scheduler:', error);
           logger.warn('⚠️  Continuing without autonomous agents');
         }
-      }
-      if (config.features.dreams) {
-        logger.info('💭 Dreams: ENABLED');
-      }
-      if (config.features.webResearch) {
-        logger.info('🔍 Web research: ENABLED');
+      } else {
+        logger.warn('⚠️  Scheduler NOT started (ENABLE_AUTONOMOUS_AGENTS=true required)');
       }
 
       // Start background jobs for automatic fact extraction

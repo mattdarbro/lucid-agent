@@ -52,11 +52,13 @@ export class SchedulerService {
     // Schedule research task execution every 5 minutes
     if (config.features.webResearch) {
       const researchTask = cron.schedule('*/5 * * * *', async () => {
-        logger.debug('Running research task executor');
+        logger.info('Running research task executor (5-minute cycle)');
         try {
           const result = await this.researchExecutor.processPendingTasks(3);
           if (result.processed > 0) {
             logger.info('Research execution completed', result);
+          } else {
+            logger.debug('No research tasks processed this cycle');
           }
         } catch (error) {
           logger.error('Research execution failed', { error });
@@ -67,6 +69,8 @@ export class SchedulerService {
 
       this.scheduledTasks.push(researchTask);
       logger.info('🔍 Research executor: ENABLED (runs every 5 minutes)');
+    } else {
+      logger.warn('🔍 Research executor: DISABLED (set ENABLE_WEB_RESEARCH=true to enable)');
     }
 
     logger.info('Scheduler service started successfully', {
