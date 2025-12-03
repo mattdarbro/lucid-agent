@@ -39,7 +39,7 @@ export class AutonomousThoughtService {
     const insertData: any = {
       user_id: input.user_id,
       content: input.content,
-      thought_type: input.thought_type,
+      category: input.thought_type,  // DB column is 'category', not 'thought_type'
       is_shared: input.is_shared ?? false,
     };
 
@@ -124,7 +124,7 @@ export class AutonomousThoughtService {
     let query = this.supabase.from('autonomous_thoughts').select('*');
 
     if (input.user_id) query = query.eq('user_id', input.user_id);
-    if (input.thought_type) query = query.eq('thought_type', input.thought_type);
+    if (input.thought_type) query = query.eq('category', input.thought_type);
     if (input.circadian_phase) query = query.eq('circadian_phase', input.circadian_phase);
     if (input.is_shared !== undefined) query = query.eq('is_shared', input.is_shared);
     if (input.min_importance) query = query.gte('importance_score', input.min_importance);
@@ -168,7 +168,7 @@ export class AutonomousThoughtService {
 
       let paramIndex = 4;
       if (input.thought_type) {
-        sql += ` AND thought_type = $${paramIndex}`;
+        sql += ` AND category = $${paramIndex}`;
         params.push(input.thought_type);
         paramIndex++;
       }
@@ -275,7 +275,7 @@ export class AutonomousThoughtService {
       user_id: data.user_id,
       agent_job_id: data.agent_job_id ?? null,
       content: data.content,
-      thought_type: data.thought_type as ThoughtCategory,
+      thought_type: data.category as ThoughtCategory,  // DB column is 'category'
       circadian_phase: data.circadian_phase as CircadianPhase | null,
       generated_at_time: data.generated_at_time ?? null,
       importance_score: data.importance_score ?? null,
