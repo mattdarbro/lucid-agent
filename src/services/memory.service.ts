@@ -32,7 +32,7 @@ export class MemoryService {
       const result: QueryResult<FactWithEvidence> = await this.pool.query(
         `SELECT f.*,
                 COALESCE(
-                  array_agg(e.content) FILTER (WHERE e.content IS NOT NULL),
+                  array_agg(e.excerpt) FILTER (WHERE e.excerpt IS NOT NULL),
                   ARRAY[]::text[]
                 ) as evidence_list
          FROM facts f
@@ -75,7 +75,7 @@ export class MemoryService {
       const result: QueryResult<FactWithEvidence> = await this.pool.query(
         `SELECT f.*,
                 COALESCE(
-                  array_agg(e.content) FILTER (WHERE e.content IS NOT NULL),
+                  array_agg(e.excerpt) FILTER (WHERE e.excerpt IS NOT NULL),
                   ARRAY[]::text[]
                 ) as evidence_list
          FROM facts f

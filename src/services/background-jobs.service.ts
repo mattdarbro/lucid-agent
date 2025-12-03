@@ -102,7 +102,7 @@ export class BackgroundJobsService {
       // - No recent extraction (null or older than 10 minutes)
       // - Active in the last 24 hours
       const result = await this.pool.query(`
-        SELECT DISTINCT c.id as conversation_id, c.user_id
+        SELECT c.id as conversation_id, c.user_id, MAX(c.updated_at) as updated_at
         FROM conversations c
         JOIN messages m ON m.conversation_id = c.id
         WHERE (c.last_fact_extraction_at IS NULL
@@ -110,7 +110,7 @@ export class BackgroundJobsService {
           AND c.updated_at > NOW() - INTERVAL '24 hours'
         GROUP BY c.id, c.user_id
         HAVING COUNT(m.id) >= 5
-        ORDER BY c.updated_at DESC
+        ORDER BY updated_at DESC
         LIMIT 10
       `);
 
@@ -350,14 +350,14 @@ export class BackgroundJobsService {
     try {
       // Find all eligible conversations for this user (ignore the 10-minute cooldown for manual trigger)
       const conversations = await this.pool.query(`
-        SELECT DISTINCT c.id as conversation_id, c.title
+        SELECT c.id as conversation_id, c.title, MAX(c.updated_at) as updated_at
         FROM conversations c
         JOIN messages m ON m.conversation_id = c.id
         WHERE c.user_id = $1
           AND c.updated_at > NOW() - INTERVAL '7 days'
         GROUP BY c.id, c.title
         HAVING COUNT(m.id) >= 3
-        ORDER BY c.updated_at DESC
+        ORDER BY updated_at DESC
         LIMIT 10
       `, [userId]);
 

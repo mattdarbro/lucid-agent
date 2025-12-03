@@ -58,8 +58,12 @@ export class CircadianAgents {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      // Get recent facts
-      const facts = await this.factService.listByUser(userId);
+      // Get recent active facts (consistent with MorningReflectionAgent)
+      const facts = await this.factService.listByUser(userId, {
+        is_active: true,
+        min_confidence: 0.5,
+        limit: 10,
+      });
 
       // Get current emotional state
       const emotionalState = await this.emotionalStateService.getActiveEmotionalState(userId);
@@ -151,8 +155,12 @@ Format your response as a JSON array of thoughts:
     logger.info('Running midday curiosity', { userId, jobId });
 
     try {
-      // Get recent facts
-      const facts = await this.factService.listByUser(userId);
+      // Get recent active facts
+      const facts = await this.factService.listByUser(userId, {
+        is_active: true,
+        min_confidence: 0.5,
+        limit: 15,
+      });
 
       // Get current emotional state and adaptation
       const emotionalState = await this.emotionalStateService.getActiveEmotionalState(userId);
@@ -268,7 +276,11 @@ Format as JSON:
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const facts = await this.factService.listByUser(userId);
+      const facts = await this.factService.listByUser(userId, {
+        is_active: true,
+        min_confidence: 0.5,
+        limit: 20,
+      });
 
       // Get emotional state
       const emotionalState = await this.emotionalStateService.getActiveEmotionalState(userId);
@@ -359,8 +371,12 @@ Format as JSON:
     logger.info('Running night dream', { userId, jobId });
 
     try {
-      // Get diverse set of facts for pattern recognition
-      const facts = await this.factService.listByUser(userId);
+      // Get diverse set of active facts for pattern recognition
+      const facts = await this.factService.listByUser(userId, {
+        is_active: true,
+        min_confidence: 0.5,
+        limit: 25,  // More facts for creative pattern recognition
+      });
 
       // Build context
       const factsContext = facts.length > 0

@@ -59,7 +59,7 @@ export class ResearchExecutorService {
     try {
       // Check if web search is available
       if (!this.webSearchService.isAvailable()) {
-        logger.warn('Web search not available, skipping research execution');
+        logger.warn('Web search not available - TAVILY_API_KEY may not be set. Skipping research execution. Pending tasks will remain in queue.');
         return { processed: 0, successful: 0, failed: 0 };
       }
 
@@ -276,5 +276,30 @@ Keep facts concise and specific. Focus on information relevant to understanding 
    */
   isCurrentlyProcessing(): boolean {
     return this.isProcessing;
+  }
+
+  /**
+   * Check if research execution is available
+   * Returns details about why it might not be available
+   */
+  getAvailabilityStatus(): {
+    available: boolean;
+    webSearchAvailable: boolean;
+    reason?: string;
+  } {
+    const webSearchAvailable = this.webSearchService.isAvailable();
+
+    if (!webSearchAvailable) {
+      return {
+        available: false,
+        webSearchAvailable: false,
+        reason: 'TAVILY_API_KEY is not set or invalid. Web search is required for research execution.',
+      };
+    }
+
+    return {
+      available: true,
+      webSearchAvailable: true,
+    };
   }
 }
