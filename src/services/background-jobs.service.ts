@@ -307,8 +307,17 @@ export class BackgroundJobsService {
 
   /**
    * Generate a morning reflection for a specific user (useful for testing)
+   * Now includes deduplication check to prevent multiple reflections per day
    */
   async triggerReflectionForUser(userId: string): Promise<any> {
+    // Check if should generate (respects user settings, avoids duplicates)
+    const shouldGenerate = await this.morningReflectionAgent.shouldGenerateReflection(userId);
+
+    if (!shouldGenerate) {
+      logger.info(`[BACKGROUND] Skipping reflection for user ${userId} (already generated today or user inactive)`);
+      return null;
+    }
+
     return this.morningReflectionAgent.generateReflection(userId);
   }
 }

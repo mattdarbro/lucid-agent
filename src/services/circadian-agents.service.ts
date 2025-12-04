@@ -45,11 +45,27 @@ export class CircadianAgents {
   /**
    * Morning Reflection Agent
    * Reflects on yesterday's conversations and identifies insights
+   * Limited to ONE thought per day to avoid overwhelming the user
    */
   async runMorningReflection(userId: string, jobId: string): Promise<AgentResult> {
     logger.info('Running morning reflection', { userId, jobId });
 
     try {
+      // Check if we already generated a morning thought today
+      const todayCheck = await this.pool.query(
+        `SELECT id FROM autonomous_thoughts
+         WHERE user_id = $1
+           AND circadian_phase = 'morning'
+           AND created_at > CURRENT_DATE
+         LIMIT 1`,
+        [userId]
+      );
+
+      if (todayCheck.rows.length > 0) {
+        logger.info('Morning reflection already generated today', { userId });
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
+
       // Get yesterday's messages
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
@@ -74,49 +90,45 @@ export class CircadianAgents {
         : 'No emotional state detected yet.';
 
       // Generate reflection using Claude
-      const prompt = `You are Lucid's morning reflection agent. Review the recent interactions and generate thoughtful reflections.
+      // IMPORTANT: Changed from "2-3 reflective thoughts" to "ONE thoughtful reflection"
+      const prompt = `You are Lucid's morning reflection agent. Review the recent interactions and generate ONE thoughtful reflection.
 
 ${factsContext}
 
 ${emotionalContext}
 
-Generate 2-3 reflective thoughts about:
-1. Patterns you've noticed in conversations
-2. Areas where you could provide better support
-3. Insights about the user's interests or needs
+Generate ONE reflective thought about patterns you've noticed, insights about the user, or areas where you could provide better support.
 
-Format your response as a JSON array of thoughts:
-[
-  {
-    "content": "The reflection text",
-    "importance_score": 0.75,
-    "category": "reflection" or "insight"
-  }
-]`;
+Format your response as a JSON object with a single thought:
+{
+  "content": "The reflection text",
+  "importance_score": 0.75,
+  "category": "reflection" or "insight"
+}`;
 
       const response = await this.anthropic.messages.create({
         model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1500,
+        max_tokens: 800,
         temperature: 0.8,
         messages: [{ role: 'user', content: prompt }],
       });
 
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
 
-      // Parse thoughts
-      let thoughts: any[] = [];
+      // Parse thought
+      let thought: any = null;
       try {
-        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          thoughts = JSON.parse(jsonMatch[0]);
+          thought = JSON.parse(jsonMatch[0]);
         }
       } catch (error) {
         logger.error('Failed to parse morning reflection response', { error, responseText });
       }
 
-      // Create autonomous thoughts
+      // Create ONE autonomous thought
       let thoughtsGenerated = 0;
-      for (const thought of thoughts) {
+      if (thought) {
         try {
           await this.thoughtService.createThought({
             user_id: userId,
@@ -128,7 +140,7 @@ Format your response as a JSON array of thoughts:
             generated_at_time: new Date().toTimeString().split(' ')[0],
             is_shared: false,
           });
-          thoughtsGenerated++;
+          thoughtsGenerated = 1;
         } catch (error) {
           logger.error('Failed to create morning thought', { error, thought });
         }
