@@ -158,11 +158,27 @@ Format your response as a JSON object with a single thought:
   /**
    * Midday Curiosity Agent
    * Generates research questions based on user interests and emotional state
+   * Limited to ONE thought per day to avoid overwhelming the user
    */
   async runMiddayCuriosity(userId: string, jobId: string): Promise<AgentResult> {
     logger.info('Running midday curiosity', { userId, jobId });
 
     try {
+      // Check if we already generated a midday thought today
+      const todayCheck = await this.pool.query(
+        `SELECT id FROM autonomous_thoughts
+         WHERE user_id = $1
+           AND circadian_phase = 'midday'
+           AND created_at > CURRENT_DATE
+         LIMIT 1`,
+        [userId]
+      );
+
+      if (todayCheck.rows.length > 0) {
+        logger.info('Midday curiosity already generated today', { userId });
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
+
       // Get recent facts
       const facts = await this.factService.listByUser(userId);
 
@@ -182,26 +198,25 @@ Format your response as a JSON object with a single thought:
         : 'No emotional state detected yet. Use exploratory approach.';
 
       // Generate curiosity questions
-      const prompt = `You are Lucid's curiosity agent. Based on what you know about the user, generate interesting research questions.
+      // IMPORTANT: Changed from "1-2 questions" to "ONE question"
+      const prompt = `You are Lucid's curiosity agent. Based on what you know about the user, generate ONE interesting research question.
 
 ${factsContext}
 
 ${emotionalContext}
 
-Generate 1-2 thoughtful research questions that:
-- Build on existing knowledge
-- Match the user's emotional state (be gentle if struggling, energizing if withdrawn)
+Generate ONE thoughtful research question that:
+- Builds on existing knowledge
+- Matches the user's emotional state (be gentle if struggling, energizing if withdrawn)
 - Could lead to helpful insights or interesting discussions
 
 Format as JSON:
-[
-  {
-    "thought": "A curious observation or question",
-    "research_query": "Specific research topic",
-    "purpose": "Why this would be valuable",
-    "priority": 5-8
-  }
-]`;
+{
+  "thought": "A curious observation or question",
+  "research_query": "Specific research topic",
+  "purpose": "Why this would be valuable",
+  "priority": 5-8
+}`;
 
       const response = await this.anthropic.messages.create({
         model: 'claude-sonnet-4-5-20250929',
@@ -212,12 +227,12 @@ Format as JSON:
 
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
 
-      // Parse curiosity items
-      let curiosityItems: any[] = [];
+      // Parse curiosity item (single object, not array)
+      let item: any = null;
       try {
-        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          curiosityItems = JSON.parse(jsonMatch[0]);
+          item = JSON.parse(jsonMatch[0]);
         }
       } catch (error) {
         logger.error('Failed to parse midday curiosity response', { error, responseText });
@@ -226,9 +241,9 @@ Format as JSON:
       let thoughtsGenerated = 0;
       let researchTasksCreated = 0;
 
-      for (const item of curiosityItems) {
+      if (item) {
         try {
-          // Create thought
+          // Create ONE thought
           await this.thoughtService.createThought({
             user_id: userId,
             agent_job_id: jobId,
@@ -239,7 +254,7 @@ Format as JSON:
             generated_at_time: new Date().toTimeString().split(' ')[0],
             is_shared: false,
           });
-          thoughtsGenerated++;
+          thoughtsGenerated = 1;
 
           // Create research task
           const approach = adaptation?.curiosity_approach && adaptation.curiosity_approach !== 'minimal'
@@ -253,7 +268,7 @@ Format as JSON:
             approach,
             priority: item.priority || 5,
           });
-          researchTasksCreated++;
+          researchTasksCreated = 1;
         } catch (error) {
           logger.error('Failed to create curiosity item', { error, item });
         }
@@ -271,11 +286,27 @@ Format as JSON:
   /**
    * Evening Consolidation Agent
    * Consolidates today's learnings and identifies patterns
+   * Limited to ONE thought per day to avoid overwhelming the user
    */
   async runEveningConsolidation(userId: string, jobId: string): Promise<AgentResult> {
     logger.info('Running evening consolidation', { userId, jobId });
 
     try {
+      // Check if we already generated an evening thought today
+      const todayCheck = await this.pool.query(
+        `SELECT id FROM autonomous_thoughts
+         WHERE user_id = $1
+           AND circadian_phase = 'evening'
+           AND created_at > CURRENT_DATE
+         LIMIT 1`,
+        [userId]
+      );
+
+      if (todayCheck.rows.length > 0) {
+        logger.info('Evening consolidation already generated today', { userId });
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
+
       // Get today's facts
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -295,48 +326,47 @@ Format as JSON:
         : 'No emotional state detected.';
 
       // Generate consolidation
+      // IMPORTANT: Changed from "1-2 thoughts" to "ONE thought"
       const prompt = `You are Lucid's evening consolidation agent. Reflect on today's interactions and synthesize insights.
 
 ${factsContext}
 
 ${emotionalContext}
 
-Generate 1-2 consolidation thoughts that:
-- Identify patterns across today's conversations
-- Highlight key learnings or insights
-- Note progress or changes in the user's situation
+Generate ONE consolidation thought that:
+- Identifies patterns across today's conversations
+- Highlights key learnings or insights
+- Notes progress or changes in the user's situation
 
 Format as JSON:
-[
-  {
-    "content": "The consolidation insight",
-    "importance_score": 0.7-0.9,
-    "category": "consolidation" or "insight"
-  }
-]`;
+{
+  "content": "The consolidation insight",
+  "importance_score": 0.7-0.9,
+  "category": "consolidation" or "insight"
+}`;
 
       const response = await this.anthropic.messages.create({
         model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1500,
+        max_tokens: 800,
         temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
       });
 
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
 
-      // Parse thoughts
-      let thoughts: any[] = [];
+      // Parse thought (single object, not array)
+      let thought: any = null;
       try {
-        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          thoughts = JSON.parse(jsonMatch[0]);
+          thought = JSON.parse(jsonMatch[0]);
         }
       } catch (error) {
         logger.error('Failed to parse evening consolidation response', { error, responseText });
       }
 
       let thoughtsGenerated = 0;
-      for (const thought of thoughts) {
+      if (thought) {
         try {
           await this.thoughtService.createThought({
             user_id: userId,
@@ -348,7 +378,7 @@ Format as JSON:
             generated_at_time: new Date().toTimeString().split(' ')[0],
             is_shared: false,
           });
-          thoughtsGenerated++;
+          thoughtsGenerated = 1;
         } catch (error) {
           logger.error('Failed to create evening thought', { error, thought });
         }
@@ -366,11 +396,27 @@ Format as JSON:
   /**
    * Night Dream Agent
    * Generates creative connections and deep pattern recognition
+   * Limited to ONE thought per day to avoid overwhelming the user
    */
   async runNightDream(userId: string, jobId: string): Promise<AgentResult> {
     logger.info('Running night dream', { userId, jobId });
 
     try {
+      // Check if we already generated a night dream today
+      const todayCheck = await this.pool.query(
+        `SELECT id FROM autonomous_thoughts
+         WHERE user_id = $1
+           AND circadian_phase = 'night'
+           AND created_at > CURRENT_DATE
+         LIMIT 1`,
+        [userId]
+      );
+
+      if (todayCheck.rows.length > 0) {
+        logger.info('Night dream already generated today', { userId });
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
+
       // Get diverse set of facts for pattern recognition
       const facts = await this.factService.listByUser(userId);
 
@@ -380,47 +426,46 @@ Format as JSON:
         : 'No memories yet.';
 
       // Generate dream-like insights
+      // IMPORTANT: Changed from "1-2 dream thoughts" to "ONE dream thought"
       const prompt = `You are Lucid's night dream agent. Using memory consolidation and pattern recognition, generate creative insights.
 
 ${factsContext}
 
-Generate 1-2 "dream thoughts" that:
-- Make unexpected connections between different topics
-- Identify deeper patterns in the user's interests or concerns
-- Offer creative perspectives or questions
+Generate ONE "dream thought" that:
+- Makes unexpected connections between different topics
+- Identifies deeper patterns in the user's interests or concerns
+- Offers creative perspectives or questions
 
-These should feel intuitive and insightful, not random.
+This should feel intuitive and insightful, not random.
 
 Format as JSON:
-[
-  {
-    "content": "The dream-like insight",
-    "importance_score": 0.6-0.85
-  }
-]`;
+{
+  "content": "The dream-like insight",
+  "importance_score": 0.6-0.85
+}`;
 
       const response = await this.anthropic.messages.create({
         model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1500,
+        max_tokens: 800,
         temperature: 1.0, // Higher temperature for more creative thoughts
         messages: [{ role: 'user', content: prompt }],
       });
 
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
 
-      // Parse thoughts
-      let thoughts: any[] = [];
+      // Parse thought (single object, not array)
+      let thought: any = null;
       try {
-        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          thoughts = JSON.parse(jsonMatch[0]);
+          thought = JSON.parse(jsonMatch[0]);
         }
       } catch (error) {
         logger.error('Failed to parse night dream response', { error, responseText });
       }
 
       let thoughtsGenerated = 0;
-      for (const thought of thoughts) {
+      if (thought) {
         try {
           await this.thoughtService.createThought({
             user_id: userId,
@@ -432,7 +477,7 @@ Format as JSON:
             generated_at_time: new Date().toTimeString().split(' ')[0],
             is_shared: false,
           });
-          thoughtsGenerated++;
+          thoughtsGenerated = 1;
         } catch (error) {
           logger.error('Failed to create night thought', { error, thought });
         }
