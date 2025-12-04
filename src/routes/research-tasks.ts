@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ResearchTaskService } from '../services/research-task.service';
+import { ResearchExecutorService } from '../services/research-executor.service';
 import {
   createResearchTaskSchema,
   updateResearchTaskSchema,
@@ -12,6 +13,7 @@ import { logger } from '../logger';
 export function createResearchTaskRouter(pool: Pool, supabase: SupabaseClient): Router {
   const router = Router();
   const researchService = new ResearchTaskService(pool, supabase);
+  const researchExecutor = new ResearchExecutorService(pool, supabase);
 
   /**
    * POST /research-tasks
@@ -85,6 +87,69 @@ export function createResearchTaskRouter(pool: Pool, supabase: SupabaseClient): 
         emotionalStateId: req.params.emotionalStateId
       });
       res.status(500).json({ error: 'Failed to get tasks by emotional state' });
+    }
+  });
+
+  /**
+   * GET /research-tasks/executor/status
+   * Check if research execution is available
+   */
+  router.get('/executor/status', async (_req: Request, res: Response) => {
+    try {
+      const status = researchExecutor.getAvailabilityStatus();
+      const isProcessing = researchExecutor.isCurrentlyProcessing();
+
+      res.json({
+        ...status,
+        isProcessing,
+      });
+    } catch (error: any) {
+      logger.error('Failed to get research executor status', { error: error.message });
+      res.status(500).json({ error: 'Failed to get executor status' });
+    }
+  });
+
+  /**
+   * POST /research-tasks/executor/run
+   * Manually trigger research execution
+   */
+  router.post('/executor/run', async (req: Request, res: Response) => {
+    try {
+      const maxTasks = req.body.max_tasks || 3;
+
+      logger.info('Manual research execution triggered via API', { maxTasks });
+
+      const result = await researchExecutor.processPendingTasks(maxTasks);
+
+      res.json({
+        success: true,
+        ...result,
+      });
+    } catch (error: any) {
+      logger.error('Failed to trigger research execution via API', { error: error.message });
+      res.status(500).json({ error: 'Failed to trigger research execution' });
+    }
+  });
+
+  /**
+   * POST /research-tasks/executor/reset-stuck
+   * Reset tasks stuck in 'in_progress' status
+   */
+  router.post('/executor/reset-stuck', async (req: Request, res: Response) => {
+    try {
+      const stuckAfterMinutes = req.body.stuck_after_minutes || 10;
+
+      logger.info('Manual reset of stuck tasks triggered', { stuckAfterMinutes });
+
+      const resetCount = await researchService.resetStuckTasks(stuckAfterMinutes);
+
+      res.json({
+        success: true,
+        tasksReset: resetCount,
+      });
+    } catch (error: any) {
+      logger.error('Failed to reset stuck tasks via API', { error: error.message });
+      res.status(500).json({ error: 'Failed to reset stuck tasks' });
     }
   });
 

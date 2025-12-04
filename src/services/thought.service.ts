@@ -414,31 +414,50 @@ Your conversational response (do NOT include the library link - it will be added
   }
 
   /**
-   * Search Library for relevant entries
-   */
-  /**
    * Search library entries using semantic similarity
    * Public method to allow chat service to retrieve relevant library context
+   *
+   * Uses cosine distance with a minimum similarity threshold to ensure
+   * only relevant entries are returned (not just the least-bad matches)
    */
   async searchLibrary(
     userId: string,
     query: string,
-    limit: number = 3
+    limit: number = 3,
+    minSimilarity: number = 0.3  // Minimum cosine similarity (0-1 scale)
   ): Promise<Array<{ title: string | null; content: string }>> {
     try {
       const queryEmbedding = await this.vectorService.generateEmbedding(query);
       const embeddingString = `[${queryEmbedding.join(',')}]`;
 
+      // Use cosine distance (<=>) and filter by minimum similarity
+      // Cosine distance ranges from 0 (identical) to 2 (opposite)
+      // Similarity = 1 - (distance / 2), so distance <= 2 * (1 - minSimilarity)
+      const maxDistance = 2 * (1 - minSimilarity);
+
       const result = await this.pool.query(
-        `SELECT title, content
+        `SELECT title, content, (1 - (embedding <=> $2::vector) / 2) as similarity
          FROM library_entries
-         WHERE user_id = $1 AND embedding IS NOT NULL
+         WHERE user_id = $1
+           AND embedding IS NOT NULL
+           AND (embedding <=> $2::vector) <= $4
          ORDER BY embedding <=> $2::vector
          LIMIT $3`,
-        [userId, embeddingString, limit]
+        [userId, embeddingString, limit, maxDistance]
       );
 
-      return result.rows;
+      if (result.rows.length > 0) {
+        logger.debug('Library search found relevant entries', {
+          userId,
+          count: result.rows.length,
+          topSimilarity: result.rows[0]?.similarity,
+        });
+      }
+
+      return result.rows.map(row => ({
+        title: row.title,
+        content: row.content,
+      }));
     } catch (error) {
       logger.error('Error searching library:', error);
       return [];

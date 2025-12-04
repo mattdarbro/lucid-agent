@@ -34,12 +34,18 @@ export class WebSearchService {
       return;
     }
 
+    // Log that we have a key (but not the key itself)
+    logger.info('Tavily API key found, initializing client', {
+      keyLength: key.length,
+      keyPrefix: key.substring(0, 8) + '...',
+    });
+
     try {
       this.client = new TavilyClient({ apiKey: key });
       this.enabled = true;
       logger.info('Web search service initialized successfully');
-    } catch (error) {
-      logger.error('Failed to initialize Tavily client', { error });
+    } catch (error: any) {
+      logger.error('Failed to initialize Tavily client', { error: error.message });
       this.enabled = false;
     }
   }

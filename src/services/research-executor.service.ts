@@ -59,11 +59,17 @@ export class ResearchExecutorService {
     try {
       // Check if web search is available
       if (!this.webSearchService.isAvailable()) {
-        logger.warn('Web search not available, skipping research execution');
+        logger.warn('Web search not available - TAVILY_API_KEY may not be set. Skipping research execution. Pending tasks will remain in queue.');
         return { processed: 0, successful: 0, failed: 0 };
       }
 
       logger.info('Processing pending research tasks', { maxTasks });
+
+      // Reset any stuck tasks (in_progress for more than 10 minutes)
+      const resetCount = await this.researchTaskService.resetStuckTasks(10);
+      if (resetCount > 0) {
+        logger.info('Reset stuck tasks before processing', { resetCount });
+      }
 
       // Get pending tasks (high priority first)
       const tasks = await this.researchTaskService.getPendingTasks(undefined, maxTasks);
@@ -118,17 +124,30 @@ export class ResearchExecutorService {
     approach: string,
     purpose: string | null,
   ): Promise<void> {
-    logger.info('Processing research task', { taskId, query });
+    logger.info('Processing research task', { taskId, query, approach });
 
     // Mark as in progress
+    logger.debug('Marking task as started', { taskId });
     await this.researchTaskService.markTaskAsStarted(taskId);
 
     try {
+      // Check web search availability
+      logger.debug('Checking web search availability', {
+        taskId,
+        isAvailable: this.webSearchService.isAvailable(),
+      });
+
       // Execute web search
+      logger.info('Executing web search for research task', { taskId, query });
       const searchResults = await this.webSearchService.search(query, {
         maxResults: 5,
         includeAnswer: true,
         searchDepth: approach === 'analytical' ? 'advanced' : 'basic',
+      });
+      logger.info('Web search completed for task', {
+        taskId,
+        resultsCount: searchResults.results.length,
+        hasAnswer: !!searchResults.answer,
       });
 
       // Analyze results and derive insights using Claude
@@ -276,5 +295,30 @@ Keep facts concise and specific. Focus on information relevant to understanding 
    */
   isCurrentlyProcessing(): boolean {
     return this.isProcessing;
+  }
+
+  /**
+   * Check if research execution is available
+   * Returns details about why it might not be available
+   */
+  getAvailabilityStatus(): {
+    available: boolean;
+    webSearchAvailable: boolean;
+    reason?: string;
+  } {
+    const webSearchAvailable = this.webSearchService.isAvailable();
+
+    if (!webSearchAvailable) {
+      return {
+        available: false,
+        webSearchAvailable: false,
+        reason: 'TAVILY_API_KEY is not set or invalid. Web search is required for research execution.',
+      };
+    }
+
+    return {
+      available: true,
+      webSearchAvailable: true,
+    };
   }
 }

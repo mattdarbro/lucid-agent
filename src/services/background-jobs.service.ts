@@ -7,6 +7,9 @@ import { VectorService } from './vector.service';
 import { ProfileService } from './profile.service';
 import { MorningReflectionAgent } from '../agents/morning-reflection.agent';
 
+// Timezone for scheduled jobs (Pacific Time)
+const SCHEDULE_TIMEZONE = 'America/Los_Angeles';
+
 /**
  * BackgroundJobsService
  *
@@ -14,6 +17,7 @@ import { MorningReflectionAgent } from '../agents/morning-reflection.agent';
  * - Automatic fact extraction from conversations
  * - Morning reflections (autonomous thinking)
  *
+ * All time-based schedules use Pacific Time (America/Los_Angeles).
  * Respects per-user profile settings - only processes users with features enabled.
  */
 export class BackgroundJobsService {
@@ -98,7 +102,7 @@ export class BackgroundJobsService {
       // - No recent extraction (null or older than 10 minutes)
       // - Active in the last 24 hours
       const result = await this.pool.query(`
-        SELECT DISTINCT c.id as conversation_id, c.user_id
+        SELECT c.id as conversation_id, c.user_id, MAX(c.updated_at) as updated_at
         FROM conversations c
         JOIN messages m ON m.conversation_id = c.id
         WHERE (c.last_fact_extraction_at IS NULL
@@ -106,7 +110,7 @@ export class BackgroundJobsService {
           AND c.updated_at > NOW() - INTERVAL '24 hours'
         GROUP BY c.id, c.user_id
         HAVING COUNT(m.id) >= 5
-        ORDER BY c.updated_at DESC
+        ORDER BY updated_at DESC
         LIMIT 10
       `);
 
@@ -228,15 +232,21 @@ export class BackgroundJobsService {
 
   /**
    * Starts the morning reflection job
-   * Runs every day at 7am to generate reflections for active users
+   * Runs every day at 7am Pacific Time to generate reflections for active users
    */
   private startMorningReflectionJob(): void {
-    // Run every day at 7:00 AM
-    this.morningReflectionJob = cron.schedule('0 7 * * *', async () => {
-      await this.runMorningReflections();
-    });
+    // Run every day at 7:00 AM Pacific Time
+    this.morningReflectionJob = cron.schedule(
+      '0 7 * * *',
+      async () => {
+        await this.runMorningReflections();
+      },
+      {
+        timezone: SCHEDULE_TIMEZONE,
+      }
+    );
 
-    logger.info('[BACKGROUND] Morning reflection job scheduled (daily at 7:00 AM)');
+    logger.info(`[BACKGROUND] Morning reflection job scheduled (daily at 7:00 AM ${SCHEDULE_TIMEZONE})`);
   }
 
   /**
@@ -307,17 +317,93 @@ export class BackgroundJobsService {
 
   /**
    * Generate a morning reflection for a specific user (useful for testing)
-   * Now includes deduplication check to prevent multiple reflections per day
+   * Bypasses the daily limit check to force generation
    */
-  async triggerReflectionForUser(userId: string): Promise<any> {
-    // Check if should generate (respects user settings, avoids duplicates)
-    const shouldGenerate = await this.morningReflectionAgent.shouldGenerateReflection(userId);
-
-    if (!shouldGenerate) {
-      logger.info(`[BACKGROUND] Skipping reflection for user ${userId} (already generated today or user inactive)`);
-      return null;
+  async triggerReflectionForUser(userId: string, force: boolean = false): Promise<any> {
+    if (force) {
+      // Force generation, bypassing the shouldGenerateReflection check
+      return this.morningReflectionAgent.generateReflection(userId);
     }
 
+    // Normal flow - check if should generate first
+    const shouldGenerate = await this.morningReflectionAgent.shouldGenerateReflection(userId);
+    if (!shouldGenerate) {
+      return { skipped: true, reason: 'User does not meet criteria for reflection (already generated today, inactive, or disabled)' };
+    }
     return this.morningReflectionAgent.generateReflection(userId);
+  }
+
+  /**
+   * Trigger fact extraction for a specific user's conversations
+   */
+  async triggerFactExtractionForUser(userId: string): Promise<{
+    conversations_processed: number;
+    facts_created: number;
+    details: Array<{ conversation_id: string; facts_created: number }>;
+  }> {
+    const result = {
+      conversations_processed: 0,
+      facts_created: 0,
+      details: [] as Array<{ conversation_id: string; facts_created: number }>,
+    };
+
+    try {
+      // Find all eligible conversations for this user (ignore the 10-minute cooldown for manual trigger)
+      const conversations = await this.pool.query(`
+        SELECT c.id as conversation_id, c.title, MAX(c.updated_at) as updated_at
+        FROM conversations c
+        JOIN messages m ON m.conversation_id = c.id
+        WHERE c.user_id = $1
+          AND c.updated_at > NOW() - INTERVAL '7 days'
+        GROUP BY c.id, c.title
+        HAVING COUNT(m.id) >= 3
+        ORDER BY updated_at DESC
+        LIMIT 10
+      `, [userId]);
+
+      if (conversations.rows.length === 0) {
+        logger.info(`[MANUAL TRIGGER] No eligible conversations for user ${userId}`);
+        return result;
+      }
+
+      logger.info(`[MANUAL TRIGGER] Processing ${conversations.rows.length} conversations for user ${userId}`);
+
+      for (const row of conversations.rows) {
+        try {
+          const beforeCount = await this.factService.getCountByUser(userId);
+
+          await this.extractFactsForConversation(row.conversation_id, userId);
+
+          // Mark extraction done
+          await this.pool.query(
+            'UPDATE conversations SET last_fact_extraction_at = NOW() WHERE id = $1',
+            [row.conversation_id]
+          );
+
+          const afterCount = await this.factService.getCountByUser(userId);
+          const factsCreated = afterCount - beforeCount;
+
+          result.conversations_processed++;
+          result.facts_created += factsCreated;
+          result.details.push({
+            conversation_id: row.conversation_id,
+            facts_created: factsCreated,
+          });
+
+          // Small delay between extractions
+          await this.sleep(1000);
+        } catch (error: any) {
+          logger.error(`[MANUAL TRIGGER] Failed to extract from conversation ${row.conversation_id}:`, {
+            error: error.message,
+          });
+        }
+      }
+
+      logger.info(`[MANUAL TRIGGER] Completed for user ${userId}: ${result.facts_created} facts from ${result.conversations_processed} conversations`);
+      return result;
+    } catch (error: any) {
+      logger.error(`[MANUAL TRIGGER] Failed for user ${userId}:`, { error: error.message });
+      throw error;
+    }
   }
 }

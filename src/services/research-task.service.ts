@@ -238,6 +238,40 @@ export class ResearchTaskService {
   }
 
   /**
+   * Reset tasks stuck in 'in_progress' status for too long
+   * This can happen if the server crashes during task execution
+   */
+  async resetStuckTasks(stuckAfterMinutes: number = 10): Promise<number> {
+    logger.info('Checking for stuck research tasks', { stuckAfterMinutes });
+
+    const cutoffTime = new Date(Date.now() - stuckAfterMinutes * 60 * 1000);
+
+    const { data, error } = await this.supabase
+      .from('research_tasks')
+      .update({
+        status: 'pending',
+        started_at: null,
+      })
+      .eq('status', 'in_progress')
+      .lt('started_at', cutoffTime.toISOString())
+      .select('id');
+
+    if (error) {
+      logger.error('Failed to reset stuck tasks', { error });
+      return 0;
+    }
+
+    if (data && data.length > 0) {
+      logger.warn('Reset stuck research tasks', {
+        count: data.length,
+        taskIds: data.map((t: any) => t.id),
+      });
+    }
+
+    return data?.length || 0;
+  }
+
+  /**
    * Map database row to ResearchTask type
    */
   private mapToResearchTask(data: any): ResearchTask {
