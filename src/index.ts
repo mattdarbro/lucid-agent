@@ -23,6 +23,7 @@ import { BackgroundJobsService } from './services/background-jobs.service';
 import libraryRouter from './routes/library';
 import versusRouter from './routes/versus';
 import syncRouter from './routes/sync';
+import devicesRouter from './routes/devices';
 
 // Validate configuration on startup
 try {
@@ -136,6 +137,9 @@ app.use('/v1/versus', versusRouter);
 
 // Manual Sync endpoints (trigger fact extraction and reflections on-demand)
 app.use('/v1/sync', syncRouter);
+
+// Device linking (multi-device support)
+app.use('/v1/devices', devicesRouter);
 
 // TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);

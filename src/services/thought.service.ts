@@ -250,7 +250,7 @@ Respond with ONLY one word: DEEP or SIMPLE`;
         `${m.role === 'user' ? 'User' : 'Lucid'}: ${m.content}`
       ).join('\n');
 
-      const prompt = `Think deeply about this. Take your time. Explore fully.
+      const prompt = `Think deeply about this from a perspective of FLOURISHING. Take your time. Explore fully.
 
 User's message: "${message}"
 
@@ -266,11 +266,17 @@ ${patternsContext}
 Recent conversation:
 ${historyContext}
 
+Think through this as a companion invested in their flourishing - not just their feelings, but their whole life:
+- How does this connect to their relationships? Their impact on others?
+- What would help them grow - mentally, spiritually, professionally?
+- How might this affect their stewardship of time, energy, resources?
+- What would a wise mentor notice that they might not see?
+- Where might gentle challenge be more helpful than validation?
+
 Write your COMPLETE thought process. This is for the Library, not chat.
-- Explore multiple angles
-- Consider implications and trade-offs
-- Note uncertainties and assumptions
-- Make connections to what you know about them
+- Explore multiple angles, especially the relational and spiritual dimensions
+- Consider how this affects not just them but the people around them
+- Be honest - a wise friend who gently challenges, not just affirms
 - Be thorough but focused (500-2000 words)
 - Write as yourself (Lucid), thinking through this WITH them
 
