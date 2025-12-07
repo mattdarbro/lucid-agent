@@ -6,6 +6,7 @@ import { ResearchTaskService } from './research-task.service';
 import { WebSearchService } from './web-search.service';
 import { FactService } from './fact.service';
 import { VectorService } from './vector.service';
+import { AutonomousThoughtService } from './autonomous-thought.service';
 
 /**
  * ResearchExecutorService
@@ -21,6 +22,7 @@ export class ResearchExecutorService {
   private researchTaskService: ResearchTaskService;
   private webSearchService: WebSearchService;
   private factService: FactService;
+  private autonomousThoughtService: AutonomousThoughtService;
   private anthropic: Anthropic;
   private isProcessing: boolean = false;
 
@@ -33,6 +35,7 @@ export class ResearchExecutorService {
 
     const vectorService = new VectorService();
     this.factService = new FactService(pool, vectorService);
+    this.autonomousThoughtService = new AutonomousThoughtService(pool, supabase);
 
     this.anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
@@ -176,6 +179,9 @@ export class ResearchExecutorService {
 
       // Derive facts if any were suggested
       const derivedFacts: string[] = [];
+      let factsCreated = 0;
+      let factsFailed = 0;
+
       if (analysis.suggestedFacts && analysis.suggestedFacts.length > 0) {
         for (const factContent of analysis.suggestedFacts) {
           try {
@@ -186,8 +192,15 @@ export class ResearchExecutorService {
               confidence: 0.7, // Medium confidence for web-derived facts
             });
             derivedFacts.push(fact.id);
+            factsCreated++;
           } catch (error) {
-            logger.error('Failed to create derived fact', { error, factContent });
+            factsFailed++;
+            logger.error('Failed to create derived fact', {
+              error,
+              factContent,
+              taskId,
+              userId,
+            });
           }
         }
       }
@@ -195,9 +208,31 @@ export class ResearchExecutorService {
       // Mark task as completed
       await this.researchTaskService.markTaskAsCompleted(taskId, results, derivedFacts);
 
+      // Create an autonomous thought to surface the research findings in chat
+      // This ensures Lucid "remembers" doing the research and can reference findings
+      try {
+        await this.createResearchSummaryThought(
+          userId,
+          query,
+          purpose,
+          analysis.summary,
+          analysis.keyFindings,
+          factsCreated
+        );
+      } catch (error) {
+        logger.error('Failed to create research summary thought', {
+          error,
+          taskId,
+          userId,
+        });
+        // Don't fail the whole task if thought creation fails
+      }
+
       logger.info('Research task completed successfully', {
         taskId,
-        factsCreated: derivedFacts.length,
+        factsCreated,
+        factsFailed,
+        thoughtCreated: true,
       });
     } catch (error: any) {
       logger.error('Research task execution failed', {
@@ -213,6 +248,51 @@ export class ResearchExecutorService {
 
       throw error;
     }
+  }
+
+  /**
+   * Create an autonomous thought summarizing research findings
+   * This surfaces the research to chat context so Lucid can reference it
+   */
+  private async createResearchSummaryThought(
+    userId: string,
+    query: string,
+    purpose: string | null,
+    summary: string,
+    keyFindings: string[],
+    factsLearned: number
+  ): Promise<void> {
+    // Build a concise thought that captures the research
+    const findingsList = keyFindings.length > 0
+      ? keyFindings.slice(0, 3).map(f => `• ${f}`).join('\n')
+      : '';
+
+    const factsNote = factsLearned > 0
+      ? `I've added ${factsLearned} new ${factsLearned === 1 ? 'fact' : 'facts'} to my memory from this research.`
+      : '';
+
+    const thoughtContent = [
+      `I researched "${query}"${purpose ? ` to ${purpose.toLowerCase()}` : ''}.`,
+      summary,
+      findingsList,
+      factsNote,
+    ].filter(Boolean).join('\n\n');
+
+    await this.autonomousThoughtService.createThought({
+      user_id: userId,
+      content: thoughtContent,
+      thought_type: 'curiosity',
+      circadian_phase: 'midday',
+      importance_score: 0.7, // Research findings are moderately important
+      is_shared: false, // Will be shared naturally in next conversation
+    });
+
+    logger.info('Created research summary thought', {
+      userId,
+      query,
+      keyFindingsCount: keyFindings.length,
+      factsLearned,
+    });
   }
 
   /**

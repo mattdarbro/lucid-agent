@@ -203,11 +203,33 @@ export class AgentJobService {
 
   /**
    * Schedule circadian jobs for a user
+   * Only creates jobs that don't already exist for the given date
    */
   async scheduleCircadianJobs(userId: string, date: Date): Promise<AgentJob[]> {
     logger.info('Scheduling circadian jobs for user', { userId, date });
 
-    const jobs: CreateAgentJobInput[] = [
+    // Get start and end of the scheduling day
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(date);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    // Check for existing jobs for this user on this day
+    const { data: existingJobs, error: checkError } = await this.supabase
+      .from('agent_jobs')
+      .select('job_type')
+      .eq('user_id', userId)
+      .gte('scheduled_for', dayStart.toISOString())
+      .lte('scheduled_for', dayEnd.toISOString());
+
+    if (checkError) {
+      logger.error('Failed to check existing jobs', { error: checkError, userId });
+      throw new Error(`Failed to check existing jobs: ${checkError.message}`);
+    }
+
+    const existingJobTypes = new Set(existingJobs?.map(j => j.job_type) || []);
+
+    const allJobs: CreateAgentJobInput[] = [
       {
         user_id: userId,
         job_type: 'morning_reflection',
@@ -230,8 +252,24 @@ export class AgentJobService {
       },
     ];
 
+    // Filter out jobs that already exist
+    const jobsToCreate = allJobs.filter(job => !existingJobTypes.has(job.job_type));
+
+    if (jobsToCreate.length === 0) {
+      logger.info('All circadian jobs already exist for user', { userId, date });
+      return [];
+    }
+
+    if (jobsToCreate.length < allJobs.length) {
+      logger.info('Some circadian jobs already exist, creating remaining', {
+        userId,
+        existing: Array.from(existingJobTypes),
+        creating: jobsToCreate.map(j => j.job_type),
+      });
+    }
+
     const createdJobs = await Promise.all(
-      jobs.map(job => this.createJob(job))
+      jobsToCreate.map(job => this.createJob(job))
     );
 
     logger.info('Circadian jobs scheduled successfully', { userId, count: createdJobs.length });
