@@ -15,6 +15,8 @@ export class SchedulerService {
   private profileService: ProfileService;
   private scheduledTasks: cron.ScheduledTask[] = [];
   private jobCheckInterval: NodeJS.Timeout | null = null;
+  // Track which users are currently being processed to prevent race conditions
+  private processingUsers: Set<string> = new Set();
 
   constructor(
     private pool: Pool,
@@ -165,6 +167,7 @@ export class SchedulerService {
 
   /**
    * Process all jobs that are due
+   * Serializes processing per user to prevent race conditions
    */
   private async processDueJobs(): Promise<void> {
     try {
@@ -179,15 +182,52 @@ export class SchedulerService {
 
       logger.info('Found due jobs to process', { count: dueJobs.length });
 
-      // Process each job
+      // Group jobs by user to process one at a time per user
+      const jobsByUser = new Map<string, typeof dueJobs>();
       for (const job of dueJobs) {
-        // Process job asynchronously (don't await to allow parallel processing)
-        this.processJob(job.id).catch(error => {
-          logger.error('Error processing job', { jobId: job.id, error });
+        if (!jobsByUser.has(job.user_id)) {
+          jobsByUser.set(job.user_id, []);
+        }
+        jobsByUser.get(job.user_id)!.push(job);
+      }
+
+      // Process each user's jobs (in parallel across users, but serial within each user)
+      for (const [userId, userJobs] of jobsByUser) {
+        // Skip if this user is already being processed
+        if (this.processingUsers.has(userId)) {
+          logger.debug('User already being processed, skipping', { userId, jobCount: userJobs.length });
+          continue;
+        }
+
+        // Mark user as being processed
+        this.processingUsers.add(userId);
+
+        // Process this user's jobs sequentially (in background)
+        this.processUserJobsSequentially(userId, userJobs).catch(error => {
+          logger.error('Error processing user jobs', { userId, error });
+        }).finally(() => {
+          // Always remove user from processing set when done
+          this.processingUsers.delete(userId);
         });
       }
     } catch (error) {
       logger.error('Error in processDueJobs', { error });
+    }
+  }
+
+  /**
+   * Process a user's jobs sequentially to prevent race conditions
+   */
+  private async processUserJobsSequentially(userId: string, jobs: any[]): Promise<void> {
+    logger.debug('Processing jobs sequentially for user', { userId, jobCount: jobs.length });
+
+    for (const job of jobs) {
+      try {
+        await this.processJob(job.id);
+      } catch (error) {
+        logger.error('Error processing job in sequence', { jobId: job.id, userId, error });
+        // Continue with next job even if one fails
+      }
     }
   }
 
