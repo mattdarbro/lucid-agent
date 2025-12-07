@@ -89,13 +89,21 @@ export class VersusService {
 
     // Save Lu's opening message
     const messageResult = await this.pool.query(
-      `INSERT INTO versus_messages (session_id, speaker, content)
-       VALUES ($1, 'lu', $2)
-       RETURNING *`,
+      `INSERT INTO versus_messages (session_id, speaker, content, addressed_to)
+       VALUES ($1, 'lu', $2, NULL)
+       RETURNING id, session_id, speaker, content,
+                 COALESCE(addressed_to, '') as addressed_to,
+                 created_at`,
       [session.id, luOpening]
     );
 
     const openingMessage = messageResult.rows[0] as VersusMessage;
+
+    logger.info('Versus: Opening message created', {
+      sessionId: session.id,
+      messageId: openingMessage?.id,
+      hasContent: !!openingMessage?.content,
+    });
 
     logger.info('Versus session started', {
       session_id: session.id,
@@ -135,8 +143,10 @@ export class VersusService {
       const userResult = await this.pool.query(
         `INSERT INTO versus_messages (session_id, speaker, content, addressed_to)
          VALUES ($1, 'user', $2, $3)
-         RETURNING *`,
-        [sessionId, userMessage, addressedTo]
+         RETURNING id, session_id, speaker, content,
+                   COALESCE(addressed_to, '') as addressed_to,
+                   created_at`,
+        [sessionId, userMessage, addressedTo || null]
       );
       savedUserMessage = userResult.rows[0] as VersusMessage;
       history.push(savedUserMessage);
@@ -157,22 +167,41 @@ export class VersusService {
       nextSpeaker = 'lu';
     }
 
+    logger.info('Versus: Generating response', {
+      sessionId,
+      nextSpeaker,
+      historyLength: history.length,
+      lastSpeaker: lastAiMessage?.speaker,
+    });
+
     // Generate AI response
     const aiContent = await this.generateArgument(session, nextSpeaker, history);
 
+    logger.info('Versus: Generated content', {
+      sessionId,
+      speaker: nextSpeaker,
+      contentLength: aiContent?.length,
+      contentPreview: aiContent?.substring(0, 100),
+    });
+
     // Save AI message
     const aiResult = await this.pool.query(
-      `INSERT INTO versus_messages (session_id, speaker, content)
-       VALUES ($1, $2, $3)
-       RETURNING *`,
+      `INSERT INTO versus_messages (session_id, speaker, content, addressed_to)
+       VALUES ($1, $2, $3, NULL)
+       RETURNING id, session_id, speaker, content,
+                 COALESCE(addressed_to, '') as addressed_to,
+                 created_at`,
       [sessionId, nextSpeaker, aiContent]
     );
 
     const aiMessage = aiResult.rows[0] as VersusMessage;
 
-    logger.debug('Versus message added', {
+    logger.info('Versus: AI message saved', {
       session_id: sessionId,
       speaker: nextSpeaker,
+      messageId: aiMessage?.id,
+      hasContent: !!aiMessage?.content,
+      rawRow: JSON.stringify(aiResult.rows[0]),
     });
 
     return { userMessage: savedUserMessage, aiMessage };
@@ -275,7 +304,10 @@ export class VersusService {
    */
   async getMessages(sessionId: string): Promise<VersusMessage[]> {
     const result = await this.pool.query(
-      `SELECT * FROM versus_messages
+      `SELECT id, session_id, speaker, content,
+              COALESCE(addressed_to, '') as addressed_to,
+              created_at
+       FROM versus_messages
        WHERE session_id = $1
        ORDER BY created_at ASC`,
       [sessionId]
