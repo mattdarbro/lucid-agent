@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { Pool } from 'pg';
 import { logger } from '../logger';
+import { config } from '../config';
 import { FactService } from './fact.service';
 import { MessageService } from './message.service';
 import { VectorService } from './vector.service';
@@ -72,15 +73,15 @@ export class BackgroundJobsService {
 
   /**
    * Starts the automatic fact extraction job
-   * Runs every 5 minutes to extract facts from recent conversations
+   * Frequency controlled by FACT_EXTRACTION_CRON env var (default: hourly)
    */
   private startFactExtractionJob(): void {
-    // Run every 5 minutes
-    this.factExtractionJob = cron.schedule('*/5 * * * *', async () => {
+    const cronSchedule = config.schedule.factExtraction;
+    this.factExtractionJob = cron.schedule(cronSchedule, async () => {
       await this.runFactExtraction();
     });
 
-    logger.info('[BACKGROUND] Fact extraction job scheduled (every 5 minutes)');
+    logger.info(`[BACKGROUND] Fact extraction job scheduled (${cronSchedule})`);
 
     // Also run immediately on startup after a short delay
     setTimeout(() => {
