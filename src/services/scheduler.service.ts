@@ -96,17 +96,23 @@ export class SchedulerService {
   }
 
   /**
-   * Schedule circadian jobs for all active users
+   * Schedule circadian jobs for recently active users only
+   * Only schedules for users active in the last 7 days to avoid
+   * burning API costs on abandoned/test accounts
    */
   private async scheduleJobsForAllUsers(): Promise<void> {
     try {
-      logger.info('Scheduling circadian jobs for all users');
+      logger.info('Scheduling circadian jobs for active users');
 
-      // Get all active users
+      // Only get users who have been active in the last 7 days
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
       const { data: users, error } = await this.supabase
         .from('users')
-        .select('id')
-        .order('created_at', { ascending: true });
+        .select('id, name, last_active_at')
+        .gte('last_active_at', sevenDaysAgo.toISOString())
+        .order('last_active_at', { ascending: false });
 
       if (error) {
         logger.error('Failed to fetch users for job scheduling', { error });
@@ -114,9 +120,11 @@ export class SchedulerService {
       }
 
       if (!users || users.length === 0) {
-        logger.info('No users found for job scheduling');
+        logger.info('No recently active users found for job scheduling');
         return;
       }
+
+      logger.info(`Found ${users.length} recently active users for job scheduling`);
 
       const today = new Date();
       let scheduledCount = 0;
