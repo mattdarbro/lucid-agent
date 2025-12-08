@@ -24,6 +24,7 @@ import libraryRouter from './routes/library';
 import versusRouter from './routes/versus';
 import syncRouter from './routes/sync';
 import devicesRouter from './routes/devices';
+import mergeRouter from './routes/merge';
 
 // Validate configuration on startup
 try {
@@ -140,6 +141,9 @@ app.use('/v1/sync', syncRouter);
 
 // Device linking (multi-device support)
 app.use('/v1/devices', devicesRouter);
+
+// User data export and merge (consolidate multiple Lucid instances)
+app.use('/v1/merge', mergeRouter);
 
 // TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);
