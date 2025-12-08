@@ -10,6 +10,7 @@ import { ThoughtService } from './thought.service';
 import { TopicService } from './topic.service';
 import { ProfileService } from './profile.service';
 import { MemoryService } from './memory.service';
+import { CostTrackingService } from './cost-tracking.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
 
 /**
@@ -31,6 +32,7 @@ export class ChatService {
   private topicService: TopicService;
   private profileService: ProfileService;
   private memoryService: MemoryService;
+  private costTrackingService: CostTrackingService;
 
   constructor(pool: Pool, supabase: SupabaseClient, anthropicApiKey?: string) {
     this.pool = pool;
@@ -47,6 +49,7 @@ export class ChatService {
     this.topicService = new TopicService(pool, anthropicApiKey);
     this.profileService = new ProfileService(pool);
     this.memoryService = new MemoryService(pool);
+    this.costTrackingService = new CostTrackingService(pool);
   }
 
   /**
@@ -286,13 +289,26 @@ export class ChatService {
 
       // Call Claude API with emotional intelligence
       // Use reduced max_tokens for chat brevity (150 words ≈ 250 tokens)
+      const modelUsed = input.model || chatConfig?.defaultModel || 'claude-opus-4-5-20251101';
       const response = await this.anthropic.messages.create({
-        model: input.model || chatConfig?.defaultModel || 'claude-opus-4-5-20251101',
+        model: modelUsed,
         max_tokens: input.max_tokens || (chatConfig?.maxTokens ?? 250),
         temperature: adjustedTemperature,
         system: systemPrompt,
         messages,
       });
+
+      // Log API usage for cost tracking
+      if (response.usage) {
+        await this.costTrackingService.logUsage(
+          input.user_id,
+          'chat',
+          modelUsed,
+          response.usage.input_tokens,
+          response.usage.output_tokens,
+          { conversation_id: input.conversation_id }
+        );
+      }
 
       // Extract text response
       const content = response.content[0];
