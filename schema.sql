@@ -669,6 +669,36 @@ CREATE INDEX idx_library_entry_type ON library_entries(user_id, entry_type);
 CREATE INDEX idx_library_embedding ON library_entries USING ivfflat (embedding vector_cosine_ops);
 
 -- ============================================================================
+-- API Usage Tracking (Cost monitoring)
+-- ============================================================================
+
+CREATE TABLE api_usage (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES users(id) NOT NULL,
+
+  -- What triggered this API call
+  source VARCHAR(50) NOT NULL, -- 'chat', 'morning_reflection', 'midday_curiosity', etc.
+
+  -- Model and token counts
+  model VARCHAR(100) NOT NULL,
+  input_tokens INT NOT NULL DEFAULT 0,
+  output_tokens INT NOT NULL DEFAULT 0,
+
+  -- Cost in USD (calculated at time of logging)
+  cost_usd DECIMAL(10,6) NOT NULL DEFAULT 0,
+
+  -- Additional context
+  metadata JSONB DEFAULT '{}'::jsonb,
+
+  -- Timestamp
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_api_usage_user ON api_usage(user_id);
+CREATE INDEX idx_api_usage_user_date ON api_usage(user_id, created_at DESC);
+CREATE INDEX idx_api_usage_source ON api_usage(user_id, source);
+
+-- ============================================================================
 -- Sample Data (Optional - for testing)
 -- ============================================================================
 

@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { Pool } from 'pg';
 import { logger } from '../logger';
+import { config } from '../config';
 import { FactService } from './fact.service';
 import { MessageService } from './message.service';
 import { VectorService } from './vector.service';
@@ -72,15 +73,16 @@ export class BackgroundJobsService {
 
   /**
    * Starts the automatic fact extraction job
-   * Runs every 5 minutes to extract facts from recent conversations
+   * Runs hourly, but only extracts from conversations idle for 60+ minutes
+   * This ensures facts are extracted once per conversation "session"
    */
   private startFactExtractionJob(): void {
-    // Run every 5 minutes
-    this.factExtractionJob = cron.schedule('*/5 * * * *', async () => {
+    // Check hourly for idle conversations
+    this.factExtractionJob = cron.schedule('0 * * * *', async () => {
       await this.runFactExtraction();
     });
 
-    logger.info('[BACKGROUND] Fact extraction job scheduled (every 5 minutes)');
+    logger.info('[BACKGROUND] Fact extraction job scheduled (hourly, 60min idle trigger)');
 
     // Also run immediately on startup after a short delay
     setTimeout(() => {
@@ -92,25 +94,29 @@ export class BackgroundJobsService {
 
   /**
    * Run fact extraction for eligible conversations
+   * Only extracts from conversations that have been idle for 60+ minutes
+   * This ensures we extract once per conversation "session" rather than constantly polling
    */
   private async runFactExtraction(): Promise<void> {
     try {
-      logger.debug('[BACKGROUND] Checking for conversations needing fact extraction');
+      logger.debug('[BACKGROUND] Checking for idle conversations needing fact extraction');
 
       // Find conversations with:
       // - 5+ messages
-      // - No recent extraction (null or older than 10 minutes)
-      // - Active in the last 24 hours
+      // - Idle for 60+ minutes (no activity in last hour)
+      // - Not extracted since last activity (or never extracted)
+      // - Had activity in last 7 days (don't process ancient conversations)
       const result = await this.pool.query(`
-        SELECT c.id as conversation_id, c.user_id, MAX(c.updated_at) as updated_at
+        SELECT c.id as conversation_id, c.user_id, c.updated_at
         FROM conversations c
         JOIN messages m ON m.conversation_id = c.id
-        WHERE (c.last_fact_extraction_at IS NULL
-               OR c.last_fact_extraction_at < NOW() - INTERVAL '10 minutes')
-          AND c.updated_at > NOW() - INTERVAL '24 hours'
-        GROUP BY c.id, c.user_id
+        WHERE c.updated_at < NOW() - INTERVAL '60 minutes'
+          AND c.updated_at > NOW() - INTERVAL '7 days'
+          AND (c.last_fact_extraction_at IS NULL
+               OR c.last_fact_extraction_at < c.updated_at)
+        GROUP BY c.id, c.user_id, c.updated_at
         HAVING COUNT(m.id) >= 5
-        ORDER BY updated_at DESC
+        ORDER BY c.updated_at DESC
         LIMIT 10
       `);
 

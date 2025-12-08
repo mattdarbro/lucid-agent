@@ -2,6 +2,7 @@ import { Pool, QueryResult } from 'pg';
 import { logger } from '../logger';
 import { VectorService } from './vector.service';
 import Anthropic from '@anthropic-ai/sdk';
+import { CostTrackingService } from './cost-tracking.service';
 import {
   CreateFactInput,
   UpdateFactInput,
@@ -55,6 +56,7 @@ export interface ExtractedFact {
 export class FactService {
   private vectorService: VectorService;
   private anthropic: Anthropic;
+  private costTrackingService: CostTrackingService;
 
   constructor(
     private pool: Pool,
@@ -65,6 +67,7 @@ export class FactService {
     this.anthropic = new Anthropic({
       apiKey: anthropicApiKey || process.env.ANTHROPIC_API_KEY,
     });
+    this.costTrackingService = new CostTrackingService(pool);
   }
 
   /**
@@ -139,6 +142,17 @@ NOW extract facts from the conversation below. If you truly find NO facts (very 
           },
         ],
       });
+
+      // Log API usage for cost tracking
+      if (response.usage) {
+        await this.costTrackingService.logUsage(
+          userId,
+          'fact_extraction',
+          'claude-sonnet-4-5-20250929',
+          response.usage.input_tokens,
+          response.usage.output_tokens
+        );
+      }
 
       const content = response.content[0];
       if (content.type !== 'text') {

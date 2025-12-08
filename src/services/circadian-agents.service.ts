@@ -9,6 +9,7 @@ import { FactService } from './fact.service';
 import { EmotionalStateService } from './emotional-state.service';
 import { ContextAdaptationService } from './context-adaptation.service';
 import { VectorService } from './vector.service';
+import { CostTrackingService, UsageSource } from './cost-tracking.service';
 
 interface AgentResult {
   thoughtsGenerated: number;
@@ -23,6 +24,7 @@ export class CircadianAgents {
   private factService: FactService;
   private emotionalStateService: EmotionalStateService;
   private contextAdaptationService: ContextAdaptationService;
+  private costTrackingService: CostTrackingService;
 
   constructor(
     private pool: Pool,
@@ -40,6 +42,27 @@ export class CircadianAgents {
     this.factService = new FactService(pool, vectorService);
     this.emotionalStateService = new EmotionalStateService(pool);
     this.contextAdaptationService = new ContextAdaptationService(pool);
+    this.costTrackingService = new CostTrackingService(pool);
+  }
+
+  /**
+   * Helper to log API usage with cost tracking
+   */
+  private async logUsage(
+    userId: string,
+    source: UsageSource,
+    model: string,
+    usage: { input_tokens: number; output_tokens: number } | undefined
+  ): Promise<void> {
+    if (usage) {
+      await this.costTrackingService.logUsage(
+        userId,
+        source,
+        model,
+        usage.input_tokens,
+        usage.output_tokens
+      );
+    }
   }
 
   /**
@@ -123,6 +146,9 @@ Format your response as a JSON object with a single thought:
         temperature: 0.8,
         messages: [{ role: 'user', content: prompt }],
       });
+
+      // Log API usage
+      await this.logUsage(userId, 'morning_reflection', 'claude-sonnet-4-5-20250929', response.usage);
 
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
 
@@ -243,6 +269,9 @@ Format as JSON:
         temperature: 0.9,
         messages: [{ role: 'user', content: prompt }],
       });
+
+      // Log API usage
+      await this.logUsage(userId, 'midday_curiosity', 'claude-sonnet-4-5-20250929', response.usage);
 
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
 
@@ -379,6 +408,9 @@ Format as JSON:
         messages: [{ role: 'user', content: prompt }],
       });
 
+      // Log API usage
+      await this.logUsage(userId, 'evening_consolidation', 'claude-sonnet-4-5-20250929', response.usage);
+
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
 
       // Parse thought (single object, not array)
@@ -483,6 +515,9 @@ Format as JSON:
         temperature: 1.0, // Higher temperature for more creative thoughts
         messages: [{ role: 'user', content: prompt }],
       });
+
+      // Log API usage
+      await this.logUsage(userId, 'night_dream', 'claude-sonnet-4-5-20250929', response.usage);
 
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
 
