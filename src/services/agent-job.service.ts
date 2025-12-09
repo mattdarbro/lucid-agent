@@ -183,6 +183,17 @@ export class AgentJobService {
   }
 
   /**
+   * Mark job as skipped (e.g., user disabled agents after scheduling)
+   */
+  async markJobAsSkipped(jobId: string, reason: string): Promise<AgentJob> {
+    return this.updateJob(jobId, {
+      status: 'skipped',
+      error_message: reason,
+      completed_at: new Date(),
+    });
+  }
+
+  /**
    * Delete agent job
    */
   async deleteJob(jobId: string): Promise<void> {

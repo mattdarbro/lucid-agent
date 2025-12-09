@@ -124,7 +124,7 @@ export interface AgentJob {
   id: string;
   user_id: string;
   job_type: 'morning_reflection' | 'midday_curiosity' | 'evening_consolidation' | 'night_dream';
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
   scheduled_for: Date;
   thoughts_generated: number;
   research_tasks_created: number;
