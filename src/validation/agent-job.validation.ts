@@ -14,6 +14,7 @@ export const jobStatusSchema = z.enum([
   'running',
   'completed',
   'failed',
+  'skipped', // User disabled agents after job was scheduled
 ]);
 
 // Create agent job schema

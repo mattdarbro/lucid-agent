@@ -246,15 +246,28 @@ export class SchedulerService {
     try {
       logger.info('Processing job', { jobId });
 
-      // Mark job as started
-      await this.agentJobService.markJobAsStarted(jobId);
-
-      // Get job details
+      // Get job details first to check user settings
       const job = await this.agentJobService.getJobById(jobId);
       if (!job) {
         logger.error('Job not found', { jobId });
         return;
       }
+
+      // Check if agents are STILL enabled (user may have turned them off since scheduling)
+      const agentsEnabled = await this.profileService.areAgentsEnabled(job.user_id);
+      if (!agentsEnabled) {
+        logger.info('Skipping job execution - agents disabled since scheduling', {
+          jobId,
+          userId: job.user_id,
+          jobType: job.job_type
+        });
+        // Mark as skipped rather than completed
+        await this.agentJobService.markJobAsSkipped(jobId, 'Agents disabled by user');
+        return;
+      }
+
+      // Mark job as started
+      await this.agentJobService.markJobAsStarted(jobId);
 
       // Dynamic import of circadian agents (will be implemented next)
       const { CircadianAgents } = await import('./circadian-agents.service');
