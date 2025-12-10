@@ -240,22 +240,26 @@ export class AgentJobService {
 
     const existingJobTypes = new Set(existingJobs?.map(j => j.job_type) || []);
 
+    // Only schedule 2 AT jobs per day to reduce costs:
+    // - Midday curiosity (with web research)
+    // - Night dream (creative/consolidation)
+    // Morning reflection and evening consolidation disabled for now
     const allJobs: CreateAgentJobInput[] = [
-      {
-        user_id: userId,
-        job_type: 'morning_reflection',
-        scheduled_for: this.getScheduledTime(date, 7, 0), // 7am
-      },
+      // {
+      //   user_id: userId,
+      //   job_type: 'morning_reflection',
+      //   scheduled_for: this.getScheduledTime(date, 7, 0), // 7am
+      // },
       {
         user_id: userId,
         job_type: 'midday_curiosity',
         scheduled_for: this.getScheduledTime(date, 12, 0), // 12pm
       },
-      {
-        user_id: userId,
-        job_type: 'evening_consolidation',
-        scheduled_for: this.getScheduledTime(date, 20, 0), // 8pm
-      },
+      // {
+      //   user_id: userId,
+      //   job_type: 'evening_consolidation',
+      //   scheduled_for: this.getScheduledTime(date, 20, 0), // 8pm
+      // },
       {
         user_id: userId,
         job_type: 'night_dream',
