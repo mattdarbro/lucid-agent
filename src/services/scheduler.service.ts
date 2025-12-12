@@ -302,6 +302,31 @@ export class SchedulerService {
           researchTasksCreated = nightResult.researchTasksCreated;
           break;
 
+        // Specialized AT Session Types (layered memory system)
+        case 'morning_curiosity_session':
+          const morningCuriosityResult = await agents.runMorningCuriositySession(job.user_id, job.id);
+          thoughtsGenerated = morningCuriosityResult.thoughtsGenerated;
+          researchTasksCreated = morningCuriosityResult.researchTasksCreated;
+          break;
+
+        case 'dream_session':
+          const dreamResult = await agents.runDreamSession(job.user_id, job.id);
+          thoughtsGenerated = dreamResult.thoughtsGenerated;
+          researchTasksCreated = dreamResult.researchTasksCreated;
+          break;
+
+        case 'state_session':
+          const stateResult = await agents.runStateSession(job.user_id, job.id);
+          thoughtsGenerated = stateResult.thoughtsGenerated;
+          researchTasksCreated = stateResult.researchTasksCreated;
+          break;
+
+        case 'orbit_session':
+          const orbitResult = await agents.runOrbitSession(job.user_id, job.id);
+          thoughtsGenerated = orbitResult.thoughtsGenerated;
+          researchTasksCreated = orbitResult.researchTasksCreated;
+          break;
+
         default:
           throw new Error(`Unknown job type: ${job.job_type}`);
       }

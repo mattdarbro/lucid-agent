@@ -18,6 +18,9 @@ import { SummaryService } from './summary.service';
 import { PersonalityService } from './personality.service';
 import { InsightGenerationService } from './insight-generation.service';
 import { MemoryService } from './memory.service';
+import { MattStateService } from './matt-state.service';
+import { OrbitsService } from './orbits.service';
+import { LucidStateService } from './lucid-state.service';
 import { logger } from '../logger';
 
 // ============================================================================
@@ -39,6 +42,11 @@ export const personalityService = new PersonalityService(pool);
 export const insightGenerationService = new InsightGenerationService(pool);
 export const memoryService = new MemoryService(pool);
 
+// Layered memory services
+export const mattStateService = new MattStateService(pool);
+export const orbitsService = new OrbitsService(pool);
+export const lucidStateService = new LucidStateService(pool);
+
 logger.info('Service container initialized successfully');
 
 /**
@@ -56,6 +64,10 @@ export const services = {
   personality: personalityService,
   insightGeneration: insightGenerationService,
   memory: memoryService,
+  // Layered memory services
+  mattState: mattStateService,
+  orbits: orbitsService,
+  lucidState: lucidStateService,
 };
 
 export default services;

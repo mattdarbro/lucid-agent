@@ -10,6 +10,11 @@ import { EmotionalStateService } from './emotional-state.service';
 import { ContextAdaptationService } from './context-adaptation.service';
 import { VectorService } from './vector.service';
 import { CostTrackingService, UsageSource } from './cost-tracking.service';
+// Specialized AT Session Agents
+import { MorningCuriosityAgent } from '../agents/morning-curiosity.agent';
+import { DreamSessionAgent } from '../agents/dream-session.agent';
+import { StateSessionAgent } from '../agents/state-session.agent';
+import { OrbitSessionAgent } from '../agents/orbit-session.agent';
 
 interface AgentResult {
   thoughtsGenerated: number;
@@ -556,6 +561,123 @@ Format as JSON:
 
     } catch (error) {
       logger.error('Night dream failed', { userId, jobId, error });
+      throw error;
+    }
+  }
+
+  // ===========================================================================
+  // SPECIALIZED AT SESSION AGENTS
+  // These are newer, more targeted session types that write to the Library
+  // ===========================================================================
+
+  /**
+   * Morning Curiosity Session
+   * Identifies topics the user might find interesting based on their state and interests
+   * Writes discoveries to the Library
+   */
+  async runMorningCuriositySession(userId: string, jobId: string): Promise<AgentResult> {
+    logger.info('Running morning curiosity session', { userId, jobId });
+
+    try {
+      const agent = new MorningCuriosityAgent(this.pool);
+      const entry = await agent.run(userId);
+
+      if (entry) {
+        logger.info('Morning curiosity session completed', {
+          userId,
+          entryId: entry.id,
+        });
+        return { thoughtsGenerated: 1, researchTasksCreated: 0 };
+      }
+
+      logger.info('Morning curiosity session skipped (no output)', { userId });
+      return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+    } catch (error) {
+      logger.error('Morning curiosity session failed', { userId, jobId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Dream Session (Nightly Consolidation)
+   * Processes the day's conversations and consolidates memories
+   * Updates LUCID's self-awareness state
+   */
+  async runDreamSession(userId: string, jobId: string): Promise<AgentResult> {
+    logger.info('Running dream session', { userId, jobId });
+
+    try {
+      const agent = new DreamSessionAgent(this.pool);
+      const entry = await agent.run(userId);
+
+      if (entry) {
+        logger.info('Dream session completed', {
+          userId,
+          entryId: entry.id,
+        });
+        return { thoughtsGenerated: 1, researchTasksCreated: 0 };
+      }
+
+      logger.info('Dream session skipped (no output)', { userId });
+      return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+    } catch (error) {
+      logger.error('Dream session failed', { userId, jobId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * State Session (Weekly)
+   * Updates the user's "Wins" artifact - their current life situation
+   * Analyzes recent conversations for changes in goals, commitments, resources
+   */
+  async runStateSession(userId: string, jobId: string): Promise<AgentResult> {
+    logger.info('Running state session', { userId, jobId });
+
+    try {
+      const agent = new StateSessionAgent(this.pool);
+      const entry = await agent.run(userId);
+
+      if (entry) {
+        logger.info('State session completed', {
+          userId,
+          entryId: entry.id,
+        });
+        return { thoughtsGenerated: 1, researchTasksCreated: 0 };
+      }
+
+      logger.info('State session skipped (no output)', { userId });
+      return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+    } catch (error) {
+      logger.error('State session failed', { userId, jobId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Orbit Session (Bi-weekly)
+   * Updates the relationship ecosystem tracking
+   * Identifies people mentioned and tracks their situations
+   */
+  async runOrbitSession(userId: string, jobId: string): Promise<AgentResult> {
+    logger.info('Running orbit session', { userId, jobId });
+
+    try {
+      const agent = new OrbitSessionAgent(this.pool);
+      const entry = await agent.run(userId);
+
+      if (entry) {
+        logger.info('Orbit session completed', {
+          userId,
+          entryId: entry.id,
+        });
+        return { thoughtsGenerated: 1, researchTasksCreated: 0 };
+      }
+
+      logger.info('Orbit session skipped (no output)', { userId });
+      return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+    } catch (error) {
+      logger.error('Orbit session failed', { userId, jobId, error });
       throw error;
     }
   }
