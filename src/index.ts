@@ -26,6 +26,8 @@ import syncRouter from './routes/sync';
 import devicesRouter from './routes/devices';
 import mergeRouter from './routes/merge';
 import costsRouter from './routes/costs';
+import { createMattStateRouter } from './routes/matt-state';
+import { createOrbitsRouter } from './routes/orbits';
 
 // Validate configuration on startup
 try {
@@ -148,6 +150,10 @@ app.use('/v1/merge', mergeRouter);
 
 // Cost tracking (API usage monitoring)
 app.use('/v1/costs', costsRouter);
+
+// Layered Memory System (Phase 6 - Matt State and Orbits)
+app.use('/v1/matt-state', createMattStateRouter(pool));
+app.use('/v1/orbits', createOrbitsRouter(pool));
 
 // TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);

@@ -315,6 +315,8 @@ export class AgentJobService {
       thoughts_generated: data.thoughts_generated ?? 0,
       research_tasks_created: data.research_tasks_created ?? 0,
       error_message: data.error_message ?? null,
+      session_metadata: data.session_metadata ?? {},
+      library_entry_id: data.library_entry_id ?? null,
       created_at: new Date(data.created_at),
       started_at: data.started_at ? new Date(data.started_at) : null,
       completed_at: data.completed_at ? new Date(data.completed_at) : null,

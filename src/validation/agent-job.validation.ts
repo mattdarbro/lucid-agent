@@ -6,6 +6,11 @@ export const jobTypeSchema = z.enum([
   'midday_curiosity',
   'evening_consolidation',
   'night_dream',
+  // Specialized AT Session Types (layered memory system)
+  'morning_curiosity_session',
+  'dream_session',
+  'state_session',
+  'orbit_session',
 ]);
 
 // Job status aligned with database schema

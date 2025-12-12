@@ -11,6 +11,9 @@ import { TopicService } from './topic.service';
 import { ProfileService } from './profile.service';
 import { MemoryService } from './memory.service';
 import { CostTrackingService } from './cost-tracking.service';
+import { MattStateService } from './matt-state.service';
+import { OrbitsService } from './orbits.service';
+import { LucidStateService } from './lucid-state.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
 
 /**
@@ -33,6 +36,10 @@ export class ChatService {
   private profileService: ProfileService;
   private memoryService: MemoryService;
   private costTrackingService: CostTrackingService;
+  // Layered memory services
+  private mattStateService: MattStateService;
+  private orbitsService: OrbitsService;
+  private lucidStateService: LucidStateService;
 
   constructor(pool: Pool, supabase: SupabaseClient, anthropicApiKey?: string) {
     this.pool = pool;
@@ -50,6 +57,10 @@ export class ChatService {
     this.profileService = new ProfileService(pool);
     this.memoryService = new MemoryService(pool);
     this.costTrackingService = new CostTrackingService(pool);
+    // Initialize layered memory services
+    this.mattStateService = new MattStateService(pool);
+    this.orbitsService = new OrbitsService(pool);
+    this.lucidStateService = new LucidStateService(pool);
   }
 
   /**
@@ -168,110 +179,16 @@ export class ChatService {
 
       // Simple question - proceed with normal chat flow
 
-      // Fetch user facts for memory context (enabled by default or via profile)
-      const includeFacts = chatConfig?.includeFacts ?? true;
-      const maxFacts = profile.memory?.maxContextFacts ?? 10;
-      let memoryContext = '';
-      let userFacts: any[] = [];
-
-      if (includeFacts) {
-        userFacts = await this.memoryService.getRelevantFacts(input.user_id, maxFacts);
-        memoryContext = this.memoryService.formatFactsForPrompt(userFacts);
-      }
-
-      if (userFacts.length > 0) {
-        logger.debug('Injecting memory context into chat', {
-          user_id: input.user_id,
-          fact_count: userFacts.length,
-        });
-      }
-
-      // Check for active emotional context adaptation (only if feature enabled)
-      let adaptation = null;
-      if (profile.features.emotionalIntelligence && chatConfig?.includeEmotionalContext) {
-        adaptation = await this.contextAdaptationService.getActiveAdaptation(input.user_id);
-      }
-
-      // Fetch recent autonomous thoughts (only if feature enabled)
-      let recentThoughts: any[] = [];
-      if (profile.features.autonomousAgents && chatConfig?.includeAutonomousThoughts) {
-        const maxThoughts = chatConfig?.maxThoughtsInContext ?? 5;
-        recentThoughts = await this.autonomousThoughtService.getRecentUnsharedThoughts(input.user_id, maxThoughts);
-      }
-
-      // Fetch relevant library entries (deep thoughts, reflections, journal entries)
-      // This enables Lucid to reference previous deep analysis in conversation
-      let libraryEntries: Array<{ title: string | null; content: string }> = [];
-      try {
-        libraryEntries = await this.deepThoughtService.searchLibrary(input.user_id, input.message, 3);
-
-        if (libraryEntries.length > 0) {
-          logger.debug('Injecting library context into chat', {
-            user_id: input.user_id,
-            entry_count: libraryEntries.length,
-          });
-        }
-      } catch (error) {
-        logger.warn('Failed to retrieve library entries for chat context:', error);
-        // Continue without library context
-      }
-
-      // Build system prompt with memory and emotional intelligence
-      let systemPrompt = input.system_prompt || this.getDefaultSystemPrompt();
-
-      // Inject memory context (facts about the user)
-      if (memoryContext) {
-        systemPrompt += memoryContext;
-        systemPrompt += '\n\nUse this knowledge naturally in conversation. Don\'t just list facts - weave them into your responses when relevant. Reference what you know to show you remember and care.';
-      }
-
-      // Inject emotional context if adaptation exists
-      if (adaptation && adaptation.tone_directive) {
-        systemPrompt += `\n\n🧠 EMOTIONAL CONTEXT:\n${adaptation.tone_directive}`;
-
-        logger.debug('Injecting emotional context into chat', {
-          user_id: input.user_id,
-          adaptation_id: adaptation.id,
-          curiosity_approach: adaptation.curiosity_approach,
-        });
-      }
-
-      // Inject autonomous thoughts if any exist
-      if (recentThoughts.length > 0) {
-        systemPrompt += '\n\n💭 AUTONOMOUS INSIGHTS:\n';
-        systemPrompt += 'While reflecting on our interactions, I\'ve had these thoughts:\n';
-        recentThoughts.forEach((thought, index) => {
-          const thoughtLabel = this.getThoughtLabel(thought.thought_type, thought.circadian_phase);
-          systemPrompt += `${index + 1}. [${thoughtLabel}] ${thought.content}\n`;
-        });
-        systemPrompt += '\nYou can naturally reference these insights in conversation if relevant. When you mention a thought, it will be marked as shared.';
-
-        logger.debug('Injecting autonomous thoughts into chat', {
-          user_id: input.user_id,
-          thought_count: recentThoughts.length,
-          thought_types: recentThoughts.map(t => t.thought_type),
-        });
-      }
-
-      // Inject relevant library entries if any exist
-      if (libraryEntries.length > 0) {
-        systemPrompt += '\n\n📚 LIBRARY CONTEXT:\n';
-        systemPrompt += 'Relevant entries from your Library (deep thoughts, reflections, journal entries):\n\n';
-        libraryEntries.forEach((entry, index) => {
-          const title = entry.title || 'Untitled Entry';
-          const preview = entry.content.length > 300
-            ? entry.content.substring(0, 300) + '...'
-            : entry.content;
-          systemPrompt += `${index + 1}. "${title}"\n${preview}\n\n`;
-        });
-        systemPrompt += 'You can reference these previous thoughts naturally in conversation. They represent your deeper analysis on related topics.';
-
-        logger.debug('Injecting library entries into chat', {
-          user_id: input.user_id,
-          entry_count: libraryEntries.length,
-          titles: libraryEntries.map(e => e.title || 'Untitled'),
-        });
-      }
+      // Build modular system prompt with all layered memory context
+      // This assembles: Facts, User State (Wins), LUCID State, Orbits,
+      // Emotional Context, Autonomous Thoughts, and Library Context
+      const { prompt: systemPrompt, adaptation, recentThoughts, libraryEntries } =
+        await this.buildModularSystemPrompt(
+          input.user_id,
+          input.system_prompt || '',
+          profile,
+          { message: input.message }
+        );
 
       // Calculate temperature with emotional adjustment and profile defaults
       const baseTemperature = input.temperature ?? chatConfig?.defaultTemperature ?? 0.7;
@@ -473,5 +390,223 @@ You remember conversations and develop understanding over time.`;
     });
 
     return truncatedText + '...';
+  }
+
+  /**
+   * Build modular system prompt with layered memory context
+   *
+   * Layers (in order):
+   * 1. Base prompt (default or custom)
+   * 2. Memory (Facts) - what LUCID knows about the user
+   * 3. User State (Wins) - current goals, commitments, resources
+   * 4. LUCID State - self-awareness, questions, insights
+   * 5. Orbits - people in the user's ecosystem
+   * 6. Emotional Context - current emotional state adaptation
+   * 7. Autonomous Thoughts - recent unshared insights
+   * 8. Library Context - relevant deep thoughts
+   */
+  private async buildModularSystemPrompt(
+    userId: string,
+    basePrompt: string,
+    profile: any,
+    options: {
+      includeFacts?: boolean;
+      includeUserState?: boolean;
+      includeLucidState?: boolean;
+      includeOrbits?: boolean;
+      includeEmotionalContext?: boolean;
+      includeAutonomousThoughts?: boolean;
+      includeLibraryContext?: boolean;
+      maxFacts?: number;
+      message?: string;
+    } = {}
+  ): Promise<{
+    prompt: string;
+    adaptation: any | null;
+    recentThoughts: any[];
+    libraryEntries: any[];
+    userFacts: any[];
+  }> {
+    let systemPrompt = basePrompt || this.getDefaultSystemPrompt();
+    let adaptation = null;
+    let recentThoughts: any[] = [];
+    let libraryEntries: any[] = [];
+    let userFacts: any[] = [];
+
+    // Feature flags from profile
+    const chatConfig = profile.chat || {};
+    const features = profile.features || {};
+
+    // LAYER 1: Memory (Facts) - what LUCID knows about the user
+    const includeFacts = options.includeFacts ?? chatConfig.includeFacts ?? true;
+    const maxFacts = options.maxFacts ?? profile.memory?.maxContextFacts ?? 10;
+
+    if (includeFacts) {
+      try {
+        userFacts = await this.memoryService.getRelevantFacts(userId, maxFacts);
+        if (userFacts.length > 0) {
+          const memoryContext = this.memoryService.formatFactsForPrompt(userFacts);
+          systemPrompt += memoryContext;
+          systemPrompt += '\n\nUse this knowledge naturally in conversation. Don\'t just list facts - weave them into your responses when relevant.';
+
+          logger.debug('LAYER 1: Memory context injected', {
+            userId,
+            factCount: userFacts.length,
+          });
+        }
+      } catch (error) {
+        logger.warn('Failed to load memory context', { error });
+      }
+    }
+
+    // LAYER 2: User State (Wins) - current goals, commitments, resources
+    const includeUserState = options.includeUserState ?? chatConfig.includeUserState ?? true;
+
+    if (includeUserState) {
+      try {
+        const userState = await this.mattStateService.getOrCreateState(userId);
+        const stateContext = this.mattStateService.formatStateForPrompt(userState);
+        if (stateContext) {
+          systemPrompt += stateContext;
+
+          logger.debug('LAYER 2: User state injected', {
+            userId,
+            hasGoals: (userState.active_goals?.length || 0) > 0,
+            hasCommitments: (userState.active_commitments?.length || 0) > 0,
+          });
+        }
+      } catch (error) {
+        logger.warn('Failed to load user state', { error });
+      }
+    }
+
+    // LAYER 3: LUCID State - self-awareness, questions, insights
+    const includeLucidState = options.includeLucidState ?? chatConfig.includeLucidState ?? true;
+
+    if (includeLucidState) {
+      try {
+        const lucidState = await this.lucidStateService.getOrCreateState(userId);
+        const lucidContext = this.lucidStateService.formatStateForPrompt(lucidState);
+        if (lucidContext) {
+          systemPrompt += lucidContext;
+
+          logger.debug('LAYER 3: LUCID state injected', {
+            userId,
+            hasQuestions: (lucidState.active_questions?.length || 0) > 0,
+            hasInsights: (lucidState.recent_insights?.length || 0) > 0,
+          });
+        }
+      } catch (error) {
+        logger.warn('Failed to load LUCID state', { error });
+      }
+    }
+
+    // LAYER 4: Orbits - people in the user's ecosystem
+    const includeOrbits = options.includeOrbits ?? chatConfig.includeOrbits ?? true;
+
+    if (includeOrbits) {
+      try {
+        const orbits = await this.orbitsService.getActiveOrbits(userId);
+        if (orbits.length > 0) {
+          const orbitsContext = this.orbitsService.formatOrbitsForPrompt(orbits);
+          if (orbitsContext) {
+            systemPrompt += orbitsContext;
+
+            logger.debug('LAYER 4: Orbits injected', {
+              userId,
+              orbitCount: orbits.length,
+            });
+          }
+        }
+      } catch (error) {
+        logger.warn('Failed to load orbits', { error });
+      }
+    }
+
+    // LAYER 5: Emotional Context - adaptation based on emotional state
+    const includeEmotionalContext = options.includeEmotionalContext ??
+      (features.emotionalIntelligence && chatConfig.includeEmotionalContext);
+
+    if (includeEmotionalContext) {
+      try {
+        adaptation = await this.contextAdaptationService.getActiveAdaptation(userId);
+        if (adaptation && adaptation.tone_directive) {
+          systemPrompt += `\n\n🧠 EMOTIONAL CONTEXT:\n${adaptation.tone_directive}`;
+
+          logger.debug('LAYER 5: Emotional context injected', {
+            userId,
+            adaptationId: adaptation.id,
+            approach: adaptation.curiosity_approach,
+          });
+        }
+      } catch (error) {
+        logger.warn('Failed to load emotional context', { error });
+      }
+    }
+
+    // LAYER 6: Autonomous Thoughts - recent unshared insights
+    const includeAutonomousThoughts = options.includeAutonomousThoughts ??
+      (features.autonomousAgents && chatConfig.includeAutonomousThoughts);
+
+    if (includeAutonomousThoughts) {
+      try {
+        const maxThoughts = chatConfig.maxThoughtsInContext ?? 5;
+        recentThoughts = await this.autonomousThoughtService.getRecentUnsharedThoughts(userId, maxThoughts);
+
+        if (recentThoughts.length > 0) {
+          systemPrompt += '\n\n💭 AUTONOMOUS INSIGHTS:\n';
+          systemPrompt += 'While reflecting on our interactions, I\'ve had these thoughts:\n';
+          recentThoughts.forEach((thought, index) => {
+            const thoughtLabel = this.getThoughtLabel(thought.thought_type, thought.circadian_phase);
+            systemPrompt += `${index + 1}. [${thoughtLabel}] ${thought.content}\n`;
+          });
+          systemPrompt += '\nYou can naturally reference these insights in conversation if relevant.';
+
+          logger.debug('LAYER 6: Autonomous thoughts injected', {
+            userId,
+            thoughtCount: recentThoughts.length,
+          });
+        }
+      } catch (error) {
+        logger.warn('Failed to load autonomous thoughts', { error });
+      }
+    }
+
+    // LAYER 7: Library Context - relevant deep thoughts and reflections
+    const includeLibraryContext = options.includeLibraryContext ?? chatConfig.includeLibraryContext ?? true;
+
+    if (includeLibraryContext && options.message) {
+      try {
+        libraryEntries = await this.deepThoughtService.searchLibrary(userId, options.message, 3);
+
+        if (libraryEntries.length > 0) {
+          systemPrompt += '\n\n📚 LIBRARY CONTEXT:\n';
+          systemPrompt += 'Relevant entries from your Library (deep thoughts, reflections):\n\n';
+          libraryEntries.forEach((entry, index) => {
+            const title = entry.title || 'Untitled Entry';
+            const preview = entry.content.length > 300
+              ? entry.content.substring(0, 300) + '...'
+              : entry.content;
+            systemPrompt += `${index + 1}. "${title}"\n${preview}\n\n`;
+          });
+          systemPrompt += 'You can reference these previous thoughts naturally in conversation.';
+
+          logger.debug('LAYER 7: Library context injected', {
+            userId,
+            entryCount: libraryEntries.length,
+          });
+        }
+      } catch (error) {
+        logger.warn('Failed to load library context', { error });
+      }
+    }
+
+    return {
+      prompt: systemPrompt,
+      adaptation,
+      recentThoughts,
+      libraryEntries,
+      userFacts,
+    };
   }
 }
