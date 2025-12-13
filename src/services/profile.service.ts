@@ -222,7 +222,7 @@ export class ProfileService {
    */
   async isFeatureEnabled(userId: string, feature: keyof LucidProfile['features']): Promise<boolean> {
     const profile = await this.getUserProfile(userId);
-    return profile.features[feature];
+    return profile.features[feature] ?? false;
   }
 
   /**

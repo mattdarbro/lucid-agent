@@ -21,6 +21,11 @@ import { MemoryService } from './memory.service';
 import { MattStateService } from './matt-state.service';
 import { OrbitsService } from './orbits.service';
 import { LucidStateService } from './lucid-state.service';
+// Modular Intelligence services
+import { ChatRouterService } from './chat-router.service';
+import { PromptModulesService } from './prompt-modules.service';
+import { ResearchQueueService } from './research-queue.service';
+import { ATRouterService } from './at-router.service';
 import { logger } from '../logger';
 
 // ============================================================================
@@ -47,6 +52,12 @@ export const mattStateService = new MattStateService(pool);
 export const orbitsService = new OrbitsService(pool);
 export const lucidStateService = new LucidStateService(pool);
 
+// Modular Intelligence services
+export const chatRouterService = new ChatRouterService(pool);
+export const promptModulesService = new PromptModulesService(pool);
+export const researchQueueService = new ResearchQueueService(pool);
+export const atRouterService = new ATRouterService(pool);
+
 logger.info('Service container initialized successfully');
 
 /**
@@ -68,6 +79,11 @@ export const services = {
   mattState: mattStateService,
   orbits: orbitsService,
   lucidState: lucidStateService,
+  // Modular Intelligence services
+  chatRouter: chatRouterService,
+  promptModules: promptModulesService,
+  researchQueue: researchQueueService,
+  atRouter: atRouterService,
 };
 
 export default services;

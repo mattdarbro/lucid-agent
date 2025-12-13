@@ -15,6 +15,10 @@ import { MattStateService } from './matt-state.service';
 import { OrbitsService } from './orbits.service';
 import { LucidStateService } from './lucid-state.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
+// New modular intelligence imports
+import { ChatRouterService } from './chat-router.service';
+import { PromptModulesService } from './prompt-modules.service';
+import { ResearchQueueService } from './research-queue.service';
 
 /**
  * ChatService handles AI conversation using Claude
@@ -40,6 +44,10 @@ export class ChatService {
   private mattStateService: MattStateService;
   private orbitsService: OrbitsService;
   private lucidStateService: LucidStateService;
+  // New modular intelligence services
+  private chatRouterService: ChatRouterService;
+  private promptModulesService: PromptModulesService;
+  private researchQueueService: ResearchQueueService;
 
   constructor(pool: Pool, supabase: SupabaseClient, anthropicApiKey?: string) {
     this.pool = pool;
@@ -61,6 +69,10 @@ export class ChatService {
     this.mattStateService = new MattStateService(pool);
     this.orbitsService = new OrbitsService(pool);
     this.lucidStateService = new LucidStateService(pool);
+    // Initialize modular intelligence services
+    this.chatRouterService = new ChatRouterService(pool, anthropicApiKey);
+    this.promptModulesService = new PromptModulesService(pool, anthropicApiKey);
+    this.researchQueueService = new ResearchQueueService(pool);
   }
 
   /**
@@ -179,16 +191,45 @@ export class ChatService {
 
       // Simple question - proceed with normal chat flow
 
-      // Build modular system prompt with all layered memory context
-      // This assembles: Facts, User State (Wins), LUCID State, Orbits,
-      // Emotional Context, Autonomous Thoughts, and Library Context
-      const { prompt: systemPrompt, adaptation, recentThoughts, libraryEntries } =
-        await this.buildModularSystemPrompt(
+      // Build system prompt using either routed or modular approach
+      // Routed approach: Haiku selects only relevant modules (prevents cognitive overload)
+      // Modular approach: Legacy - loads all layers based on profile settings
+      const useRoutedPrompts = profile.features?.modularIntelligence ?? false;
+
+      let systemPrompt: string;
+      let adaptation: any = null;
+      let recentThoughts: any[] = [];
+      let libraryEntries: any[] = [];
+      let researchQueueItems: any[] = [];
+
+      if (useRoutedPrompts) {
+        // NEW: Use routed prompt building
+        const routeResult = await this.buildRoutedPrompt(
+          input.user_id,
+          input.message,
+          messages,
+          profile
+        );
+        systemPrompt = routeResult.prompt;
+        adaptation = routeResult.adaptation;
+        recentThoughts = routeResult.recentThoughts;
+        libraryEntries = routeResult.libraryEntries;
+        researchQueueItems = routeResult.researchQueueItems;
+      } else {
+        // LEGACY: Build modular system prompt with all layered memory context
+        // This assembles: Facts, User State (Wins), LUCID State, Orbits,
+        // Emotional Context, Autonomous Thoughts, and Library Context
+        const result = await this.buildModularSystemPrompt(
           input.user_id,
           input.system_prompt || '',
           profile,
           { message: input.message }
         );
+        systemPrompt = result.prompt;
+        adaptation = result.adaptation;
+        recentThoughts = result.recentThoughts;
+        libraryEntries = result.libraryEntries;
+      }
 
       // Calculate temperature with emotional adjustment and profile defaults
       const baseTemperature = input.temperature ?? chatConfig?.defaultTemperature ?? 0.7;
@@ -251,9 +292,32 @@ export class ChatService {
         await this.markReferencedThoughtsAsShared(recentThoughts, assistantResponse);
       }
 
+      // Post-response hook: Detect research seeds from the conversation
+      // This populates the research queue for later AT processing
+      if (profile.features?.modularIntelligence) {
+        this.detectResearchSeed(
+          input.user_id,
+          input.message,
+          assistantResponse,
+          input.conversation_id
+        ).catch(err => logger.warn('Research seed detection failed', { err }));
+      }
+
+      // If we surfaced research items and they were addressed, clear the flag
+      if (researchQueueItems.length > 0) {
+        this.researchQueueService.setShouldSurfaceFlag(input.user_id, false)
+          .catch(err => logger.warn('Failed to clear surface flag', { err }));
+
+        // Mark items as surfaced
+        const itemIds = researchQueueItems.map(i => i.id);
+        this.researchQueueService.markSurfaced(itemIds)
+          .catch(err => logger.warn('Failed to mark items surfaced', { err }));
+      }
+
       logger.info('Chat completion successful', {
         conversation_id: input.conversation_id,
         response_length: assistantResponse.length,
+        usedRoutedPrompts: profile.features?.modularIntelligence ?? false,
       });
 
       return {
@@ -608,5 +672,184 @@ You remember conversations and develop understanding over time.`;
       libraryEntries,
       userFacts,
     };
+  }
+
+  /**
+   * Build a routed system prompt using the ChatRouter
+   * Only includes modules relevant to the current message
+   *
+   * This prevents cognitive overload from loading ALL context every turn,
+   * which was causing LUCID to fixate on ever-present facts.
+   */
+  private async buildRoutedPrompt(
+    userId: string,
+    message: string,
+    history: { role: 'user' | 'assistant'; content: string }[],
+    profile: any
+  ): Promise<{
+    prompt: string;
+    adaptation: any | null;
+    recentThoughts: any[];
+    libraryEntries: any[];
+    researchQueueItems: any[];
+  }> {
+    try {
+      // Check if we should surface research queue
+      const shouldSurfaceResearch = await this.researchQueueService.getShouldSurfaceFlag(userId);
+      const approvedItems = await this.researchQueueService.getApprovedItems(userId);
+
+      // Try quick routing first (avoids Haiku call for obvious cases)
+      let modules = this.chatRouterService.quickRoute(message);
+
+      if (!modules) {
+        // Use Haiku for nuanced routing
+        modules = await this.chatRouterService.route(
+          userId,
+          message,
+          history.slice(-3).map(m => ({
+            role: m.role,
+            content: m.content,
+          })),
+          {
+            shouldSurfaceResearch,
+            hasApprovedResearch: approvedItems.length > 0,
+          }
+        );
+      }
+
+      logger.info('Chat router selected modules', {
+        userId,
+        message: message.slice(0, 50),
+        modules,
+      });
+
+      // Build prompt from selected modules
+      const result = await this.promptModulesService.build(modules, {
+        userId,
+        message,
+        profile,
+      });
+
+      return {
+        prompt: result.prompt,
+        adaptation: result.adaptation,
+        recentThoughts: result.recentThoughts,
+        libraryEntries: result.libraryEntries,
+        researchQueueItems: result.researchQueueItems,
+      };
+    } catch (error) {
+      logger.error('Routed prompt building failed, falling back to minimal', { error });
+      // Fallback to minimal prompt
+      const minimalPrompt = await this.promptModulesService.buildMinimalPrompt(userId);
+      return {
+        prompt: minimalPrompt,
+        adaptation: null,
+        recentThoughts: [],
+        libraryEntries: [],
+        researchQueueItems: [],
+      };
+    }
+  }
+
+  /**
+   * Detect research seeds from a conversation exchange
+   * Uses Haiku to identify topics worth researching later
+   *
+   * This populates the research queue, bridging chat insights with AT processing.
+   */
+  private async detectResearchSeed(
+    userId: string,
+    userMessage: string,
+    lucidResponse: string,
+    conversationId: string
+  ): Promise<void> {
+    try {
+      const prompt = `Did this exchange surface something worth researching later?
+
+User: "${userMessage.slice(0, 500)}"
+LUCID: "${lucidResponse.slice(0, 500)}"
+
+If yes, respond with JSON:
+{
+  "topic": "brief description (3-10 words)",
+  "search_query": "suggested search terms",
+  "why_it_matters": "one sentence: why this matters to explore"
+}
+
+If nothing worth researching, respond: null
+
+Only suggest research if:
+- User mentioned something they want to learn more about
+- A topic came up that could benefit from external information
+- User expressed curiosity or confusion about something researchable
+- There's a question that web research could help answer
+
+Do NOT suggest research for:
+- Personal emotions or feelings (not researchable)
+- Things LUCID already knows about the user
+- Casual conversation without substance
+- Topics that were fully addressed in the response`;
+
+      const response = await this.anthropic.messages.create({
+        model: 'claude-haiku-4-5-20241022',
+        max_tokens: 200,
+        temperature: 0,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      // Track cost
+      if (response.usage) {
+        await this.costTrackingService.logUsage(
+          userId,
+          'research_seed_detection',
+          'claude-haiku-4-5-20241022',
+          response.usage.input_tokens,
+          response.usage.output_tokens,
+          { conversation_id: conversationId }
+        );
+      }
+
+      const content = response.content[0];
+      if (content.type !== 'text') {
+        return;
+      }
+
+      const text = content.text.trim();
+      if (text === 'null' || text.toLowerCase() === 'null') {
+        logger.debug('No research seed detected', { conversationId });
+        return;
+      }
+
+      // Parse the JSON response
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        logger.debug('No valid JSON in research seed response', { text });
+        return;
+      }
+
+      const seed = JSON.parse(jsonMatch[0]);
+      if (!seed.topic || !seed.why_it_matters) {
+        return;
+      }
+
+      // Add to research queue
+      await this.researchQueueService.addToQueue({
+        userId,
+        topic: seed.topic,
+        searchQuery: seed.search_query,
+        whyItMatters: seed.why_it_matters,
+        sourceConversationId: conversationId,
+        sourceSnippet: `User: ${userMessage.slice(0, 200)}...`,
+      });
+
+      logger.info('Research seed added to queue', {
+        userId,
+        topic: seed.topic,
+        conversationId,
+      });
+    } catch (error) {
+      // Non-critical, just log and continue
+      logger.warn('Research seed detection failed', { error, userId, conversationId });
+    }
   }
 }
