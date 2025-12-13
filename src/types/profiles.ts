@@ -18,6 +18,7 @@ export interface LucidProfile {
     autonomousAgents: boolean;
     webResearch: boolean;
     semanticSearch: boolean;
+    modularIntelligence?: boolean; // Use Haiku-based chat routing and research queue
   };
 
   // Emotional intelligence settings (if enabled)
