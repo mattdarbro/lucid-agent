@@ -51,26 +51,28 @@ CREATE TRIGGER trigger_immutable_facts_updated_at
 
 -- View combining immutable facts with high-confidence regular facts
 CREATE OR REPLACE VIEW core_identity_facts AS
-SELECT
-  id,
-  user_id,
-  content,
-  category,
-  'immutable' as source,
-  1.0 as confidence,
-  display_order
-FROM immutable_facts
-UNION ALL
-SELECT
-  id,
-  user_id,
-  content,
-  category,
-  'fact' as source,
-  confidence,
-  0 as display_order
-FROM facts
-WHERE is_immutable = true AND is_active = true
+SELECT * FROM (
+  SELECT
+    id,
+    user_id,
+    content,
+    category,
+    'immutable' as source,
+    1.0::numeric as confidence,
+    display_order
+  FROM immutable_facts
+  UNION ALL
+  SELECT
+    id,
+    user_id,
+    content,
+    category,
+    'fact' as source,
+    confidence,
+    0 as display_order
+  FROM facts
+  WHERE is_immutable = true AND is_active = true
+) combined
 ORDER BY
   CASE category
     WHEN 'name' THEN 1
