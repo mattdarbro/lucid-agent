@@ -29,6 +29,7 @@ import costsRouter from './routes/costs';
 import { createMattStateRouter } from './routes/matt-state';
 import { createOrbitsRouter } from './routes/orbits';
 import researchQueueRouter from './routes/research-queue';
+import winsRouter from './routes/wins';
 
 // Validate configuration on startup
 try {
@@ -158,6 +159,9 @@ app.use('/v1/orbits', createOrbitsRouter(pool));
 
 // Modular Intelligence System (Research Queue)
 app.use('/v1/research-queue', researchQueueRouter);
+
+// Wins tracking (user accomplishments)
+app.use('/v1/wins', winsRouter);
 
 // TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);

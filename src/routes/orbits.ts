@@ -264,10 +264,34 @@ export function createOrbitsRouter(pool: Pool): Router {
         const { user_id } = userIdParamSchema.parse(req.params);
         const { person_name, new_tier } = req.body;
 
-        const orbit = await orbitsService.changeOrbitTier(user_id, person_name, new_tier);
+        // Trim whitespace from person_name
+        const trimmedName = person_name?.trim();
+
+        if (!trimmedName) {
+          return res.status(400).json({ error: 'person_name is required' });
+        }
+
+        const orbit = await orbitsService.changeOrbitTier(user_id, trimmedName, new_tier);
 
         if (!orbit) {
-          return res.status(404).json({ error: 'Person not found in orbits' });
+          // Check if person exists but is inactive
+          const existingOrbits = await orbitsService.getActiveOrbits(user_id);
+          const similarNames = existingOrbits
+            .filter((o) => o.person_name.toLowerCase().includes(trimmedName.toLowerCase().substring(0, 3)))
+            .map((o) => o.person_name);
+
+          logger.warn('Change tier failed - person not found', {
+            user_id,
+            requested_name: trimmedName,
+            available_orbits: existingOrbits.map((o) => o.person_name),
+          });
+
+          return res.status(404).json({
+            error: 'Person not found in orbits',
+            requested_name: trimmedName,
+            suggestion: similarNames.length > 0 ? `Did you mean: ${similarNames.join(', ')}?` : null,
+            available_count: existingOrbits.length,
+          });
         }
 
         res.json(orbit);
