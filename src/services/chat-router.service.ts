@@ -17,7 +17,8 @@ export type ChatModule =
   | 'autonomous_thoughts'// Surface LUCID's background reflections
   | 'surface_research'   // Present pending research queue to user
   | 'vision_appraisal'   // Dream/vision/goal exploration
-  | 'possibility_expansion'; // Help when stuck or narrowly focused
+  | 'possibility_expansion' // Help when stuck or narrowly focused
+  | 'lucid_self_context'; // Lucid's self-notes and evolution
 
 /**
  * Message structure for routing context
@@ -374,6 +375,13 @@ JSON array only:`;
       }
       if (!modules.includes('facts_relevant')) {
         modules.push('facts_relevant');
+      }
+    }
+
+    // If subject is Lucid, include self-context for richer self-awareness
+    if (subjectInfo.subject === 'lucid' && subjectInfo.confidence >= 0.7) {
+      if (!modules.includes('lucid_self_context')) {
+        modules.push('lucid_self_context');
       }
     }
 
