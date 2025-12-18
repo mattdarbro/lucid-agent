@@ -422,9 +422,10 @@ export type SpecializedSessionType =
 
 export type LibraryEntryType =
   | 'lucid_thought'
-  | 'lucid_self_reflection'  // NEW: Lucid thinking about himself
-  | 'orbit_reflection'       // NEW: Thinking about someone in orbits
-  | 'vision_appraisal'       // NEW: Dream/vision/goal exploration
+  | 'lucid_self_reflection'  // Lucid thinking about himself
+  | 'orbit_reflection'       // Thinking about someone in orbits
+  | 'vision_appraisal'       // Dream/vision/goal exploration
+  | 'possibility_map'        // Branching alternatives when stuck
   | 'user_reflection'
   | 'journal'
   | 'reflection'

@@ -99,6 +99,7 @@ export const FULL_LUCID_PROFILE: LucidProfile = {
     autonomousAgents: true,
     webResearch: true,
     semanticSearch: true,
+    modularIntelligence: true, // Enable Haiku-based routing and research queue
   },
 
   emotionalIntelligence: {
@@ -186,6 +187,7 @@ export const DEV_LUCID_PROFILE: LucidProfile = {
     autonomousAgents: true,
     webResearch: true,
     semanticSearch: true,
+    modularIntelligence: true, // Enable Haiku-based routing and research queue
   },
 
   emotionalIntelligence: {
