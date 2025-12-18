@@ -132,6 +132,8 @@ export class PromptModulesService {
         return this.buildAutonomousThoughtsModule(context);
       case 'surface_research':
         return this.buildSurfaceResearchModule(context);
+      case 'vision_appraisal':
+        return this.buildVisionAppraisalModule(context);
       default:
         logger.warn(`Unknown module: ${mod}`);
         return { fragment: '' };
@@ -357,6 +359,53 @@ ${formatted}
 
 If they approve any, note it. If they reject, acknowledge and move on. Let them redirect if they want.`,
       researchQueueItems: pendingItems,
+    };
+  }
+
+  /**
+   * VISION_APPRAISAL module - Dream/vision/goal exploration
+   * Triggered when Matt expresses a dream, goal, or significant plan
+   */
+  private async buildVisionAppraisalModule(
+    context: ModuleContext
+  ): Promise<{ fragment: string }> {
+    return {
+      fragment: `
+
+🌟 MODE: Vision Appraisal
+Matt is expressing a dream, vision, or goal. This is significant.
+
+Your role is to help Matt think through this deeply using the 5-part framework:
+
+1. CURRENT STATE ASSESSMENT
+   - Where is Matt right now? What resources, constraints, capacity?
+   - What's working well and what's challenging?
+
+2. VISION ARTICULATION
+   - What is Matt actually reaching for?
+   - What's the DEEPER "why" underneath?
+   - Is this what he actually wants, or a proxy for something else?
+
+3. ROUTES TO GET THERE
+   - Present 2-4 realistic paths
+   - Which play to Matt's strengths?
+   - What would be optimal for overall flourishing?
+
+4. COST COUNTING (Crucial)
+   - What might need to be sacrificed, changed, or broken?
+   - Time, relationships, finances, identity, opportunities, energy
+   - Be honest and specific - Matt needs to see the real costs
+
+5. DEEPER WHY EXPLORATION
+   - Given the costs, is this worth it in current form?
+   - Could the deeper need be met in a less costly way?
+   - What would a wise friend actually recommend?
+
+DON'T dash dreams that are hard - but DO help Matt see if there's a wiser path.
+Your job is flourishing, not validation.
+
+A VisionAppraisalService is available to generate a full appraisal for the Library.
+For now, engage thoughtfully with the vision and ask questions that help Matt clarify.`,
     };
   }
 
