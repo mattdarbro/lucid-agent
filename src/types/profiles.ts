@@ -68,6 +68,7 @@ export interface LucidProfile {
     maxResponseWords: number; // Programmatic word limit enforcement
     // Deep thinking controls
     forceDeepThinking: boolean; // Bypass complexity assessment, always generate Library entries
+    deepThinkingBias?: number; // 0-100: 0=always chatty, 50=balanced, 100=always deep (default: 50)
   };
 }
 

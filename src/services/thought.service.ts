@@ -43,6 +43,7 @@ interface ThoughtResult {
  */
 interface ThoughtOptions {
   forceDeepThinking?: boolean; // Bypass complexity assessment, always generate Library entries
+  deepThinkingBias?: number;   // 0-100: 0=always chatty, 50=balanced, 100=always deep (default: 50)
   subject?: ThoughtSubject;    // Who the thought is about: 'user' | 'other' | 'lucid'
   subjectName?: string;        // For 'other' type - the person's name
   subjectRelationship?: string; // For 'other' type - relationship to user
@@ -101,10 +102,10 @@ export class ThoughtService {
     options: ThoughtOptions = {}
   ): Promise<ThoughtResult> {
     try {
-      const { forceDeepThinking = false } = options;
+      const { forceDeepThinking = false, deepThinkingBias = 50 } = options;
 
       // 1. Assess complexity (bypassed if forceDeepThinking is enabled)
-      const needsDeepThought = forceDeepThinking || await this.assessComplexity(userMessage, history);
+      const needsDeepThought = forceDeepThinking || await this.assessComplexity(userMessage, history, deepThinkingBias);
 
       if (!needsDeepThought) {
         logger.debug('Message assessed as simple, skipping deep thought', {
@@ -169,36 +170,58 @@ export class ThoughtService {
    * Uses heuristics first, then Claude for ambiguous cases.
    * DEEP = strategic questions, complex decisions, requests for analysis
    * SIMPLE = greetings, clarifications, quick facts, emotional support
+   *
+   * @param bias 0-100: 0=always chatty, 50=balanced, 100=always deep
    */
-  async assessComplexity(message: string, history: Message[]): Promise<boolean> {
+  async assessComplexity(message: string, history: Message[], bias: number = 50): Promise<boolean> {
     const trimmedMessage = message.trim();
 
+    // At very high bias (90+), trigger deep thinking for almost everything except greetings
+    if (bias >= 90) {
+      const pureGreetings = /^(hi|hello|hey|bye|goodbye|see you|later)[\s!?.]*$/i;
+      return !pureGreetings.test(trimmedMessage);
+    }
+
     // Quick heuristics first - simple patterns
-    const simplePatterns = /^(hi|hello|hey|thanks|thank you|ok|okay|sure|got it|yes|no|yep|nope|cool|great|nice|good|bye|goodbye|see you|later)[\s!?.]*$/i;
+    // At high bias (70+), don't skip as many simple patterns
+    const simplePatterns = bias >= 70
+      ? /^(hi|hello|hey|bye|goodbye)[\s!?.]*$/i  // Narrower list at high bias
+      : /^(hi|hello|hey|thanks|thank you|ok|okay|sure|got it|yes|no|yep|nope|cool|great|nice|good|bye|goodbye|see you|later)[\s!?.]*$/i;
+
     if (simplePatterns.test(trimmedMessage)) {
       return false;
     }
 
-    // Very short messages are usually simple
-    if (trimmedMessage.split(/\s+/).length < 5) {
+    // Very short messages are usually simple (but at high bias, lower threshold)
+    const minWordsForDeep = bias >= 70 ? 3 : (bias >= 30 ? 5 : 8);
+    if (trimmedMessage.split(/\s+/).length < minWordsForDeep) {
       return false;
     }
 
-    // Deep thinking patterns
+    // Deep thinking patterns - always trigger
     const deepPatterns = /what do you think|how should i|help me understand|help me think|analyze|compare|decide|explain why|what are the implications|pros and cons|trade-?offs|should i|advise me|what would you recommend|break down|walk me through|deep dive/i;
     if (deepPatterns.test(trimmedMessage)) {
       return true;
     }
 
     // Questions that often need deep thought
+    // At high bias, lower the length requirement
     const complexQuestionPatterns = /^(why|how come|what if|what are|what would|how do i|how can i|how would|should|could you explain|can you help me think)/i;
-    if (complexQuestionPatterns.test(trimmedMessage) && trimmedMessage.length > 50) {
+    const minLengthForComplexQ = bias >= 70 ? 20 : (bias >= 30 ? 50 : 80);
+    if (complexQuestionPatterns.test(trimmedMessage) && trimmedMessage.length > minLengthForComplexQ) {
       return true;
     }
 
-    // For ambiguous cases, use Claude to assess
-    if (trimmedMessage.length > 30) {
-      return await this.assessWithClaude(trimmedMessage);
+    // At high bias (70+), trigger deep thinking for any substantial message
+    if (bias >= 70 && trimmedMessage.length > 40) {
+      return true;
+    }
+
+    // At low bias (30-), only use Claude for very substantial messages
+    // At balanced bias, use Claude for ambiguous cases
+    const minLengthForClaude = bias <= 30 ? 80 : 30;
+    if (trimmedMessage.length > minLengthForClaude) {
+      return await this.assessWithClaude(trimmedMessage, bias);
     }
 
     return false;
@@ -206,15 +229,25 @@ export class ThoughtService {
 
   /**
    * Use Claude to assess complexity for ambiguous messages
+   * @param bias 0-100: influences how Claude assesses (higher = more likely to say DEEP)
    */
-  private async assessWithClaude(message: string): Promise<boolean> {
+  private async assessWithClaude(message: string, bias: number = 50): Promise<boolean> {
     try {
+      // Adjust the prompt based on bias
+      const biasGuidance = bias >= 70
+        ? 'When in doubt, lean toward DEEP. The user prefers thoughtful responses.'
+        : bias <= 30
+          ? 'When in doubt, lean toward SIMPLE. The user prefers quick, conversational responses.'
+          : 'Be balanced in your assessment.';
+
       const prompt = `Assess this message: Does it warrant deep thinking or is it simple conversation?
 
 Message: "${message}"
 
 DEEP = strategic questions, complex decisions, requests for analysis, philosophical questions, career/life decisions, technical deep-dives
 SIMPLE = greetings, clarifications, quick facts, emotional check-ins, casual chat, simple questions with straightforward answers
+
+${biasGuidance}
 
 Respond with ONLY one word: DEEP or SIMPLE`;
 
@@ -232,7 +265,8 @@ Respond with ONLY one word: DEEP or SIMPLE`;
       return result === 'DEEP';
     } catch (error) {
       logger.error('Error assessing complexity with Claude:', error);
-      return false; // Default to simple on error
+      // Default based on bias: high bias = deep, low bias = simple
+      return bias >= 70;
     }
   }
 

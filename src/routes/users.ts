@@ -5,6 +5,7 @@ import { UserService } from '../services/user.service';
 import { ThoughtNotificationService } from '../services/thought-notification.service';
 import { MultiDayTaskService } from '../services/multi-day-task.service';
 import { PushNotificationService } from '../services/push-notification.service';
+import { ProfileService } from '../services/profile.service';
 import {
   createUserSchema,
   updateUserSchema,
@@ -19,6 +20,7 @@ const userService = new UserService(pool);
 const notificationService = new ThoughtNotificationService(pool);
 const taskService = new MultiDayTaskService(pool);
 const pushService = new PushNotificationService(pool);
+const profileService = new ProfileService(pool);
 
 /**
  * Validation middleware helper
@@ -465,6 +467,118 @@ router.delete('/:user_id/push-token', async (req: Request, res: Response) => {
 
     logger.error('Error in DELETE /v1/users/:user_id/push-token:', error);
     res.status(500).json({ error: 'Failed to remove push token' });
+  }
+});
+
+/**
+ * GET /v1/users/:user_id/settings/deep-thinking-bias
+ *
+ * Get the user's deep thinking bias setting
+ *
+ * Path parameters:
+ * - user_id: string - UUID of the user
+ *
+ * Response:
+ * - deep_thinking_bias: number (0-100)
+ *   - 0 = always chatty, quick responses
+ *   - 50 = balanced (default)
+ *   - 100 = always deep thinking, Library entries
+ */
+router.get('/:user_id/settings/deep-thinking-bias', async (req: Request, res: Response) => {
+  try {
+    const userIdSchema = z.object({
+      user_id: z.string().uuid(),
+    });
+
+    const { user_id } = userIdSchema.parse(req.params);
+
+    const profile = await profileService.getUserProfile(user_id);
+    const bias = profile.chat?.deepThinkingBias ?? 50;
+
+    res.json({
+      deep_thinking_bias: bias,
+      description: bias <= 30
+        ? 'Chatty mode: Quick, conversational responses'
+        : bias >= 70
+          ? 'Deep mode: Thoughtful analysis, more Library entries'
+          : 'Balanced: Mix of quick chat and deep thinking',
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in GET /v1/users/:user_id/settings/deep-thinking-bias:', error);
+    res.status(500).json({ error: 'Failed to get deep thinking bias' });
+  }
+});
+
+/**
+ * PUT /v1/users/:user_id/settings/deep-thinking-bias
+ *
+ * Set the user's deep thinking bias
+ *
+ * Path parameters:
+ * - user_id: string - UUID of the user
+ *
+ * Request body:
+ * - deep_thinking_bias: number (0-100)
+ *   - 0 = always chatty, quick responses
+ *   - 50 = balanced (default)
+ *   - 100 = always deep thinking, Library entries
+ */
+router.put('/:user_id/settings/deep-thinking-bias', async (req: Request, res: Response) => {
+  try {
+    const userIdSchema = z.object({
+      user_id: z.string().uuid(),
+    });
+
+    const bodySchema = z.object({
+      deep_thinking_bias: z.number().int().min(0).max(100),
+    });
+
+    const { user_id } = userIdSchema.parse(req.params);
+    const { deep_thinking_bias } = bodySchema.parse(req.body);
+
+    // Update the chat.deepThinkingBias setting
+    await profileService.updateUserSettings(user_id, {
+      chat: {
+        deepThinkingBias: deep_thinking_bias,
+      },
+    });
+
+    const description = deep_thinking_bias <= 30
+      ? 'Chatty mode: Quick, conversational responses'
+      : deep_thinking_bias >= 70
+        ? 'Deep mode: Thoughtful analysis, more Library entries'
+        : 'Balanced: Mix of quick chat and deep thinking';
+
+    logger.info('Deep thinking bias updated', { user_id, deep_thinking_bias });
+
+    res.json({
+      success: true,
+      deep_thinking_bias,
+      description,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    logger.error('Error in PUT /v1/users/:user_id/settings/deep-thinking-bias:', error);
+    res.status(500).json({ error: 'Failed to set deep thinking bias' });
   }
 });
 
