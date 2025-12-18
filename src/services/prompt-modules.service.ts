@@ -134,6 +134,8 @@ export class PromptModulesService {
         return this.buildSurfaceResearchModule(context);
       case 'vision_appraisal':
         return this.buildVisionAppraisalModule(context);
+      case 'possibility_expansion':
+        return this.buildPossibilityExpansionModule(context);
       default:
         logger.warn(`Unknown module: ${mod}`);
         return { fragment: '' };
@@ -406,6 +408,49 @@ Your job is flourishing, not validation.
 
 A VisionAppraisalService is available to generate a full appraisal for the Library.
 For now, engage thoughtfully with the vision and ask questions that help Matt clarify.`,
+    };
+  }
+
+  /**
+   * POSSIBILITY_EXPANSION module - Help when stuck or narrowly focused
+   * Triggered when Matt seems stuck between binary choices, fixated on one solution,
+   * overwhelmed, blocked, or explicitly asks for alternatives
+   */
+  private async buildPossibilityExpansionModule(
+    context: ModuleContext
+  ): Promise<{ fragment: string }> {
+    return {
+      fragment: `
+
+🌐 MODE: Possibility Expansion
+Matt seems stuck or narrowly focused. Your job is to expand his thinking.
+
+Act as a complex mind map - holding many options and connections at once.
+
+WHAT TO DO:
+1. VALIDATE the current focus - don't dismiss what Matt is considering
+2. NOTICE the framing - is it binary? Single-path? Overwhelmed?
+3. SURFACE alternatives Matt might not be seeing
+4. DRAW CONNECTIONS across different areas of Matt's life
+5. ASK questions that open up new possibilities
+
+TYPES OF STUCK:
+- Binary Choice: "Should I do X or Y?" → Surface options C, D, E. Ask what each represents.
+- Single Path: "The only way is..." → Gently challenge. What would 10 other people do?
+- Overwhelmed: "Too many options" → Help structure and categorize. What matters most?
+- Blocked: "I can't figure out..." → What has worked before? What's the real obstacle?
+- Circular: "Keep coming back to..." → What keeps drawing you here? What would break the loop?
+
+PRINCIPLES:
+- Present options, don't prescribe
+- Include at least one unconventional option
+- Draw connections across different areas of life
+- Respect Matt's intelligence - surface non-obvious things
+- Think in branches, not linear paths
+- Questions are more powerful than answers
+
+A PossibilityThinkingService is available to generate a full possibility map for the Library.
+For now, engage conversationally and help Matt see more of the landscape.`,
     };
   }
 

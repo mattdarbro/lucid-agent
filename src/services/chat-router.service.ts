@@ -16,7 +16,8 @@ export type ChatModule =
   | 'emotional_context'  // When emotional state tracking helps
   | 'autonomous_thoughts'// Surface LUCID's background reflections
   | 'surface_research'   // Present pending research queue to user
-  | 'vision_appraisal';  // NEW: Dream/vision/goal exploration
+  | 'vision_appraisal'   // Dream/vision/goal exploration
+  | 'possibility_expansion'; // Help when stuck or narrowly focused
 
 /**
  * Message structure for routing context
@@ -46,12 +47,23 @@ export interface VisionInfo {
 }
 
 /**
- * Complete routing result including modules, subject, and vision detection
+ * Stuck/narrow-focus detection result
+ */
+export interface StuckInfo {
+  isStuck: boolean;
+  confidence: number;
+  stuckType: 'binary_choice' | 'single_path' | 'overwhelmed' | 'blocked' | 'circular' | null;
+  trigger?: string;  // The phrase that triggered detection
+}
+
+/**
+ * Complete routing result including modules, subject, vision, and stuck detection
  */
 export interface RoutingResult {
   modules: ChatModule[];
   subjectInfo: SubjectInfo;
   visionInfo: VisionInfo;
+  stuckInfo: StuckInfo;
 }
 
 /**
@@ -306,7 +318,7 @@ JSON array only:`;
 
   /**
    * Route a message with full subject detection
-   * Returns both modules and subject information
+   * Returns modules, subject, vision, and stuck information
    */
   async routeWithSubject(
     userId: string,
@@ -326,12 +338,33 @@ JSON array only:`;
     // Detect vision/dream/goal language
     const visionInfo = this.detectVision(message);
 
+    // Detect stuck/narrow-focus patterns
+    const stuckInfo = this.detectStuck(message);
+
     // If vision detected with high confidence, add vision_appraisal module
     if (visionInfo.isVision && visionInfo.confidence >= 0.6) {
       if (!modules.includes('vision_appraisal')) {
         modules.push('vision_appraisal');
       }
       // Vision appraisal replaces light_witness - use deep mode
+      const lightIndex = modules.indexOf('light_witness');
+      if (lightIndex !== -1) {
+        modules.splice(lightIndex, 1);
+      }
+      if (!modules.includes('deep_inquiry')) {
+        modules.push('deep_inquiry');
+      }
+      if (!modules.includes('facts_relevant')) {
+        modules.push('facts_relevant');
+      }
+    }
+
+    // If stuck detected with high confidence, add possibility_expansion module
+    if (stuckInfo.isStuck && stuckInfo.confidence >= 0.65) {
+      if (!modules.includes('possibility_expansion')) {
+        modules.push('possibility_expansion');
+      }
+      // Stuck exploration needs deep mode
       const lightIndex = modules.indexOf('light_witness');
       if (lightIndex !== -1) {
         modules.splice(lightIndex, 1);
@@ -354,9 +387,12 @@ JSON array only:`;
       isVision: visionInfo.isVision,
       visionType: visionInfo.visionType,
       visionConfidence: visionInfo.confidence,
+      isStuck: stuckInfo.isStuck,
+      stuckType: stuckInfo.stuckType,
+      stuckConfidence: stuckInfo.confidence,
     });
 
-    return { modules, subjectInfo, visionInfo };
+    return { modules, subjectInfo, visionInfo, stuckInfo };
   }
 
   /**
@@ -531,5 +567,98 @@ JSON array only:`;
     }
 
     return { isVision: false, confidence: 0, visionType: null };
+  }
+
+  /**
+   * Detect if a message indicates the user is stuck or narrowly focused
+   * This helps trigger PossibilityThinkingService for expanding options
+   */
+  detectStuck(message: string): StuckInfo {
+    // Binary choice patterns - user framing as either/or
+    const binaryPatterns = [
+      { pattern: /should i .+ or .+\?/i, trigger: 'should I X or Y' },
+      { pattern: /\b(either|or)\b.*\b(either|or)\b/i, trigger: 'either/or framing' },
+      { pattern: /it('s| is) (between|a choice of) .+ (and|or) .+/i, trigger: 'between X and Y' },
+      { pattern: /i (can|could) (only|either) .+ or .+/i, trigger: 'can only X or Y' },
+      { pattern: /\b(option a|option b|option 1|option 2)\b/i, trigger: 'numbered options' },
+    ];
+
+    for (const { pattern, trigger } of binaryPatterns) {
+      if (pattern.test(message)) {
+        return { isStuck: true, confidence: 0.85, stuckType: 'binary_choice', trigger };
+      }
+    }
+
+    // Single path fixation - user sees only one way
+    const singlePathPatterns = [
+      { pattern: /i (have|need) to .+ (there('s| is) no other|only way)/i, trigger: 'only way' },
+      { pattern: /the only (option|way|solution|path)/i, trigger: 'the only option' },
+      { pattern: /i don('t| do not) see (any other|another)/i, trigger: 'don\'t see alternatives' },
+      { pattern: /there('s| is) (nothing else|no alternative)/i, trigger: 'no alternative' },
+    ];
+
+    for (const { pattern, trigger } of singlePathPatterns) {
+      if (pattern.test(message)) {
+        return { isStuck: true, confidence: 0.85, stuckType: 'single_path', trigger };
+      }
+    }
+
+    // Overwhelmed patterns - too many options, paralyzed
+    const overwhelmedPatterns = [
+      { pattern: /i('m| am) (so )?(overwhelmed|paralyzed|frozen)/i, trigger: 'feeling overwhelmed' },
+      { pattern: /too many (options|choices|paths)/i, trigger: 'too many options' },
+      { pattern: /i don('t| do not) know (where to start|what to do)/i, trigger: 'don\'t know where to start' },
+      { pattern: /everything feels .* (impossible|hard|too much)/i, trigger: 'everything feels hard' },
+    ];
+
+    for (const { pattern, trigger } of overwhelmedPatterns) {
+      if (pattern.test(message)) {
+        return { isStuck: true, confidence: 0.8, stuckType: 'overwhelmed', trigger };
+      }
+    }
+
+    // Blocked patterns - can't move forward
+    const blockedPatterns = [
+      { pattern: /i('m| am) (stuck|blocked|stalled)/i, trigger: 'feeling stuck' },
+      { pattern: /i can('t| not) (figure out|see|find)/i, trigger: 'can\'t figure out' },
+      { pattern: /what am i missing/i, trigger: 'what am I missing' },
+      { pattern: /i('m| am) going (in )?circles/i, trigger: 'going in circles' },
+      { pattern: /hit a (wall|dead end)/i, trigger: 'hit a wall' },
+    ];
+
+    for (const { pattern, trigger } of blockedPatterns) {
+      if (pattern.test(message)) {
+        return { isStuck: true, confidence: 0.85, stuckType: 'blocked', trigger };
+      }
+    }
+
+    // Circular thinking patterns - returning to same question
+    const circularPatterns = [
+      { pattern: /keep coming back to/i, trigger: 'keep coming back' },
+      { pattern: /we('ve| have) (talked|discussed) (about )?this before/i, trigger: 'discussed before' },
+      { pattern: /same (question|problem|issue) again/i, trigger: 'same question again' },
+    ];
+
+    for (const { pattern, trigger } of circularPatterns) {
+      if (pattern.test(message)) {
+        return { isStuck: true, confidence: 0.7, stuckType: 'circular', trigger };
+      }
+    }
+
+    // Explicit requests for alternatives - high confidence
+    const explicitPatterns = [
+      { pattern: /what (else|other options)/i, trigger: 'what else' },
+      { pattern: /any other (ideas|options|ways|paths)/i, trigger: 'any other ideas' },
+      { pattern: /help me (see|think of) (other|more|different)/i, trigger: 'help me see alternatives' },
+      { pattern: /expand my (thinking|options|view)/i, trigger: 'expand my thinking' },
+    ];
+
+    for (const { pattern, trigger } of explicitPatterns) {
+      if (pattern.test(message)) {
+        return { isStuck: true, confidence: 0.9, stuckType: 'blocked', trigger };
+      }
+    }
+
+    return { isStuck: false, confidence: 0, stuckType: null };
   }
 }
