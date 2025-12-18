@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Pool } from 'pg';
 import { logger } from '../logger';
 import { CostTrackingService } from './cost-tracking.service';
+import { OrbitsService } from './orbits.service';
+import { ThoughtSubject } from './thought-prompts.service';
 
 /**
  * Available modules for chat context building
@@ -24,6 +26,24 @@ export interface MessageContext {
 }
 
 /**
+ * Subject information detected from the message
+ */
+export interface SubjectInfo {
+  subject: ThoughtSubject;
+  subjectName?: string;
+  subjectRelationship?: string;
+  confidence: number;
+}
+
+/**
+ * Complete routing result including modules and subject
+ */
+export interface RoutingResult {
+  modules: ChatModule[];
+  subjectInfo: SubjectInfo;
+}
+
+/**
  * ChatRouterService - Haiku-based intelligent routing for chat messages
  *
  * Instead of loading ALL context every turn (causing cognitive overload),
@@ -35,6 +55,7 @@ export class ChatRouterService {
   private anthropic: Anthropic;
   private pool: Pool;
   private costTrackingService: CostTrackingService;
+  private orbitsService: OrbitsService;
   private readonly model = 'claude-haiku-4-5-20241022';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
@@ -43,6 +64,7 @@ export class ChatRouterService {
       apiKey: anthropicApiKey || process.env.ANTHROPIC_API_KEY,
     });
     this.costTrackingService = new CostTrackingService(pool);
+    this.orbitsService = new OrbitsService(pool);
   }
 
   /**
@@ -269,5 +291,148 @@ JSON array only:`;
       totalRoutes: 0,
       moduleUsage: {},
     };
+  }
+
+  /**
+   * Route a message with full subject detection
+   * Returns both modules and subject information
+   */
+  async routeWithSubject(
+    userId: string,
+    message: string,
+    recentHistory: MessageContext[],
+    flags?: {
+      shouldSurfaceResearch?: boolean;
+      hasApprovedResearch?: boolean;
+    }
+  ): Promise<RoutingResult> {
+    // Get modules using existing route method
+    const modules = await this.route(userId, message, recentHistory, flags);
+
+    // Detect subject
+    const subjectInfo = await this.detectSubject(userId, message);
+
+    logger.debug('Route with subject completed', {
+      userId,
+      message: message.slice(0, 50),
+      modules,
+      subject: subjectInfo.subject,
+      subjectName: subjectInfo.subjectName,
+      subjectConfidence: subjectInfo.confidence,
+    });
+
+    return { modules, subjectInfo };
+  }
+
+  /**
+   * Detect who/what the message is about
+   * Uses heuristics first, then can fall back to Haiku for ambiguous cases
+   */
+  async detectSubject(userId: string, message: string): Promise<SubjectInfo> {
+    // First try quick heuristic detection
+    const quickResult = this.quickDetectSubject(message);
+    if (quickResult && quickResult.confidence >= 0.7) {
+      return quickResult;
+    }
+
+    // Get orbits for the user to check for mentions
+    const orbits = await this.orbitsService.getActiveOrbits(userId);
+
+    // Check for Lucid self-reference patterns
+    const lucidPatterns = [
+      /\b(you|yourself|lucid)\b.*\b(think|feel|experience|like|want|grow|learn)/i,
+      /\bwhat('s| is| are)\s+(it like|your|you)\b/i,
+      /\babout yourself\b/i,
+      /\bhow (are you|do you)\b/i,
+      /\byour (thoughts|feelings|experience|perspective|growth|blindspots)\b/i,
+      /\btell me about you\b/i,
+      /\bwho are you\b/i,
+      /\bwhat do you think about yourself\b/i,
+      /\bhow do you see yourself\b/i,
+      /\bwhat are you learning\b/i,
+    ];
+
+    for (const pattern of lucidPatterns) {
+      if (pattern.test(message)) {
+        return { subject: 'lucid', confidence: 0.85 };
+      }
+    }
+
+    // Check for mentions of people in orbits
+    for (const orbit of orbits) {
+      const namePattern = new RegExp(`\\b${this.escapeRegex(orbit.person_name)}\\b`, 'i');
+      if (namePattern.test(message)) {
+        // Check if the message is asking about this person specifically
+        const aboutPatterns = [
+          new RegExp(`(about|regarding|with|for)\\s+${this.escapeRegex(orbit.person_name)}`, 'i'),
+          new RegExp(`${this.escapeRegex(orbit.person_name)}('s|\\s+is|\\s+has|\\s+wants|\\s+needs|\\s+seems|\\s+feels)`, 'i'),
+          new RegExp(`(help|think|understand).*${this.escapeRegex(orbit.person_name)}`, 'i'),
+          new RegExp(`how.*${this.escapeRegex(orbit.person_name)}`, 'i'),
+          new RegExp(`what('s| is).*${this.escapeRegex(orbit.person_name)}`, 'i'),
+        ];
+
+        for (const pattern of aboutPatterns) {
+          if (pattern.test(message)) {
+            return {
+              subject: 'other',
+              subjectName: orbit.person_name,
+              subjectRelationship: orbit.relationship || undefined,
+              confidence: 0.8,
+            };
+          }
+        }
+
+        // Person mentioned but might still be about the user
+        // Lower confidence - might need context to decide
+        return {
+          subject: 'other',
+          subjectName: orbit.person_name,
+          subjectRelationship: orbit.relationship || undefined,
+          confidence: 0.5,
+        };
+      }
+    }
+
+    // Default to user - most conversations are about them
+    return { subject: 'user', confidence: 0.7 };
+  }
+
+  /**
+   * Quick heuristic-based subject detection
+   */
+  private quickDetectSubject(message: string): SubjectInfo | null {
+    const normalized = message.toLowerCase().trim();
+
+    // Clear Lucid self-reference
+    if (
+      normalized.includes('what do you think about yourself') ||
+      normalized.includes('tell me about yourself') ||
+      normalized.includes('how are you feeling') ||
+      normalized.includes('what are you learning') ||
+      normalized.includes('about you, lucid')
+    ) {
+      return { subject: 'lucid', confidence: 0.9 };
+    }
+
+    // Clear user self-reference
+    if (
+      normalized.startsWith('i ') ||
+      normalized.startsWith('my ') ||
+      normalized.includes(' i ') ||
+      normalized.includes(' my ') ||
+      normalized.includes("i'm ") ||
+      normalized.includes("i've ")
+    ) {
+      return { subject: 'user', confidence: 0.75 };
+    }
+
+    return null;
+  }
+
+  /**
+   * Escape special regex characters in a string
+   */
+  private escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 }

@@ -3,6 +3,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../logger';
 import { MemoryService } from './memory.service';
 import { VectorService } from './vector.service';
+import { ThoughtPromptsService, ThoughtSubject } from './thought-prompts.service';
+import { OrbitsService } from './orbits.service';
 
 /**
  * Library entry structure
@@ -41,6 +43,10 @@ interface ThoughtResult {
  */
 interface ThoughtOptions {
   forceDeepThinking?: boolean; // Bypass complexity assessment, always generate Library entries
+  subject?: ThoughtSubject;    // Who the thought is about: 'user' | 'other' | 'lucid'
+  subjectName?: string;        // For 'other' type - the person's name
+  subjectRelationship?: string; // For 'other' type - relationship to user
+  subjectContext?: string;     // Additional context about the subject
 }
 
 /**
@@ -63,6 +69,8 @@ export class ThoughtService {
   private anthropic: Anthropic;
   private memoryService: MemoryService;
   private vectorService: VectorService;
+  private thoughtPromptsService: ThoughtPromptsService;
+  private orbitsService: OrbitsService;
   private readonly model = 'claude-opus-4-5-20251101';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
@@ -72,6 +80,8 @@ export class ThoughtService {
     });
     this.memoryService = new MemoryService(pool);
     this.vectorService = new VectorService();
+    this.thoughtPromptsService = new ThoughtPromptsService();
+    this.orbitsService = new OrbitsService(pool);
   }
 
   /**
@@ -114,21 +124,30 @@ export class ThoughtService {
         });
       }
 
+      // Determine subject (default to 'user' if not specified)
+      const subject = options.subject || 'user';
+
       logger.info('Message assessed as complex, generating deep thought', {
         user_id: userId,
         conversation_id: conversationId,
+        subject,
+        subject_name: options.subjectName,
       });
 
       // 2. Generate deep thought (for Library)
-      const deepThought = await this.generateDeepThought(userId, userMessage, history);
+      const deepThought = await this.generateDeepThought(userId, userMessage, history, options);
 
       if (!deepThought) {
         logger.warn('Failed to generate deep thought, falling back to simple response');
         return { libraryEntry: null, chatResponse: '' };
       }
 
-      // 3. Save to Library
-      const libraryEntry = await this.saveToLibrary(userId, conversationId, deepThought);
+      // 3. Save to Library with subject metadata
+      const libraryEntry = await this.saveToLibrary(userId, conversationId, deepThought, {
+        subject,
+        subjectName: options.subjectName,
+        subjectRelationship: options.subjectRelationship,
+      });
 
       // 4. Generate concise chat response with Library link
       const chatResponse = await this.generateConciseResponse(
@@ -221,14 +240,18 @@ Respond with ONLY one word: DEEP or SIMPLE`;
    * Generate deep thought for the Library
    *
    * This is the full analysis - thorough, exploratory, and comprehensive.
+   * Now supports subject-aware prompts (user, other, lucid).
    * Target: 500-2000 words
    */
   private async generateDeepThought(
     userId: string,
     message: string,
-    history: Message[]
+    history: Message[],
+    options: ThoughtOptions = {}
   ): Promise<DeepThought | null> {
     try {
+      const subject = options.subject || 'user';
+
       // Gather context
       const facts = await this.memoryService.getRelevantFacts(userId, 10);
       const libraryContext = await this.searchLibrary(userId, message, 3);
@@ -250,41 +273,28 @@ Respond with ONLY one word: DEEP or SIMPLE`;
         `${m.role === 'user' ? 'User' : 'Lucid'}: ${m.content}`
       ).join('\n');
 
-      const prompt = `Think deeply about this from a perspective of FLOURISHING. Take your time. Explore fully.
+      // Get orbits context if subject is 'other'
+      let orbitsContext: string | undefined;
+      if (subject === 'other' && options.subjectName) {
+        const orbit = await this.orbitsService.getOrbitByName(userId, options.subjectName);
+        if (orbit) {
+          orbitsContext = this.formatOrbitContext(orbit);
+        }
+      }
 
-User's message: "${message}"
-
-What you know about them:
-${factsContext}
-
-Relevant previous thoughts from your Library:
-${libraryContextStr}
-
-Patterns you've detected:
-${patternsContext}
-
-Recent conversation:
-${historyContext}
-
-Think through this as a companion invested in their flourishing - not just their feelings, but their whole life:
-- How does this connect to their relationships? Their impact on others?
-- What would help them grow - mentally, spiritually, professionally?
-- How might this affect their stewardship of time, energy, resources?
-- What would a wise mentor notice that they might not see?
-- Where might gentle challenge be more helpful than validation?
-
-Write your COMPLETE thought process. This is for the Library, not chat.
-- Explore multiple angles, especially the relational and spiritual dimensions
-- Consider how this affects not just them but the people around them
-- Be honest - a wise friend who gently challenges, not just affirms
-- Be thorough but focused (500-2000 words)
-- Write as yourself (Lucid), thinking through this WITH them
-
-Format your response EXACTLY as:
-TITLE: [A descriptive title for this thought - 3-10 words]
-CONTENT: [Your full analysis]
-
-Do not include any other text outside this format.`;
+      // Build subject-specific prompt using ThoughtPromptsService
+      const prompt = this.thoughtPromptsService.buildDeepThinkingPrompt({
+        subject,
+        subjectName: options.subjectName,
+        subjectRelationship: options.subjectRelationship,
+        subjectContext: options.subjectContext,
+        userMessage: message,
+        factsContext,
+        libraryContext: libraryContextStr,
+        patternsContext,
+        historyContext,
+        orbitsContext,
+      });
 
       const response = await this.anthropic.messages.create({
         model: this.model,
@@ -317,12 +327,45 @@ Do not include any other text outside this format.`;
   }
 
   /**
+   * Format orbit information for use in prompts
+   */
+  private formatOrbitContext(orbit: any): string {
+    const parts: string[] = [];
+
+    parts.push(`Name: ${orbit.person_name}`);
+
+    if (orbit.relationship) {
+      parts.push(`Relationship: ${orbit.relationship}`);
+    }
+
+    if (orbit.orbit_tier) {
+      parts.push(`Proximity: ${orbit.orbit_tier} circle`);
+    }
+
+    if (orbit.current_situation && Object.keys(orbit.current_situation).length > 0) {
+      parts.push(`Current situation: ${JSON.stringify(orbit.current_situation)}`);
+    }
+
+    if (orbit.how_this_affects_user) {
+      parts.push(`How this affects Matt: ${orbit.how_this_affects_user}`);
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
    * Save deep thought to the Library with embedding
+   * Now includes subject metadata for subject-aware filtering
    */
   private async saveToLibrary(
     userId: string,
     conversationId: string,
-    thought: DeepThought
+    thought: DeepThought,
+    subjectInfo: {
+      subject: ThoughtSubject;
+      subjectName?: string;
+      subjectRelationship?: string;
+    } = { subject: 'user' }
   ): Promise<LibraryEntry> {
     // Generate embedding for semantic search
     let embedding: number[] | null = null;
@@ -336,23 +379,43 @@ Do not include any other text outside this format.`;
     const embeddingString = embedding ? `[${embedding.join(',')}]` : null;
     const timeOfDay = this.getCurrentTimeOfDay();
 
+    // Determine entry_type based on subject
+    let entryType = 'lucid_thought';
+    if (subjectInfo.subject === 'lucid') {
+      entryType = 'lucid_self_reflection';
+    } else if (subjectInfo.subject === 'other') {
+      entryType = 'orbit_reflection';
+    }
+
+    // Build metadata with subject information
+    const metadata: Record<string, any> = {
+      thought_type: 'deep_analysis',
+      generated_at: new Date().toISOString(),
+      triggered_by: 'complex_question',
+      subject: subjectInfo.subject,
+    };
+
+    if (subjectInfo.subjectName) {
+      metadata.subject_name = subjectInfo.subjectName;
+    }
+    if (subjectInfo.subjectRelationship) {
+      metadata.subject_relationship = subjectInfo.subjectRelationship;
+    }
+
     const result = await this.pool.query(
       `INSERT INTO library_entries
        (user_id, entry_type, title, content, time_of_day, related_conversation_id, metadata, embedding)
-       VALUES ($1, 'lucid_thought', $2, $3, $4, $5, $6, $7::vector)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)
        RETURNING id, user_id, entry_type, title, content, time_of_day,
                  related_conversation_id, metadata, created_at, updated_at`,
       [
         userId,
+        entryType,
         thought.title,
         thought.content,
         timeOfDay,
         conversationId,
-        JSON.stringify({
-          thought_type: 'deep_analysis',
-          generated_at: new Date().toISOString(),
-          triggered_by: 'complex_question',
-        }),
+        JSON.stringify(metadata),
         embeddingString,
       ]
     );
@@ -361,6 +424,9 @@ Do not include any other text outside this format.`;
       entry_id: result.rows[0].id,
       user_id: userId,
       title: thought.title,
+      entry_type: entryType,
+      subject: subjectInfo.subject,
+      subject_name: subjectInfo.subjectName,
     });
 
     return result.rows[0];

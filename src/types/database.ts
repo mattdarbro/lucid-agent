@@ -422,6 +422,8 @@ export type SpecializedSessionType =
 
 export type LibraryEntryType =
   | 'lucid_thought'
+  | 'lucid_self_reflection'  // NEW: Lucid thinking about himself
+  | 'orbit_reflection'       // NEW: Thinking about someone in orbits
   | 'user_reflection'
   | 'journal'
   | 'reflection'
@@ -431,6 +433,11 @@ export type LibraryEntryType =
   | 'state_update'
   | 'orbit_update'
   | 'deep_thought';
+
+/**
+ * Subject of a thought - who/what the thought is about
+ */
+export type ThoughtSubject = 'user' | 'other' | 'lucid';
 
 export interface LibraryEntry {
   id: string;
