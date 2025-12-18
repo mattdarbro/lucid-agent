@@ -15,7 +15,8 @@ export type ChatModule =
   | 'facts_relevant'     // Semantic search for relevant stored knowledge
   | 'emotional_context'  // When emotional state tracking helps
   | 'autonomous_thoughts'// Surface LUCID's background reflections
-  | 'surface_research';  // Present pending research queue to user
+  | 'surface_research'   // Present pending research queue to user
+  | 'vision_appraisal';  // NEW: Dream/vision/goal exploration
 
 /**
  * Message structure for routing context
@@ -36,11 +37,21 @@ export interface SubjectInfo {
 }
 
 /**
- * Complete routing result including modules and subject
+ * Vision detection result
+ */
+export interface VisionInfo {
+  isVision: boolean;
+  confidence: number;
+  visionType: 'dream' | 'goal' | 'plan' | 'wish' | 'ambition' | null;
+}
+
+/**
+ * Complete routing result including modules, subject, and vision detection
  */
 export interface RoutingResult {
   modules: ChatModule[];
   subjectInfo: SubjectInfo;
+  visionInfo: VisionInfo;
 }
 
 /**
@@ -312,6 +323,27 @@ JSON array only:`;
     // Detect subject
     const subjectInfo = await this.detectSubject(userId, message);
 
+    // Detect vision/dream/goal language
+    const visionInfo = this.detectVision(message);
+
+    // If vision detected with high confidence, add vision_appraisal module
+    if (visionInfo.isVision && visionInfo.confidence >= 0.6) {
+      if (!modules.includes('vision_appraisal')) {
+        modules.push('vision_appraisal');
+      }
+      // Vision appraisal replaces light_witness - use deep mode
+      const lightIndex = modules.indexOf('light_witness');
+      if (lightIndex !== -1) {
+        modules.splice(lightIndex, 1);
+      }
+      if (!modules.includes('deep_inquiry')) {
+        modules.push('deep_inquiry');
+      }
+      if (!modules.includes('facts_relevant')) {
+        modules.push('facts_relevant');
+      }
+    }
+
     logger.debug('Route with subject completed', {
       userId,
       message: message.slice(0, 50),
@@ -319,9 +351,12 @@ JSON array only:`;
       subject: subjectInfo.subject,
       subjectName: subjectInfo.subjectName,
       subjectConfidence: subjectInfo.confidence,
+      isVision: visionInfo.isVision,
+      visionType: visionInfo.visionType,
+      visionConfidence: visionInfo.confidence,
     });
 
-    return { modules, subjectInfo };
+    return { modules, subjectInfo, visionInfo };
   }
 
   /**
@@ -434,5 +469,67 @@ JSON array only:`;
    */
   private escapeRegex(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /**
+   * Detect if a message contains vision/dream/goal language
+   * This helps trigger the VisionAppraisalService for organic goal exploration
+   */
+  detectVision(message: string): VisionInfo {
+    const lowerMessage = message.toLowerCase();
+
+    // Strong vision indicators - high confidence
+    const strongPatterns: Array<{ pattern: RegExp; type: VisionInfo['visionType'] }> = [
+      { pattern: /i('ve| have) been (dreaming|thinking) (about|of)/i, type: 'dream' },
+      { pattern: /my dream is/i, type: 'dream' },
+      { pattern: /i want to (start|build|create|launch|become|achieve)/i, type: 'goal' },
+      { pattern: /i('m| am) thinking (about|of) (starting|building|creating|launching)/i, type: 'plan' },
+      { pattern: /my goal is/i, type: 'goal' },
+      { pattern: /i('m| am) planning to/i, type: 'plan' },
+      { pattern: /what if i (could|were to|decided to)/i, type: 'wish' },
+      { pattern: /i (really )?want to/i, type: 'goal' },
+      { pattern: /i('ve| have) always wanted to/i, type: 'dream' },
+      { pattern: /my (big |ultimate )?ambition/i, type: 'ambition' },
+      { pattern: /i('m| am) considering (a |making a )?(big |major |significant )?(change|move|decision|transition)/i, type: 'plan' },
+    ];
+
+    for (const { pattern, type } of strongPatterns) {
+      if (pattern.test(message)) {
+        return { isVision: true, confidence: 0.85, visionType: type };
+      }
+    }
+
+    // Medium vision indicators - moderate confidence
+    const mediumPatterns: Array<{ pattern: RegExp; type: VisionInfo['visionType'] }> = [
+      { pattern: /i('m| am) considering/i, type: 'plan' },
+      { pattern: /i('d| would) (like|love) to/i, type: 'wish' },
+      { pattern: /should i (start|try|pursue)/i, type: 'goal' },
+      { pattern: /help me think (through|about) (my|this) (plan|idea|goal|dream|vision)/i, type: 'plan' },
+      { pattern: /what do you think about me (starting|doing|trying|pursuing)/i, type: 'plan' },
+      { pattern: /i('m| am) at a crossroads/i, type: 'plan' },
+      { pattern: /thinking about (my|the) future/i, type: 'dream' },
+    ];
+
+    for (const { pattern, type } of mediumPatterns) {
+      if (pattern.test(message)) {
+        return { isVision: true, confidence: 0.65, visionType: type };
+      }
+    }
+
+    // Vision-related keywords with lower confidence
+    const visionKeywords = [
+      'dream', 'goal', 'vision', 'aspiration', 'ambition',
+      'plan', 'objective', 'target', 'hope', 'wish',
+      'someday', 'eventually', 'in the future', 'one day',
+      'career change', 'life change', 'big decision',
+    ];
+
+    for (const keyword of visionKeywords) {
+      if (lowerMessage.includes(keyword)) {
+        return { isVision: true, confidence: 0.45, visionType: null };
+      }
+    }
+
+    return { isVision: false, confidence: 0, visionType: null };
   }
 }
