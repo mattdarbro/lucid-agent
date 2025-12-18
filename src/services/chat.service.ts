@@ -154,13 +154,15 @@ export class ChatService {
       // LUCID: Try deep thought for complex questions
       // Complex questions generate Library entries + concise chat responses
       // Dev profiles can force deep thinking on every turn
+      // deepThinkingBias: 0=chatty, 50=balanced, 100=always deep
       const forceDeepThinking = chatConfig?.forceDeepThinking ?? false;
+      const deepThinkingBias = chatConfig?.deepThinkingBias ?? 50;
       const thoughtResult = await this.deepThoughtService.generateThoughtWithLibrary(
         input.user_id,
         input.conversation_id,
         input.message,
         messages,
-        { forceDeepThinking }
+        { forceDeepThinking, deepThinkingBias }
       );
 
       // If deep thought generated a response, use it and return early
