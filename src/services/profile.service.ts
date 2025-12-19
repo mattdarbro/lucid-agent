@@ -241,7 +241,19 @@ export class ProfileService {
    */
   async areAgentsEnabled(userId: string): Promise<boolean> {
     const profile = await this.getUserProfile(userId);
-    return profile.features.autonomousAgents && (profile.agents?.enabled ?? false);
+    const featureEnabled = profile.features.autonomousAgents;
+    const agentsEnabled = profile.agents?.enabled ?? false;
+    const result = featureEnabled && agentsEnabled;
+
+    logger.debug('areAgentsEnabled check', {
+      userId,
+      profileId: profile.id,
+      featureEnabled,
+      agentsEnabled,
+      result,
+    });
+
+    return result;
   }
 
   /**
