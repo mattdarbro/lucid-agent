@@ -420,7 +420,7 @@ router.get('/at-debug', async (req: Request, res: Response) => {
  * POST /v1/sync/at-schedule
  *
  * Manually trigger job scheduling for a user.
- * Useful for debugging when jobs aren't being created.
+ * Also updates last_active_at to ensure user is considered "active".
  *
  * Request body:
  * - user_id: string (required) - UUID of the user
@@ -436,6 +436,13 @@ router.post(
 
       const profileService = new ProfileService(pool);
       const agentJobService = new AgentJobService(pool, supabase);
+
+      // First, update last_active_at to NOW so user is considered active
+      await pool.query(
+        'UPDATE users SET last_active_at = NOW() WHERE id = $1',
+        [user_id]
+      );
+      logger.info(`[SYNC] Updated last_active_at for user ${user_id}`);
 
       // Check if agents enabled
       const agentsEnabled = await profileService.areAgentsEnabled(user_id);
@@ -458,6 +465,7 @@ router.post(
       res.json({
         success: true,
         message: `Scheduled ${createdJobs.length} jobs`,
+        last_active_at_updated: true,
         jobs: createdJobs.map(j => ({
           id: j.id,
           type: j.job_type,
