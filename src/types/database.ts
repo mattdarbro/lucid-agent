@@ -94,8 +94,8 @@ export interface AutonomousThought {
   user_id: string;
   agent_job_id: string | null;
   content: string;
-  thought_type: 'dream' | 'reflection' | 'curiosity' | 'insight' | 'question' | 'consolidation';
-  circadian_phase: 'morning' | 'midday' | 'evening' | 'night' | null;
+  thought_type: 'dream' | 'reflection' | 'curiosity' | 'insight' | 'question' | 'consolidation' | 'synthesis';
+  circadian_phase: 'morning' | 'midday' | 'afternoon' | 'evening' | 'night' | null;
   generated_at_time: string | null;
   importance_score: number | null;
   is_shared: boolean;
@@ -123,6 +123,7 @@ export interface ResearchTask {
 export type AgentJobType =
   | 'morning_reflection'
   | 'midday_curiosity'
+  | 'afternoon_synthesis'
   | 'evening_consolidation'
   | 'night_dream'
   // Specialized AT Session Types (layered memory system)
