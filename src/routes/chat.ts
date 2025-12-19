@@ -3,8 +3,11 @@ import { logger } from '../logger';
 import { chatService } from '../services';
 import { chatCompletionSchema, ChatCompletionInput } from '../validation/chat.validation';
 import { z } from 'zod';
+import { pool } from '../db';
+import { UserService } from '../services/user.service';
 
 const router = Router();
+const userService = new UserService(pool);
 
 /**
  * Validation middleware helper
@@ -52,6 +55,16 @@ router.post('/', validateBody(chatCompletionSchema), async (req: Request, res: R
       conversation_id: input.conversation_id,
       message_length: input.message.length,
     });
+
+    // Update user's last_active_at to ensure AT jobs keep running
+    // This is critical - without this, users become "inactive" after 7 days
+    // and stop receiving autonomous thinking
+    try {
+      await userService.updateLastActive(input.user_id);
+    } catch (error) {
+      // Don't fail the chat if this fails, just log it
+      logger.warn('Failed to update last_active_at', { user_id: input.user_id, error });
+    }
 
     const result = await chatService.chat(input);
 
