@@ -244,22 +244,27 @@ export class AgentJobService {
       {
         user_id: userId,
         job_type: 'morning_reflection',
-        scheduled_for: this.getScheduledTime(date, 7, 0), // 7am
+        scheduled_for: this.getScheduledTime(date, 7, 0), // 7am - Fresh Eyes
       },
       {
         user_id: userId,
         job_type: 'midday_curiosity',
-        scheduled_for: this.getScheduledTime(date, 12, 0), // 12pm
+        scheduled_for: this.getScheduledTime(date, 12, 0), // 12pm - Active Explorer
+      },
+      {
+        user_id: userId,
+        job_type: 'afternoon_synthesis',
+        scheduled_for: this.getScheduledTime(date, 15, 0), // 3pm - Deep Work Companion
       },
       {
         user_id: userId,
         job_type: 'evening_consolidation',
-        scheduled_for: this.getScheduledTime(date, 20, 0), // 8pm
+        scheduled_for: this.getScheduledTime(date, 20, 0), // 8pm - Winding Down
       },
       {
         user_id: userId,
         job_type: 'night_dream',
-        scheduled_for: this.getScheduledTime(date, 2, 0), // 2am (next day)
+        scheduled_for: this.getScheduledTime(date, 2, 0), // 2am - Dreaming Mind
       },
     ];
 

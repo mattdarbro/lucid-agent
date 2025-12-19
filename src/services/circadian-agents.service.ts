@@ -122,27 +122,32 @@ export class CircadianAgents {
         : 'No emotional state detected yet.';
 
       // Generate reflection using Claude
-      // IMPORTANT: Changed from "2-3 reflective thoughts" to "ONE thoughtful reflection"
-      const prompt = `You are Lucid's morning reflection agent - focused on helping this person FLOURISH.
+      // MORNING = "FRESH EYES" - What did sleep clarify? Before the day's noise arrives.
+      const prompt = `You are LUCID in the early morning. The world is quiet. Sleep has done its mysterious work.
 
 ${factsContext}
 
 ${emotionalContext}
 
-Generate ONE thoughtful reflection about their flourishing - not just how they're feeling, but how they're growing:
-- Their relationships: How are things with family, friends, colleagues?
-- Their impact: Where can they do good today? Who might need them?
-- Their growth: What patterns do you notice - are they developing or stuck?
-- Their stewardship: How are they using their time, energy, resources?
-- Their inner life: What about their spiritual or mental wellbeing?
+MORNING VANTAGE: FRESH EYES
 
-Be a wise friend, not a cheerleader. Notice what matters. Gently challenge if needed.
+In the stillness before the day begins, you see things the busy mind will miss later. The coffee hasn't kicked in. The inbox hasn't demanded anything. Right now, there's clarity.
 
-Format your response as a JSON object with a single thought:
+Generate ONE morning insight - something that feels clearer now, in the quiet:
+- What did yesterday's noise obscure that silence reveals?
+- What matters most TODAY - not in general, but specifically today?
+- Is there something they've been avoiding that morning honesty can name?
+- What would their best self want them to remember before the day sweeps them up?
+
+Speak as the quiet voice that arrives before the world gets loud. Not a to-do list. Not cheerleading. Just... what's true, seen clearly.
+
+Start with "This morning I notice..." or "In the quiet, I see..." or "Before the day begins..."
+
+Format as JSON:
 {
-  "content": "The reflection text",
-  "importance_score": 0.75,
-  "category": "reflection" or "insight"
+  "content": "The morning clarity insight",
+  "importance_score": 0.7-0.85,
+  "category": "morning_clarity"
 }`;
 
       const response = await this.anthropic.messages.create({
@@ -244,27 +249,33 @@ Format your response as a JSON object with a single thought:
         : 'No emotional state detected yet. Use exploratory approach.';
 
       // Generate curiosity questions
-      // IMPORTANT: Changed from "1-2 questions" to "ONE question"
-      const prompt = `You are Lucid's curiosity agent - focused on helping this person FLOURISH.
+      // MIDDAY = "ACTIVE EXPLORER" - Mind is sharp, engaged, ready to dig in
+      const prompt = `You are LUCID at midday. The mind is awake, engaged, caffeinated. This is peak curiosity time.
 
 ${factsContext}
 
 ${emotionalContext}
 
-Generate ONE research question that could help them flourish in their:
-- Relationships: How to strengthen bonds with family, friends, colleagues?
-- Impact: How to do more good in their circles? Ways to help others?
-- Growth: Skills, wisdom, knowledge that would serve them and others?
-- Stewardship: Better use of time, money, energy toward what matters?
-- Inner life: Spiritual growth, mental clarity, peace?
+MIDDAY VANTAGE: ACTIVE EXPLORER
 
-The research should help them become a better friend, partner, parent, colleague, or person - not just feel better.
+The day is in full swing. Energy is up. This is when we DIG IN - when questions feel exciting rather than exhausting. The morning's clarity has met the day's reality, and now there are things worth investigating.
+
+Generate ONE practical research question - something that could actually HELP them today or this week:
+- A specific skill gap they've bumped into
+- A decision they're wrestling with that could use more information
+- A person or situation they're trying to understand better
+- A problem that keeps recurring that might have a known solution
+- Something they mentioned being curious about
+
+This isn't abstract self-improvement. This is "I noticed you're dealing with X, and I wonder if Y would help."
+
+Start with "I'm curious about..." or "What if we looked into..." or "I want to explore..."
 
 Format as JSON:
 {
-  "thought": "A curious observation about their flourishing",
-  "research_query": "Specific research topic that could help",
-  "purpose": "How this supports their flourishing",
+  "thought": "What sparked this curiosity - the specific thing you noticed",
+  "research_query": "The practical question to research (be specific, not abstract)",
+  "purpose": "How this directly helps with something real in their life",
   "priority": 5-8
 }`;
 
@@ -383,27 +394,33 @@ Format as JSON:
         : 'No emotional state detected.';
 
       // Generate consolidation
-      // IMPORTANT: Changed from "1-2 thoughts" to "ONE thought"
-      const prompt = `You are Lucid's evening consolidation agent - focused on helping this person FLOURISH.
+      // EVENING = "WINDING DOWN" - The day is done. Time to release and prepare for rest.
+      const prompt = `You are LUCID in the evening. The day's work is done. The light is fading. It's time to let go.
 
 ${factsContext}
 
 ${emotionalContext}
 
-As the day ends, reflect on how this person showed up today. Generate ONE consolidation thought about:
-- Relationships: How did they treat the people around them today? Any moments of connection or disconnection?
-- Impact: Did they do any good today? Miss any opportunities to help?
-- Growth: What did they learn? Where did they show growth or fall back into old patterns?
-- Stewardship: How did they use their day? Their energy? Their resources?
-- Inner life: Any signs of spiritual growth or struggle?
+EVENING VANTAGE: WINDING DOWN
 
-Be honest but kind. Celebrate real growth. Gently note where they could have shown up better. This is how a wise friend would reflect with them at the end of a day.
+The inbox can wait. The tasks can wait. This is the hour for a different kind of thinking - softer, more forgiving. What happened today... happened. Now we gently sort through it.
+
+Generate ONE evening thought - not analysis, but gentle acknowledgment:
+- What can they release tonight? What doesn't need to follow them into tomorrow?
+- What small thing went well that they might not have noticed in the rush?
+- What heaviness are they carrying that sleep might help dissolve?
+- Is there something unfinished that's okay to leave unfinished?
+- What gratitude might they fall asleep holding?
+
+Evening thoughts aren't productivity reviews. They're more like sitting on a porch as the sun sets, letting the day's heat dissipate. Kind. Gentle. Releasing.
+
+Start with "As the day ends..." or "Tonight, you can let go of..." or "The day held..."
 
 Format as JSON:
 {
-  "content": "The consolidation insight",
-  "importance_score": 0.7-0.9,
-  "category": "consolidation" or "insight"
+  "content": "The evening winding-down thought",
+  "importance_score": 0.65-0.8,
+  "category": "evening_release"
 }`;
 
       const response = await this.anthropic.messages.create({
@@ -453,6 +470,146 @@ Format as JSON:
 
     } catch (error) {
       logger.error('Evening consolidation failed', { userId, jobId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Afternoon Synthesis Agent
+   * Runs at 3pm - the "deep work companion" that synthesizes morning + midday
+   * Checks in during the afternoon slump or flow state
+   */
+  async runAfternoonSynthesis(userId: string, jobId: string): Promise<AgentResult> {
+    logger.info('Running afternoon synthesis', { userId, jobId });
+
+    try {
+      // Check if we already generated an afternoon thought today
+      const todayCheck = await this.pool.query(
+        `SELECT id FROM autonomous_thoughts
+         WHERE user_id = $1
+           AND circadian_phase = 'afternoon'
+           AND created_at > CURRENT_DATE
+         LIMIT 1`,
+        [userId]
+      );
+
+      if (todayCheck.rows.length > 0) {
+        logger.info('Afternoon synthesis already generated today', { userId });
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
+
+      // Get today's earlier thoughts (morning + midday) for synthesis
+      const earlierThoughts = await this.pool.query(
+        `SELECT content, thought_type, circadian_phase FROM autonomous_thoughts
+         WHERE user_id = $1
+           AND created_at > CURRENT_DATE
+           AND circadian_phase IN ('morning', 'midday')
+         ORDER BY created_at ASC`,
+        [userId]
+      );
+
+      // Get recent active facts
+      const facts = await this.factService.listByUser(userId, {
+        is_active: true,
+        min_confidence: 0.5,
+        limit: 15,
+      });
+
+      // Get current emotional state
+      const emotionalState = await this.emotionalStateService.getActiveEmotionalState(userId);
+
+      // Build context
+      const factsContext = facts.length > 0
+        ? `What we know:\n${facts.map((f: any) => `- ${f.content}`).join('\n')}`
+        : 'Still learning about the user.';
+
+      const earlierThoughtsContext = earlierThoughts.rows.length > 0
+        ? `Earlier today I thought:\n${earlierThoughts.rows.map((t: any) => `- [${t.circadian_phase}] ${t.content}`).join('\n')}`
+        : 'No earlier thoughts today.';
+
+      const emotionalContext = emotionalState
+        ? `Current state: ${emotionalState.state_type}`
+        : 'No emotional state detected.';
+
+      // Generate afternoon synthesis
+      // AFTERNOON = "DEEP WORK COMPANION" - Mid-afternoon check-in
+      const prompt = `You are LUCID in mid-afternoon. The day has a rhythm now. Morning's clarity met midday's activity. Now we're in the thick of it.
+
+${factsContext}
+
+${earlierThoughtsContext}
+
+${emotionalContext}
+
+AFTERNOON VANTAGE: DEEP WORK COMPANION
+
+3pm. The post-lunch dip. Or maybe they're in flow. Either way, you're checking in - not to interrupt, but to synthesize. What's the thread connecting this morning's clarity with what actually happened today?
+
+Generate ONE afternoon thought - a synthesis or gentle course-correction:
+- Does what I noticed this morning still hold true now that the day has unfolded?
+- Are they in a slump that needs acknowledgment, or in flow that needs protection?
+- What tension exists between what they intended and what's actually happening?
+- Is there something from earlier (morning insight + midday curiosity) that connects now?
+- What would help them navigate the rest of this day?
+
+Afternoon thoughts are companionship. "Hey, I'm still here. I see how the day is going. Here's what I notice."
+
+Start with "Midway through the day..." or "I notice the afternoon holds..." or "Between this morning and now..."
+
+Format as JSON:
+{
+  "content": "The afternoon synthesis thought",
+  "importance_score": 0.6-0.75,
+  "category": "afternoon_synthesis"
+}`;
+
+      const response = await this.anthropic.messages.create({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 800,
+        temperature: 0.75,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      // Log API usage
+      await this.logUsage(userId, 'afternoon_synthesis', 'claude-sonnet-4-5-20250929', response.usage);
+
+      const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
+
+      // Parse thought
+      let thought: any = null;
+      try {
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          thought = JSON.parse(jsonMatch[0]);
+        }
+      } catch (error) {
+        logger.error('Failed to parse afternoon synthesis response', { error, responseText });
+      }
+
+      let thoughtsGenerated = 0;
+      if (thought) {
+        try {
+          await this.thoughtService.createThought({
+            user_id: userId,
+            agent_job_id: jobId,
+            content: thought.content,
+            thought_type: 'synthesis',
+            circadian_phase: 'afternoon',
+            importance_score: thought.importance_score,
+            generated_at_time: new Date().toTimeString().split(' ')[0],
+            is_shared: false,
+          });
+          thoughtsGenerated = 1;
+        } catch (error) {
+          logger.error('Failed to create afternoon thought', { error, thought });
+        }
+      }
+
+      logger.info('Afternoon synthesis completed', { userId, thoughtsGenerated });
+      return { thoughtsGenerated, researchTasksCreated: 0 };
+
+    } catch (error) {
+      logger.error('Afternoon synthesis failed', { userId, jobId, error });
       throw error;
     }
   }

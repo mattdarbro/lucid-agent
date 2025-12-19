@@ -308,6 +308,12 @@ export class SchedulerService {
           researchTasksCreated = middayResult.researchTasksCreated;
           break;
 
+        case 'afternoon_synthesis':
+          const afternoonResult = await agents.runAfternoonSynthesis(job.user_id, job.id);
+          thoughtsGenerated = afternoonResult.thoughtsGenerated;
+          researchTasksCreated = afternoonResult.researchTasksCreated;
+          break;
+
         case 'evening_consolidation':
           const eveningResult = await agents.runEveningConsolidation(job.user_id, job.id);
           thoughtsGenerated = eveningResult.thoughtsGenerated;

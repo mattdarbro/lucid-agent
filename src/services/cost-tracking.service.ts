@@ -34,6 +34,7 @@ export type UsageSource =
   | 'chat'
   | 'morning_reflection'
   | 'midday_curiosity'
+  | 'afternoon_synthesis'
   | 'evening_consolidation'
   | 'night_dream'
   | 'web_research'
