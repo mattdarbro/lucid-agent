@@ -4,6 +4,7 @@ import { z } from 'zod';
 export const jobTypeSchema = z.enum([
   'morning_reflection',
   'midday_curiosity',
+  'afternoon_synthesis',
   'evening_consolidation',
   'night_dream',
   // Specialized AT Session Types (layered memory system)

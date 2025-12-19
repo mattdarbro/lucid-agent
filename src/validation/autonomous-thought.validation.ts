@@ -8,12 +8,14 @@ export const thoughtCategorySchema = z.enum([
   'dream',
   'insight',
   'question',
+  'synthesis',
 ]);
 
 // Circadian phases aligned with database schema
 export const circadianPhaseSchema = z.enum([
   'morning',
   'midday',
+  'afternoon',
   'evening',
   'night',
 ]);
