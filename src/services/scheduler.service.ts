@@ -120,11 +120,15 @@ export class SchedulerService {
       }
 
       if (!users || users.length === 0) {
-        logger.info('No recently active users found for job scheduling');
+        logger.info('No recently active users found for job scheduling', {
+          cutoffDate: sevenDaysAgo.toISOString(),
+        });
         return;
       }
 
-      logger.info(`Found ${users.length} recently active users for job scheduling`);
+      logger.info(`Found ${users.length} recently active users for job scheduling`, {
+        users: users.map(u => ({ id: u.id, name: u.name, lastActive: u.last_active_at })),
+      });
 
       const today = new Date();
       let scheduledCount = 0;
@@ -136,14 +140,28 @@ export class SchedulerService {
           // Check if autonomous agents are enabled for this user
           const agentsEnabled = await this.profileService.areAgentsEnabled(user.id);
 
+          // Get full profile for debugging
+          const profile = await this.profileService.getUserProfile(user.id);
+
           if (!agentsEnabled) {
-            logger.debug('Skipping job scheduling for user (agents disabled in profile)', { userId: user.id });
+            logger.info('Skipping job scheduling for user (agents disabled in profile)', {
+              userId: user.id,
+              userName: user.name,
+              profileId: profile.id,
+              featuresAutonomousAgents: profile.features.autonomousAgents,
+              agentsEnabled: profile.agents?.enabled,
+            });
             skippedCount++;
             continue;
           }
 
-          await this.agentJobService.scheduleCircadianJobs(user.id, today);
-          logger.debug('Scheduled circadian jobs for user', { userId: user.id });
+          const createdJobs = await this.agentJobService.scheduleCircadianJobs(user.id, today);
+          logger.info('Scheduled circadian jobs for user', {
+            userId: user.id,
+            userName: user.name,
+            jobsCreated: createdJobs.length,
+            jobTypes: createdJobs.map(j => j.job_type),
+          });
           scheduledCount++;
         } catch (error) {
           logger.error('Failed to schedule jobs for user', { userId: user.id, error });

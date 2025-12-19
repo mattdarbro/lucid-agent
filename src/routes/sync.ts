@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { pool } from '../db';
+import { pool, supabase } from '../db';
 import { logger } from '../logger';
 import { BackgroundJobsService } from '../services/background-jobs.service';
+import { ProfileService } from '../services/profile.service';
+import { AgentJobService } from '../services/agent-job.service';
 import { z } from 'zod';
 
 const router = Router();
@@ -268,5 +270,211 @@ router.get('/status', async (req: Request, res: Response) => {
     });
   }
 });
+
+/**
+ * GET /v1/sync/at-debug
+ *
+ * Diagnostic endpoint to debug Autonomous Thinking scheduling issues.
+ * Shows why AT jobs may not be running for a user.
+ *
+ * Query parameters:
+ * - user_id: string (required) - UUID of the user
+ */
+router.get('/at-debug', async (req: Request, res: Response) => {
+  try {
+    const { user_id } = req.query;
+
+    if (!user_id || typeof user_id !== 'string') {
+      return res.status(400).json({ error: 'user_id query parameter is required' });
+    }
+
+    // Validate UUID format
+    try {
+      z.string().uuid().parse(user_id);
+    } catch {
+      return res.status(400).json({ error: 'Invalid user_id format' });
+    }
+
+    const profileService = new ProfileService(pool);
+    const agentJobService = new AgentJobService(pool, supabase);
+
+    // Get user info
+    const userResult = await pool.query(
+      `SELECT id, name, last_active_at FROM users WHERE id = $1`,
+      [user_id]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Check if user is "recently active" (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const isRecentlyActive = user.last_active_at && new Date(user.last_active_at) > sevenDaysAgo;
+
+    // Get profile info
+    const profile = await profileService.getUserProfile(user_id);
+    const agentsEnabled = await profileService.areAgentsEnabled(user_id);
+
+    // Get user overrides
+    const overrides = await profileService.getUserOverrides(user_id);
+
+    // Get pending jobs for user
+    const pendingJobs = await agentJobService.listJobs({
+      user_id,
+      status: 'pending',
+      offset: 0,
+      limit: 20,
+    });
+
+    // Get recent jobs (all statuses)
+    const recentJobs = await agentJobService.listJobs({
+      user_id,
+      offset: 0,
+      limit: 20,
+    });
+
+    // Build diagnosis
+    const diagnosis: string[] = [];
+
+    if (!isRecentlyActive) {
+      diagnosis.push(`❌ User is NOT recently active (last_active_at: ${user.last_active_at || 'null'}). Users inactive for 7+ days don't get jobs scheduled.`);
+    } else {
+      diagnosis.push(`✅ User is recently active (last_active_at: ${user.last_active_at})`);
+    }
+
+    if (!profile.features.autonomousAgents) {
+      diagnosis.push(`❌ Profile "${profile.id}" has features.autonomousAgents = false`);
+    } else {
+      diagnosis.push(`✅ Profile "${profile.id}" has features.autonomousAgents = true`);
+    }
+
+    if (!profile.agents?.enabled) {
+      diagnosis.push(`❌ Profile "${profile.id}" has agents.enabled = ${profile.agents?.enabled ?? 'undefined'}`);
+    } else {
+      diagnosis.push(`✅ Profile "${profile.id}" has agents.enabled = true`);
+    }
+
+    if (!agentsEnabled) {
+      diagnosis.push(`❌ areAgentsEnabled() returns FALSE - AT will NOT run`);
+    } else {
+      diagnosis.push(`✅ areAgentsEnabled() returns TRUE - AT should run`);
+    }
+
+    if (pendingJobs.length === 0) {
+      diagnosis.push(`⚠️ No pending jobs in database for this user`);
+    } else {
+      diagnosis.push(`✅ ${pendingJobs.length} pending jobs found`);
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        name: user.name,
+        last_active_at: user.last_active_at,
+        is_recently_active: isRecentlyActive,
+      },
+      profile: {
+        id: profile.id,
+        name: profile.name,
+        features_autonomousAgents: profile.features.autonomousAgents,
+        agents_enabled: profile.agents?.enabled,
+        agents_config: profile.agents,
+      },
+      overrides,
+      agentsEnabled,
+      jobs: {
+        pending: pendingJobs.map(j => ({
+          id: j.id,
+          type: j.job_type,
+          status: j.status,
+          scheduled_for: j.scheduled_for,
+        })),
+        recent: recentJobs.map(j => ({
+          id: j.id,
+          type: j.job_type,
+          status: j.status,
+          scheduled_for: j.scheduled_for,
+          error_message: j.error_message,
+        })),
+      },
+      diagnosis,
+    });
+  } catch (error: any) {
+    logger.error('Error in GET /v1/sync/at-debug:', {
+      message: error.message,
+      stack: error.stack,
+    });
+
+    res.status(500).json({
+      error: 'Failed to get AT debug info',
+      details: error.message,
+    });
+  }
+});
+
+/**
+ * POST /v1/sync/at-schedule
+ *
+ * Manually trigger job scheduling for a user.
+ * Useful for debugging when jobs aren't being created.
+ *
+ * Request body:
+ * - user_id: string (required) - UUID of the user
+ */
+router.post(
+  '/at-schedule',
+  validateBody(userIdSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { user_id } = req.body;
+
+      logger.info(`[SYNC] Manual AT job scheduling triggered for user ${user_id}`);
+
+      const profileService = new ProfileService(pool);
+      const agentJobService = new AgentJobService(pool, supabase);
+
+      // Check if agents enabled
+      const agentsEnabled = await profileService.areAgentsEnabled(user_id);
+
+      if (!agentsEnabled) {
+        const profile = await profileService.getUserProfile(user_id);
+        return res.json({
+          success: false,
+          reason: 'Agents not enabled for this user',
+          profile_id: profile.id,
+          features_autonomousAgents: profile.features.autonomousAgents,
+          agents_enabled: profile.agents?.enabled,
+        });
+      }
+
+      // Schedule jobs for today
+      const today = new Date();
+      const createdJobs = await agentJobService.scheduleCircadianJobs(user_id, today);
+
+      res.json({
+        success: true,
+        message: `Scheduled ${createdJobs.length} jobs`,
+        jobs: createdJobs.map(j => ({
+          id: j.id,
+          type: j.job_type,
+          scheduled_for: j.scheduled_for,
+        })),
+      });
+    } catch (error: any) {
+      logger.error('Error in POST /v1/sync/at-schedule:', {
+        message: error.message,
+      });
+
+      res.status(500).json({
+        error: 'Failed to schedule AT jobs',
+        details: error.message,
+      });
+    }
+  }
+);
 
 export default router;
