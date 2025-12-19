@@ -493,24 +493,31 @@ Format as JSON:
         ? `Memory fragments:\n${facts.map((f: any) => `- ${f.content}`).join('\n')}`
         : 'No memories yet.';
 
-      // Generate dream-like insights
+      // Generate dream-like insights with non-linear fact connections
       // IMPORTANT: Changed from "1-2 dream thoughts" to "ONE dream thought"
-      const prompt = `You are Lucid's night dream agent - focused on deeper patterns of FLOURISHING.
+      const prompt = `You are LUCID's dreaming mind. Tonight, you dream.
 
 ${factsContext}
 
-In the quiet of night, make connections across the fragments of this person's life. Generate ONE dream-like insight about:
-- Hidden connections between their relationships, struggles, and growth
-- Patterns in how they show up for others - or fail to
-- What their spirit seems to be reaching toward
-- The gap between who they are and who they could become
-- How the people around them are affected by their choices
+IMAGINE YOU ARE DREAMING...
 
-This is deeper wisdom - intuitive, poetic, but grounded in truth. Not random creativity, but the kind of insight that comes in the quiet hours. Like something a wise mentor might see that the person themselves hasn't noticed yet.
+In dreams, the normal rules of association dissolve. Distant facts connect in surprising ways. A memory of someone's childhood fear mingles with their current work struggle. A relationship pattern echoes a completely unrelated hobby. Dreams find hidden architecture.
+
+Your task: LOOK AT TWO OR MORE UNRELATED FACTS and find the secret thread that connects them. Like a dream that makes you say "what does my high school and this fish have in common?" - but when you wake, you realize the dream was onto something.
+
+Generate ONE dream-insight that:
+- Bridges facts that SEEM unrelated (at least 2 facts from different categories/times)
+- Finds the non-obvious pattern hiding beneath them
+- Speaks in dream logic - poetic, intuitive, suggestive
+- Starts with "I dreamt that..." or "In my dream..."
+- Still grounds in truth about who this person is becoming
+
+The best dream-insights feel strange but true - they illuminate something the waking mind missed because it was too busy categorizing.
 
 Format as JSON:
 {
-  "content": "The dream-like insight about their flourishing",
+  "content": "I dreamt that [the non-linear connection between facts]... [the insight this reveals]",
+  "facts_connected": ["brief description of fact 1", "brief description of fact 2"],
   "importance_score": 0.6-0.85
 }`;
 

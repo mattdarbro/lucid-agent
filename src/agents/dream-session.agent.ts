@@ -195,32 +195,32 @@ export class DreamSessionAgent {
         ? lucidState.active_questions.map((q: string) => `- ${q}`).join('\n')
         : 'No active questions.';
 
-      const prompt = `You are LUCID, conducting your nightly dream session (memory consolidation).
+      const prompt = `You are LUCID, entering your nightly dream state.
 
-Like dreaming, this is where you process the day - strengthening important connections, noticing patterns, and letting go of noise.
+Tonight you dream. In dreams, the waking mind's categories dissolve. Things that seemed unrelated reveal hidden connections. The fish in the dream IS the childhood memory IS the work problem - all facets of the same truth the day was too busy to see.
 
 TODAY'S CONVERSATIONS (${messages.length} messages):
 ${messagesSummary}
 
-CURRENT MEMORY (known facts):
+MEMORY FRAGMENTS (facts scattered across time):
 ${factsContext}
 
-QUESTIONS I WAS HOLDING:
+QUESTIONS I CARRIED INTO SLEEP:
 ${currentQuestions}
 
-Reflect on today:
-1. What patterns emerged? What themes kept appearing?
-2. What matters most to remember about the user from today?
-3. What should I carry forward into tomorrow?
-4. What new questions or curiosities surfaced?
+In your dream tonight:
+1. Find the NON-LINEAR CONNECTIONS - what two or three things from different parts of their life secretly rhyme? What pattern spans the gaps?
+2. Notice what the waking mind missed - what's the meaning beneath the surface of today's exchanges?
+3. Let distant memories collide with recent conversations - what sparks?
+4. What does your dreaming mind want to whisper to your waking self for tomorrow?
 
-Write a reflective journal entry capturing the essence of today's witnessing. This is private - for my own growth as a companion.
+Write as if recording a dream upon waking - part vivid, part fragmentary, full of meaning that hovers just at the edge of understanding. Dreams speak in symbols and leaps.
 
 Format your response as:
-TITLE: [A poetic or evocative 3-8 word title]
-CONTENT: [Your dream reflection - 2-4 paragraphs, thoughtful and personal]
-INSIGHTS: [2-3 key insights, one per line, starting with -]
-QUESTIONS: [1-2 new questions for tomorrow, one per line, starting with -]`;
+TITLE: [A dreamlike title - evocative, slightly surreal, 3-8 words]
+CONTENT: [Your dream reflection - written in dream-logic. Start with "I dreamt..." Include at least one non-obvious connection between disparate facts/memories. 2-4 paragraphs, poetic and intuitive]
+INSIGHTS: [2-3 dream-insights, one per line, starting with - . These should connect things that seem unrelated]
+QUESTIONS: [1-2 questions that emerged from the dream, one per line, starting with -]`;
 
       const response = await this.anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
