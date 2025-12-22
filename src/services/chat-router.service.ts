@@ -342,10 +342,15 @@ JSON array only:`;
     // Detect stuck/narrow-focus patterns
     const stuckInfo = this.detectStuck(message);
 
-    // If vision detected with high confidence, add vision_appraisal module
-    if (visionInfo.isVision && visionInfo.confidence >= 0.6) {
+    // If vision detected, add vision_appraisal module
+    // Lowered threshold from 0.6 to 0.4 to catch more natural language about dreams/goals
+    if (visionInfo.isVision && visionInfo.confidence >= 0.4) {
       if (!modules.includes('vision_appraisal')) {
         modules.push('vision_appraisal');
+        logger.debug('Added vision_appraisal module', {
+          confidence: visionInfo.confidence,
+          visionType: visionInfo.visionType
+        });
       }
       // Vision appraisal replaces light_witness - use deep mode
       const lightIndex = modules.indexOf('light_witness');
@@ -360,10 +365,16 @@ JSON array only:`;
       }
     }
 
-    // If stuck detected with high confidence, add possibility_expansion module
-    if (stuckInfo.isStuck && stuckInfo.confidence >= 0.65) {
+    // If stuck detected, add possibility_expansion module
+    // Lowered threshold from 0.65 to 0.5 to catch more natural "stuck" language
+    if (stuckInfo.isStuck && stuckInfo.confidence >= 0.5) {
       if (!modules.includes('possibility_expansion')) {
         modules.push('possibility_expansion');
+        logger.debug('Added possibility_expansion module', {
+          confidence: stuckInfo.confidence,
+          stuckType: stuckInfo.stuckType,
+          trigger: stuckInfo.trigger
+        });
       }
       // Stuck exploration needs deep mode
       const lightIndex = modules.indexOf('light_witness');
@@ -472,6 +483,24 @@ JSON array only:`;
       }
     }
 
+    // Check for third-person pronouns that might indicate talking about someone else
+    // Even if we don't know who specifically
+    const thirdPersonPatterns = [
+      /\b(he|she|they)\s+(is|are|was|were|has|have|wants?|needs?|feels?|seems?)/i,
+      /\bhis\s+(life|situation|problem|issue|decision|career|relationship)/i,
+      /\bher\s+(life|situation|problem|issue|decision|career|relationship)/i,
+      /\btheir\s+(life|situation|problem|issue|decision|career|relationship)/i,
+      /\babout\s+(him|her|them)\b/i,
+      /how (is|are) (he|she|they)/i,
+      /what (should|can|could) (he|she|they)/i,
+    ];
+
+    for (const pattern of thirdPersonPatterns) {
+      if (pattern.test(message)) {
+        return { subject: 'other', subjectName: undefined, confidence: 0.6 };
+      }
+    }
+
     // Default to user - most conversations are about them
     return { subject: 'user', confidence: 0.7 };
   }
@@ -560,7 +589,7 @@ JSON array only:`;
       }
     }
 
-    // Vision-related keywords with lower confidence
+    // Vision-related keywords with moderate confidence
     const visionKeywords = [
       'dream', 'goal', 'vision', 'aspiration', 'ambition',
       'plan', 'objective', 'target', 'hope', 'wish',
@@ -570,7 +599,23 @@ JSON array only:`;
 
     for (const keyword of visionKeywords) {
       if (lowerMessage.includes(keyword)) {
-        return { isVision: true, confidence: 0.45, visionType: null };
+        return { isVision: true, confidence: 0.5, visionType: null };
+      }
+    }
+
+    // Cost/tradeoff language - often signals vision appraisal territory
+    // "Cost of chasing dreams" mode
+    const costPatterns = [
+      'worth it', 'trade-off', 'tradeoff', 'sacrifice',
+      'give up', 'cost', 'what would i lose', 'what would it take',
+      'is it realistic', 'can i afford', 'too risky', 'too late',
+      'should i pursue', 'should i chase', 'follow my',
+      'what am i giving up', 'opportunity cost',
+    ];
+
+    for (const pattern of costPatterns) {
+      if (lowerMessage.includes(pattern)) {
+        return { isVision: true, confidence: 0.55, visionType: 'goal' };
       }
     }
 
@@ -664,6 +709,27 @@ JSON array only:`;
     for (const { pattern, trigger } of explicitPatterns) {
       if (pattern.test(message)) {
         return { isStuck: true, confidence: 0.9, stuckType: 'blocked', trigger };
+      }
+    }
+
+    // Additional natural language patterns for possibility expansion
+    // These catch more conversational ways of expressing being stuck
+    const naturalStuckPatterns = [
+      { pattern: /not sure (what to do|how to|which)/i, trigger: 'not sure what to do' },
+      { pattern: /help me (think|decide|figure)/i, trigger: 'help me think' },
+      { pattern: /what would you (do|suggest|recommend)/i, trigger: 'asking for advice' },
+      { pattern: /i('m| am) (torn|conflicted|undecided)/i, trigger: 'feeling torn' },
+      { pattern: /can('t| not) (decide|choose|figure)/i, trigger: 'can\'t decide' },
+      { pattern: /weighing (my )?options/i, trigger: 'weighing options' },
+      { pattern: /pros and cons/i, trigger: 'pros and cons' },
+      { pattern: /on the fence/i, trigger: 'on the fence' },
+      { pattern: /back and forth/i, trigger: 'going back and forth' },
+      { pattern: /narrow(ing|ed)? (down|my)/i, trigger: 'narrowing down' },
+    ];
+
+    for (const { pattern, trigger } of naturalStuckPatterns) {
+      if (pattern.test(message)) {
+        return { isStuck: true, confidence: 0.6, stuckType: 'blocked', trigger };
       }
     }
 
