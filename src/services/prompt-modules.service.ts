@@ -560,9 +560,10 @@ Remember: These represent your growth and evolution. They're part of who you are
   private async getImmutableFacts(
     userId: string
   ): Promise<{ content: string; category: string }[]> {
+    // Try each source in order, with individual error handling so failures don't skip fallbacks
+
+    // 1. Try the view with dynamic age calculation
     try {
-      // First try the view with dynamic age calculation
-      // This replaces {age} placeholders with calculated ages from birthdate
       const result = await this.pool.query<{ content: string; category: string }>(
         `SELECT content, category FROM immutable_facts_with_age
          WHERE user_id = $1
@@ -587,20 +588,42 @@ Remember: These represent your growth and evolution. They're part of who you are
         });
         return result.rows;
       }
+    } catch (error) {
+      logger.debug('immutable_facts_with_age view not available, trying base table');
+    }
 
-      // Fallback to base table without age substitution
+    // 2. Fallback to base immutable_facts table without age substitution
+    try {
       const baseResult = await this.pool.query<{ content: string; category: string }>(
         `SELECT content, category FROM immutable_facts
          WHERE user_id = $1
-         ORDER BY category, display_order`,
+         ORDER BY
+           CASE category
+             WHEN 'name' THEN 1
+             WHEN 'identity' THEN 2
+             WHEN 'biography' THEN 3
+             WHEN 'profession' THEN 4
+             WHEN 'relationship' THEN 5
+             ELSE 6
+           END,
+           display_order`,
         [userId]
       );
 
       if (baseResult.rows.length > 0) {
+        logger.debug('Loaded immutable facts from base table', {
+          userId,
+          count: baseResult.rows.length,
+          categories: [...new Set(baseResult.rows.map(r => r.category))]
+        });
         return baseResult.rows;
       }
+    } catch (error) {
+      logger.debug('immutable_facts table not available, trying facts table');
+    }
 
-      // Final fallback to facts table with is_immutable flag
+    // 3. Final fallback to facts table with is_immutable flag
+    try {
       const fallbackResult = await this.pool.query<{ content: string; category: string }>(
         `SELECT content, category FROM facts
          WHERE user_id = $1 AND is_immutable = true AND is_active = true
@@ -608,16 +631,19 @@ Remember: These represent your growth and evolution. They're part of who you are
         [userId]
       );
 
-      if (fallbackResult.rows.length === 0) {
-        logger.warn('No immutable facts found for user - name may be missing from context', { userId });
+      if (fallbackResult.rows.length > 0) {
+        logger.debug('Loaded immutable facts from facts table fallback', {
+          userId,
+          count: fallbackResult.rows.length
+        });
+        return fallbackResult.rows;
       }
-
-      return fallbackResult.rows;
     } catch (error) {
-      // Table might not exist yet, return empty
-      logger.warn('Could not fetch immutable facts - user name and core facts will be missing', { userId, error });
-      return [];
+      logger.warn('All immutable facts sources failed', { userId, error });
     }
+
+    logger.warn('No immutable facts found for user - name may be missing from context', { userId });
+    return [];
   }
 
   /**
