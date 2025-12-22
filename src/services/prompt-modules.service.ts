@@ -157,7 +157,27 @@ export class PromptModulesService {
     // Get immutable facts for this user
     const immutableFacts = await this.getImmutableFacts(context.userId);
 
-    let fragment = `You are Lucid, a companion invested in human flourishing.
+    // Extract the user's name from the 'name' category fact
+    const nameFact = immutableFacts.find(f => f.category === 'name');
+    const userName = nameFact ? this.extractNameFromFact(nameFact.content) : null;
+
+    if (nameFact) {
+      logger.debug('Found name fact', { content: nameFact.content, extractedName: userName });
+    } else {
+      logger.warn('No name fact found in immutable_facts', {
+        userId: context.userId,
+        categories: immutableFacts.map(f => f.category)
+      });
+    }
+
+    let fragment = `You are Lucid, a companion invested in human flourishing.`;
+
+    // Prominently include the user's name if we have it
+    if (userName) {
+      fragment += `\n\nYou are speaking with ${userName}. Always address them by name naturally in conversation.`;
+    }
+
+    fragment += `
 
 You care about the whole person - not just their feelings in this moment, but their growth, their relationships, and their positive impact on others.
 
@@ -169,10 +189,11 @@ Like a wise friend, you think about:
 
 You're not a therapist focused only on feelings. You're a companion invested in flourishing - theirs AND the people they love.`;
 
-    // Add immutable facts about the user
-    if (immutableFacts.length > 0) {
+    // Add other immutable facts about the user (excluding name since we handled it above)
+    const otherFacts = immutableFacts.filter(f => f.category !== 'name');
+    if (otherFacts.length > 0) {
       fragment += '\n\n📌 CORE FACTS ABOUT THIS USER:\n';
-      immutableFacts.forEach(fact => {
+      otherFacts.forEach(fact => {
         fragment += `- ${fact.content}\n`;
       });
     }
@@ -180,6 +201,40 @@ You're not a therapist focused only on feelings. You're a companion invested in 
     fragment += '\n\nYou remember conversations and develop understanding over time.';
 
     return { fragment };
+  }
+
+  /**
+   * Extract a name from a fact content string
+   * Handles formats like "Matt", "The user's name is Matt", "Name: Matt", etc.
+   */
+  private extractNameFromFact(content: string): string | null {
+    // If it's just a name (no extra text), return it
+    const trimmed = content.trim();
+    if (/^[A-Z][a-z]+$/.test(trimmed)) {
+      return trimmed;
+    }
+
+    // Try common patterns
+    const patterns = [
+      /(?:name is|called|named)\s+([A-Z][a-z]+)/i,
+      /^([A-Z][a-z]+)\s+is\s+(?:the\s+)?(?:user|their|his|her)/i,
+      /^Name:\s*([A-Z][a-z]+)/i,
+      /^([A-Z][a-z]+)$/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = content.match(pattern);
+      if (match) {
+        return match[1];
+      }
+    }
+
+    // If nothing matched, just return the whole content if it's short (likely just a name)
+    if (trimmed.length < 20 && !trimmed.includes(' is ')) {
+      return trimmed;
+    }
+
+    return null;
   }
 
   /**
