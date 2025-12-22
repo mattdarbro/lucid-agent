@@ -157,16 +157,20 @@ export class PromptModulesService {
     // Get immutable facts for this user
     const immutableFacts = await this.getImmutableFacts(context.userId);
 
-    // Extract the user's name from the 'name' category fact
-    const nameFact = immutableFacts.find(f => f.category === 'name');
-    const userName = nameFact ? this.extractNameFromFact(nameFact.content) : null;
+    // Extract the user's own name (not family members)
+    // Look for "User's name is X" pattern specifically, since family members are also category='name'
+    const userNameFact = immutableFacts.find(f =>
+      f.category === 'name' &&
+      /user'?s?\s+name\s+is/i.test(f.content)
+    );
+    const userName = userNameFact ? this.extractNameFromFact(userNameFact.content) : null;
 
-    if (nameFact) {
-      logger.debug('Found name fact', { content: nameFact.content, extractedName: userName });
+    if (userNameFact) {
+      logger.debug('Found user name fact', { content: userNameFact.content, extractedName: userName });
     } else {
-      logger.warn('No name fact found in immutable_facts', {
+      logger.warn('No user name fact found - looking for "User\'s name is X" pattern', {
         userId: context.userId,
-        categories: immutableFacts.map(f => f.category)
+        nameFactsFound: immutableFacts.filter(f => f.category === 'name').map(f => f.content)
       });
     }
 
