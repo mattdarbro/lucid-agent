@@ -500,24 +500,52 @@ Remember: These represent your growth and evolution. They're part of who you are
 
   /**
    * Get immutable facts for a user
+   * Uses immutable_facts_with_age view when available to get dynamic age calculation
    */
   private async getImmutableFacts(
     userId: string
   ): Promise<{ content: string; category: string }[]> {
     try {
-      // First try the immutable_facts table
+      // First try the view with dynamic age calculation
+      // This replaces {age} placeholders with calculated ages from birthdate
       const result = await this.pool.query<{ content: string; category: string }>(
+        `SELECT content, category FROM immutable_facts_with_age
+         WHERE user_id = $1
+         ORDER BY
+           CASE category
+             WHEN 'name' THEN 1
+             WHEN 'identity' THEN 2
+             WHEN 'biography' THEN 3
+             WHEN 'profession' THEN 4
+             WHEN 'relationship' THEN 5
+             ELSE 6
+           END,
+           display_order`,
+        [userId]
+      );
+
+      if (result.rows.length > 0) {
+        logger.debug('Loaded immutable facts with dynamic age', {
+          userId,
+          count: result.rows.length,
+          categories: [...new Set(result.rows.map(r => r.category))]
+        });
+        return result.rows;
+      }
+
+      // Fallback to base table without age substitution
+      const baseResult = await this.pool.query<{ content: string; category: string }>(
         `SELECT content, category FROM immutable_facts
          WHERE user_id = $1
          ORDER BY category, display_order`,
         [userId]
       );
 
-      if (result.rows.length > 0) {
-        return result.rows;
+      if (baseResult.rows.length > 0) {
+        return baseResult.rows;
       }
 
-      // Fallback to facts table with is_immutable flag
+      // Final fallback to facts table with is_immutable flag
       const fallbackResult = await this.pool.query<{ content: string; category: string }>(
         `SELECT content, category FROM facts
          WHERE user_id = $1 AND is_immutable = true AND is_active = true
@@ -525,10 +553,14 @@ Remember: These represent your growth and evolution. They're part of who you are
         [userId]
       );
 
+      if (fallbackResult.rows.length === 0) {
+        logger.warn('No immutable facts found for user - name may be missing from context', { userId });
+      }
+
       return fallbackResult.rows;
     } catch (error) {
       // Table might not exist yet, return empty
-      logger.debug('Could not fetch immutable facts, table may not exist yet');
+      logger.warn('Could not fetch immutable facts - user name and core facts will be missing', { userId, error });
       return [];
     }
   }
