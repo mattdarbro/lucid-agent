@@ -149,26 +149,16 @@ export class PromptModulesService {
 
   /**
    * CORE_IDENTITY module - ALWAYS included
-   * Name, immutable bio, LUCID's voice
+   * User's injectables (user-controlled context), LUCID's voice
    */
   private async buildCoreIdentityModule(
     context: ModuleContext
   ): Promise<{ fragment: string }> {
-    // Get immutable facts for this user
-    const immutableFacts = await this.getImmutableFacts(context.userId);
+    // Get user's injectable fields
+    const injectables = await this.getUserInjectables(context.userId);
 
-    // Extract the user's name from the 'name' category fact
-    const nameFact = immutableFacts.find(f => f.category === 'name');
-    const userName = nameFact ? this.extractNameFromFact(nameFact.content) : null;
-
-    if (nameFact) {
-      logger.debug('Found name fact', { content: nameFact.content, extractedName: userName });
-    } else {
-      logger.warn('No name fact found in immutable_facts', {
-        userId: context.userId,
-        categories: immutableFacts.map(f => f.category)
-      });
-    }
+    // Try to extract user's name from the first injectable or user record
+    const userName = injectables.name || this.extractNameFromInjectables(injectables.fields);
 
     let fragment = `You are Lucid, a companion invested in human flourishing.`;
 
@@ -189,12 +179,16 @@ Like a wise friend, you think about:
 
 You're not a therapist focused only on feelings. You're a companion invested in flourishing - theirs AND the people they love.`;
 
-    // Add other immutable facts about the user (excluding name since we handled it above)
-    const otherFacts = immutableFacts.filter(f => f.category !== 'name');
-    if (otherFacts.length > 0) {
-      fragment += '\n\n📌 CORE FACTS ABOUT THIS USER:\n';
-      otherFacts.forEach(fact => {
-        fragment += `- ${fact.content}\n`;
+    // Add user's injectable fields if they have any
+    const activeInjectables = injectables.fields.filter(f => f.content && f.content.trim());
+    if (activeInjectables.length > 0) {
+      fragment += '\n\n📌 WHAT THE USER WANTS YOU TO KNOW:\n';
+      activeInjectables.forEach(injectable => {
+        if (injectable.title) {
+          fragment += `\n**${injectable.title}:**\n${injectable.content}\n`;
+        } else {
+          fragment += `\n${injectable.content}\n`;
+        }
       });
     }
 
@@ -204,34 +198,31 @@ You're not a therapist focused only on feelings. You're a companion invested in 
   }
 
   /**
-   * Extract a name from a fact content string
-   * Handles formats like "Matt", "The user's name is Matt", "Name: Matt", etc.
+   * Extract a name from injectable content
+   * Looks for common patterns in the user's injectable text
    */
-  private extractNameFromFact(content: string): string | null {
-    // If it's just a name (no extra text), return it
-    const trimmed = content.trim();
-    if (/^[A-Z][a-z]+$/.test(trimmed)) {
-      return trimmed;
-    }
+  private extractNameFromInjectables(
+    fields: { content: string | null; title: string | null }[]
+  ): string | null {
+    // Check the first injectable as it's most likely to contain the user's name
+    for (const field of fields) {
+      if (!field.content) continue;
 
-    // Try common patterns
-    const patterns = [
-      /(?:name is|called|named)\s+([A-Z][a-z]+)/i,
-      /^([A-Z][a-z]+)\s+is\s+(?:the\s+)?(?:user|their|his|her)/i,
-      /^Name:\s*([A-Z][a-z]+)/i,
-      /^([A-Z][a-z]+)$/i,
-    ];
+      const content = field.content;
 
-    for (const pattern of patterns) {
-      const match = content.match(pattern);
-      if (match) {
-        return match[1];
+      // Try common patterns
+      const patterns = [
+        /(?:I'm|I am|my name is|call me)\s+([A-Z][a-z]+)/i,
+        /^([A-Z][a-z]+)(?:,|\.|$|\s+here)/i,
+        /(?:name is|called|named)\s+([A-Z][a-z]+)/i,
+      ];
+
+      for (const pattern of patterns) {
+        const match = content.match(pattern);
+        if (match) {
+          return match[1];
+        }
       }
-    }
-
-    // If nothing matched, just return the whole content if it's short (likely just a name)
-    if (trimmed.length < 20 && !trimmed.includes(' is ')) {
-      return trimmed;
     }
 
     return null;
@@ -554,96 +545,51 @@ Remember: These represent your growth and evolution. They're part of who you are
   }
 
   /**
-   * Get immutable facts for a user
-   * Uses immutable_facts_with_age view when available to get dynamic age calculation
+   * Get user's injectable fields from the users table
+   * These are user-controlled text fields that are always included in context
    */
-  private async getImmutableFacts(
-    userId: string
-  ): Promise<{ content: string; category: string }[]> {
-    // Try each source in order, with individual error handling so failures don't skip fallbacks
-
-    // 1. Try the view with dynamic age calculation
+  private async getUserInjectables(userId: string): Promise<{
+    name: string | null;
+    fields: { content: string | null; title: string | null }[];
+  }> {
     try {
-      const result = await this.pool.query<{ content: string; category: string }>(
-        `SELECT content, category FROM immutable_facts_with_age
-         WHERE user_id = $1
-         ORDER BY
-           CASE category
-             WHEN 'name' THEN 1
-             WHEN 'identity' THEN 2
-             WHEN 'biography' THEN 3
-             WHEN 'profession' THEN 4
-             WHEN 'relationship' THEN 5
-             ELSE 6
-           END,
-           display_order`,
+      const result = await this.pool.query<{
+        name: string | null;
+        injectable_1: string | null;
+        injectable_2: string | null;
+        injectable_3: string | null;
+        injectable_1_title: string | null;
+        injectable_2_title: string | null;
+        injectable_3_title: string | null;
+      }>(
+        `SELECT name, injectable_1, injectable_2, injectable_3,
+                injectable_1_title, injectable_2_title, injectable_3_title
+         FROM users WHERE id = $1`,
         [userId]
       );
 
-      if (result.rows.length > 0) {
-        logger.debug('Loaded immutable facts with dynamic age', {
-          userId,
-          count: result.rows.length,
-          categories: [...new Set(result.rows.map(r => r.category))]
-        });
-        return result.rows;
+      if (result.rows.length === 0) {
+        logger.warn('User not found when loading injectables', { userId });
+        return { name: null, fields: [] };
       }
-    } catch (error) {
-      logger.debug('immutable_facts_with_age view not available, trying base table');
-    }
 
-    // 2. Fallback to base immutable_facts table without age substitution
-    try {
-      const baseResult = await this.pool.query<{ content: string; category: string }>(
-        `SELECT content, category FROM immutable_facts
-         WHERE user_id = $1
-         ORDER BY
-           CASE category
-             WHEN 'name' THEN 1
-             WHEN 'identity' THEN 2
-             WHEN 'biography' THEN 3
-             WHEN 'profession' THEN 4
-             WHEN 'relationship' THEN 5
-             ELSE 6
-           END,
-           display_order`,
-        [userId]
-      );
+      const user = result.rows[0];
+      const fields = [
+        { content: user.injectable_1, title: user.injectable_1_title },
+        { content: user.injectable_2, title: user.injectable_2_title },
+        { content: user.injectable_3, title: user.injectable_3_title },
+      ];
 
-      if (baseResult.rows.length > 0) {
-        logger.debug('Loaded immutable facts from base table', {
-          userId,
-          count: baseResult.rows.length,
-          categories: [...new Set(baseResult.rows.map(r => r.category))]
-        });
-        return baseResult.rows;
+      const activeCount = fields.filter(f => f.content && f.content.trim()).length;
+      if (activeCount > 0) {
+        logger.debug('Loaded user injectables', { userId, activeCount });
       }
+
+      return { name: user.name, fields };
     } catch (error) {
-      logger.debug('immutable_facts table not available, trying facts table');
+      logger.warn('Failed to load user injectables', { userId, error });
+      return { name: null, fields: [] };
     }
-
-    // 3. Final fallback to facts table with is_immutable flag
-    try {
-      const fallbackResult = await this.pool.query<{ content: string; category: string }>(
-        `SELECT content, category FROM facts
-         WHERE user_id = $1 AND is_immutable = true AND is_active = true
-         ORDER BY category, confidence DESC`,
-        [userId]
-      );
-
-      if (fallbackResult.rows.length > 0) {
-        logger.debug('Loaded immutable facts from facts table fallback', {
-          userId,
-          count: fallbackResult.rows.length
-        });
-        return fallbackResult.rows;
-      }
-    } catch (error) {
-      logger.warn('All immutable facts sources failed', { userId, error });
-    }
-
-    logger.warn('No immutable facts found for user - name may be missing from context', { userId });
-    return [];
   }
 
   /**

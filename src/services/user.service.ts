@@ -14,6 +14,14 @@ export interface User {
   preferences: Record<string, any>;
   created_at: Date;
   last_active_at: Date;
+  // User-controlled injectable fields (always included in Lucid's context)
+  injectable_1: string | null;
+  injectable_2: string | null;
+  injectable_3: string | null;
+  injectable_1_title: string | null;
+  injectable_2_title: string | null;
+  injectable_3_title: string | null;
+  injectables_updated_at: Date | null;
 }
 
 /**
@@ -37,14 +45,24 @@ export class UserService {
   async createOrUpdateUser(input: CreateUserInput): Promise<User> {
     try {
       const result: QueryResult<User> = await this.pool.query(
-        `INSERT INTO users (external_id, name, email, timezone, preferences)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO users (
+           external_id, name, email, timezone, preferences,
+           injectable_1, injectable_2, injectable_3,
+           injectable_1_title, injectable_2_title, injectable_3_title
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (external_id)
          DO UPDATE SET
            name = EXCLUDED.name,
            email = EXCLUDED.email,
            timezone = EXCLUDED.timezone,
            preferences = EXCLUDED.preferences,
+           injectable_1 = COALESCE(EXCLUDED.injectable_1, users.injectable_1),
+           injectable_2 = COALESCE(EXCLUDED.injectable_2, users.injectable_2),
+           injectable_3 = COALESCE(EXCLUDED.injectable_3, users.injectable_3),
+           injectable_1_title = COALESCE(EXCLUDED.injectable_1_title, users.injectable_1_title),
+           injectable_2_title = COALESCE(EXCLUDED.injectable_2_title, users.injectable_2_title),
+           injectable_3_title = COALESCE(EXCLUDED.injectable_3_title, users.injectable_3_title),
            last_active_at = NOW()
          RETURNING *`,
         [
@@ -53,6 +71,12 @@ export class UserService {
           input.email || null,
           input.timezone || 'UTC',
           input.preferences || {},
+          input.injectable_1 || null,
+          input.injectable_2 || null,
+          input.injectable_3 || null,
+          input.injectable_1_title || null,
+          input.injectable_2_title || null,
+          input.injectable_3_title || null,
         ]
       );
 
@@ -148,6 +172,37 @@ export class UserService {
       if (input.preferences !== undefined) {
         updates.push(`preferences = $${paramCount++}`);
         values.push(input.preferences);
+      }
+
+      // Injectable fields
+      if (input.injectable_1 !== undefined) {
+        updates.push(`injectable_1 = $${paramCount++}`);
+        values.push(input.injectable_1);
+      }
+
+      if (input.injectable_2 !== undefined) {
+        updates.push(`injectable_2 = $${paramCount++}`);
+        values.push(input.injectable_2);
+      }
+
+      if (input.injectable_3 !== undefined) {
+        updates.push(`injectable_3 = $${paramCount++}`);
+        values.push(input.injectable_3);
+      }
+
+      if (input.injectable_1_title !== undefined) {
+        updates.push(`injectable_1_title = $${paramCount++}`);
+        values.push(input.injectable_1_title);
+      }
+
+      if (input.injectable_2_title !== undefined) {
+        updates.push(`injectable_2_title = $${paramCount++}`);
+        values.push(input.injectable_2_title);
+      }
+
+      if (input.injectable_3_title !== undefined) {
+        updates.push(`injectable_3_title = $${paramCount++}`);
+        values.push(input.injectable_3_title);
       }
 
       // Always update last_active_at

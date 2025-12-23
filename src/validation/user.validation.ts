@@ -65,6 +65,43 @@ export const createUserSchema = z.object({
     .record(z.any())
     .optional()
     .default({}),
+
+  // User-controlled injectable fields (always included in Lucid's context)
+  injectable_1: z
+    .string()
+    .max(2000, 'injectable_1 must be less than 2000 characters')
+    .optional()
+    .nullable(),
+
+  injectable_2: z
+    .string()
+    .max(2000, 'injectable_2 must be less than 2000 characters')
+    .optional()
+    .nullable(),
+
+  injectable_3: z
+    .string()
+    .max(2000, 'injectable_3 must be less than 2000 characters')
+    .optional()
+    .nullable(),
+
+  injectable_1_title: z
+    .string()
+    .max(100, 'injectable_1_title must be less than 100 characters')
+    .optional()
+    .nullable(),
+
+  injectable_2_title: z
+    .string()
+    .max(100, 'injectable_2_title must be less than 100 characters')
+    .optional()
+    .nullable(),
+
+  injectable_3_title: z
+    .string()
+    .max(100, 'injectable_3_title must be less than 100 characters')
+    .optional()
+    .nullable(),
 });
 
 /**
@@ -101,6 +138,43 @@ export const updateUserSchema = z.object({
   preferences: z
     .record(z.any())
     .optional(),
+
+  // User-controlled injectable fields
+  injectable_1: z
+    .string()
+    .max(2000, 'injectable_1 must be less than 2000 characters')
+    .optional()
+    .nullable(),
+
+  injectable_2: z
+    .string()
+    .max(2000, 'injectable_2 must be less than 2000 characters')
+    .optional()
+    .nullable(),
+
+  injectable_3: z
+    .string()
+    .max(2000, 'injectable_3 must be less than 2000 characters')
+    .optional()
+    .nullable(),
+
+  injectable_1_title: z
+    .string()
+    .max(100, 'injectable_1_title must be less than 100 characters')
+    .optional()
+    .nullable(),
+
+  injectable_2_title: z
+    .string()
+    .max(100, 'injectable_2_title must be less than 100 characters')
+    .optional()
+    .nullable(),
+
+  injectable_3_title: z
+    .string()
+    .max(100, 'injectable_3_title must be less than 100 characters')
+    .optional()
+    .nullable(),
 });
 
 /**
