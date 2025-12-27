@@ -19,6 +19,7 @@ import { ChatCompletionInput } from '../validation/chat.validation';
 import { ChatRouterService } from './chat-router.service';
 import { PromptModulesService } from './prompt-modules.service';
 import { ResearchQueueService } from './research-queue.service';
+import { ChatModeService, ChatMode } from './chat-mode.service';
 
 /**
  * ChatService handles AI conversation using Claude
@@ -48,6 +49,7 @@ export class ChatService {
   private chatRouterService: ChatRouterService;
   private promptModulesService: PromptModulesService;
   private researchQueueService: ResearchQueueService;
+  private chatModeService: ChatModeService;
 
   constructor(pool: Pool, supabase: SupabaseClient, anthropicApiKey?: string) {
     this.pool = pool;
@@ -73,6 +75,7 @@ export class ChatService {
     this.chatRouterService = new ChatRouterService(pool, anthropicApiKey);
     this.promptModulesService = new PromptModulesService(pool, anthropicApiKey);
     this.researchQueueService = new ResearchQueueService(pool);
+    this.chatModeService = new ChatModeService(pool);
   }
 
   /**
@@ -88,9 +91,33 @@ export class ChatService {
     response: string;
     libraryEntry?: { id: string; title: string | null } | null;
     topicShift?: { tag: string; color: string } | null;
+    mode?: ChatMode;
   }> {
     try {
-      // Store user message first
+      // Parse mode cue from message (^M, ^L, ^O, ^P, ^S, ^C)
+      // Get orbit names for explicit subject cues like ^Rachel
+      const orbits = await this.orbitsService.getActiveOrbits(input.user_id);
+      const orbitNames = orbits.map(o => o.person_name);
+      const modeParsed = this.chatModeService.parseModeCue(input.message, orbitNames);
+
+      // Get current conversation mode (or default)
+      let currentMode = await this.chatModeService.getConversationMode(input.conversation_id);
+
+      // If user specified a mode cue, update the mode
+      if (modeParsed.mode) {
+        currentMode = modeParsed.mode;
+        await this.chatModeService.setConversationMode(input.conversation_id, currentMode);
+        logger.info('Mode changed', {
+          conversation_id: input.conversation_id,
+          mode: currentMode,
+          explicitSubject: modeParsed.explicitSubject,
+        });
+      }
+
+      // Use cleaned message (without mode cue) for the actual content
+      const cleanMessage = modeParsed.cleanMessage || input.message;
+
+      // Store user message (with original content including cue for history)
       const userMessage = await this.messageService.createMessage({
         conversation_id: input.conversation_id,
         user_id: input.user_id,
@@ -126,7 +153,7 @@ export class ChatService {
         const shiftResult = await this.topicService.detectTopicShift(
           input.user_id,
           input.conversation_id,
-          input.message,
+          cleanMessage,  // Use cleaned message without mode cue
           messages.slice(0, -1), // Exclude the message we just added
           timeSinceLastMessage
         );
@@ -160,7 +187,7 @@ export class ChatService {
       const thoughtResult = await this.deepThoughtService.generateThoughtWithLibrary(
         input.user_id,
         input.conversation_id,
-        input.message,
+        cleanMessage,  // Use cleaned message without mode cue
         messages,
         { forceDeepThinking, deepThinkingBias }
       );
@@ -178,6 +205,7 @@ export class ChatService {
           conversation_id: input.conversation_id,
           library_entry_id: thoughtResult.libraryEntry?.id,
           response_length: thoughtResult.chatResponse.length,
+          mode: currentMode,
         });
 
         return {
@@ -188,50 +216,43 @@ export class ChatService {
             ? { id: thoughtResult.libraryEntry.id, title: thoughtResult.libraryEntry.title }
             : null,
           topicShift,
+          mode: currentMode,
         };
       }
 
       // Simple question - proceed with normal chat flow
 
-      // Build system prompt using either routed or modular approach
-      // Routed approach: Haiku selects only relevant modules (prevents cognitive overload)
-      // Modular approach: Legacy - loads all layers based on profile settings
-      const useRoutedPrompts = profile.features?.modularIntelligence ?? false;
-
+      // Build system prompt using mode-based approach
+      // Mode is determined by user cue (^M, ^L, etc.) and persists in conversation
       let systemPrompt: string;
       let adaptation: any = null;
       let recentThoughts: any[] = [];
       let libraryEntries: any[] = [];
       let researchQueueItems: any[] = [];
 
-      if (useRoutedPrompts) {
-        // NEW: Use routed prompt building
-        const routeResult = await this.buildRoutedPrompt(
-          input.user_id,
-          input.message,
-          messages,
-          profile
-        );
-        systemPrompt = routeResult.prompt;
-        adaptation = routeResult.adaptation;
-        recentThoughts = routeResult.recentThoughts;
-        libraryEntries = routeResult.libraryEntries;
-        researchQueueItems = routeResult.researchQueueItems;
-      } else {
-        // LEGACY: Build modular system prompt with all layered memory context
-        // This assembles: Facts, User State (Wins), LUCID State, Orbits,
-        // Emotional Context, Autonomous Thoughts, and Library Context
-        const result = await this.buildModularSystemPrompt(
-          input.user_id,
-          input.system_prompt || '',
-          profile,
-          { message: input.message }
-        );
-        systemPrompt = result.prompt;
-        adaptation = result.adaptation;
-        recentThoughts = result.recentThoughts;
-        libraryEntries = result.libraryEntries;
-      }
+      // Get modules for current mode
+      const modules = this.chatModeService.getModulesForMode(currentMode);
+      const modeAddendum = this.chatModeService.getSystemAddendum(currentMode, modeParsed.explicitSubject);
+
+      // Build prompt from mode modules
+      const moduleResult = await this.promptModulesService.build(modules, {
+        userId: input.user_id,
+        message: cleanMessage,
+        profile,
+      });
+
+      // Combine module prompt with mode-specific guidance
+      systemPrompt = moduleResult.prompt + modeAddendum;
+      adaptation = moduleResult.adaptation;
+      recentThoughts = moduleResult.recentThoughts;
+      libraryEntries = moduleResult.libraryEntries;
+      researchQueueItems = moduleResult.researchQueueItems;
+
+      logger.info('Mode-based prompt built', {
+        conversation_id: input.conversation_id,
+        mode: currentMode,
+        modules,
+      });
 
       // Calculate temperature with emotional adjustment and profile defaults
       const baseTemperature = input.temperature ?? chatConfig?.defaultTemperature ?? 0.7;
@@ -319,7 +340,7 @@ export class ChatService {
       logger.info('Chat completion successful', {
         conversation_id: input.conversation_id,
         response_length: assistantResponse.length,
-        usedRoutedPrompts: profile.features?.modularIntelligence ?? false,
+        mode: currentMode,
       });
 
       return {
@@ -327,6 +348,7 @@ export class ChatService {
         assistant_message: assistantMessage,
         response: assistantResponse,
         topicShift,
+        mode: currentMode,
       };
     } catch (error: any) {
       logger.error('Error in chat completion:', {
