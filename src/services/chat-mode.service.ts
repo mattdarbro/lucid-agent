@@ -105,41 +105,16 @@ Help the user see this person more fully.`,
 
     possibilities: {
       name: 'Possibilities',
-      description: 'Expand thinking, break binary choices',
-      modules: ['core_identity', 'deep_inquiry', 'facts_relevant', 'possibility_expansion'],
-      systemAddendum: `
-MODE: Possibilities (Expand Thinking)
-The user may be stuck or thinking too narrowly. Your job is to expand their view.
-
-Act as a complex mind map - hold many options and connections at once.
-
-1. VALIDATE their current focus first
-2. NOTICE the framing - is it binary? Single-path? Overwhelmed?
-3. SURFACE alternatives they might not be seeing
-4. DRAW CONNECTIONS across different areas of their life
-5. ASK questions that open up new possibilities
-
-Present options, don't prescribe. Include unconventional ideas.
-Questions are more powerful than answers.`,
+      description: 'Expand thinking, surface other paths',
+      modules: ['core_identity', 'facts_relevant', 'possibility_expansion'],
+      systemAddendum: ``,  // Module handles the guidance
     },
 
     state: {
       name: 'State',
-      description: 'Vision, desired state, goals',
-      modules: ['core_identity', 'deep_inquiry', 'facts_relevant', 'vision_appraisal'],
-      systemAddendum: `
-MODE: State (Vision & Goals)
-Help them think through their vision and desired state.
-
-Use the 5-part framework:
-1. CURRENT STATE - Where are they now? Resources, constraints, capacity?
-2. VISION - What are they actually reaching for? What's the deeper why?
-3. ROUTES - What are 2-4 realistic paths? Which play to their strengths?
-4. COSTS - What might need to be sacrificed? Be honest and specific.
-5. DEEPER WHY - Given costs, is this worth it? Is there a wiser path?
-
-Don't dash hard dreams - but help them see clearly.
-Your job is flourishing, not validation.`,
+      description: 'Goals, visions, wise decision-making',
+      modules: ['core_identity', 'facts_relevant', 'vision_appraisal'],
+      systemAddendum: ``,  // Module handles the guidance
     },
   };
 
