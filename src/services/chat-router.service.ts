@@ -18,7 +18,8 @@ export type ChatModule =
   | 'surface_research'   // Present pending research queue to user
   | 'vision_appraisal'   // Dream/vision/goal exploration
   | 'possibility_expansion' // Help when stuck or narrowly focused
-  | 'lucid_self_context'; // Lucid's self-notes and evolution
+  | 'lucid_self_context' // Lucid's self-notes and evolution
+  | 'personality_context'; // Big 5 traits + deviation awareness
 
 /**
  * Message structure for routing context
