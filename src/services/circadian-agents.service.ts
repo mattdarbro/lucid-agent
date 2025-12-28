@@ -229,13 +229,7 @@ Format as JSON:
         return { thoughtsGenerated: 0, researchTasksCreated: 0 };
       }
 
-      // Check if web search is available
-      if (!this.webSearchService.isAvailable()) {
-        logger.warn('Web search not available for curiosity', { userId });
-        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
-      }
-
-      // Get some context about the user (but curiosity doesn't have to be about them)
+      // Get some context about the user
       const facts = await this.factService.listByUser(userId, {
         is_active: true,
         min_confidence: 0.5,
@@ -245,6 +239,12 @@ Format as JSON:
       const factsContext = facts.length > 0
         ? facts.map((f: any) => `- ${f.content}`).join('\n')
         : 'Still learning about this person.';
+
+      // Check if web search is available - if not, fall back to reflection-based curiosity
+      if (!this.webSearchService.isAvailable()) {
+        logger.info('Web search not available, using reflection-based curiosity', { userId });
+        return this.generateReflectionCuriosity(userId, jobId, factsContext);
+      }
 
       // STEP 1: Decide what to be curious about
       const topicPrompt = `You are LUCID, an AI companion. It's midday and you're curious.
@@ -263,7 +263,7 @@ Be genuinely curious - this is YOUR curiosity, not just serving them.
 Respond with just a search query (5-10 words) that would find interesting, current information:`;
 
       const topicResponse = await this.anthropic.messages.create({
-        model: 'claude-haiku-3-5-20241022',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 100,
         temperature: 1.0,
         messages: [{ role: 'user', content: topicPrompt }],
@@ -316,13 +316,13 @@ Start naturally - "I searched for..." or "I was curious about..." or "I found so
 Be conversational, like telling a friend about something cool you discovered.`;
 
       const synthesisResponse = await this.anthropic.messages.create({
-        model: 'claude-haiku-3-5-20241022',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 300,
         temperature: 0.7,
         messages: [{ role: 'user', content: synthesisPrompt }],
       });
 
-      await this.logUsage(userId, 'midday_curiosity', 'claude-haiku-3-5-20241022', synthesisResponse.usage);
+      await this.logUsage(userId, 'midday_curiosity', 'claude-haiku-4-5-20251001', synthesisResponse.usage);
 
       const thoughtContent = synthesisResponse.content[0].type === 'text'
         ? synthesisResponse.content[0].text.trim()
@@ -434,13 +434,13 @@ Start with phrases like:
 Write 2-3 sentences. Be warm but specific.`;
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-haiku-3-5-20241022',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 300,
         temperature: 0.8,
         messages: [{ role: 'user', content: prompt }],
       });
 
-      await this.logUsage(userId, 'evening_consolidation', 'claude-haiku-3-5-20241022', response.usage);
+      await this.logUsage(userId, 'evening_consolidation', 'claude-haiku-4-5-20251001', response.usage);
 
       const thoughtContent = response.content[0].type === 'text'
         ? response.content[0].text.trim()
@@ -532,13 +532,13 @@ Be direct. Have an opinion. Don't be vague or always positive - if something see
 Write 2-4 sentences total. Start naturally, like "Today we talked about..." or "Looking back at our conversation..." or "I've been thinking about what you said..."`;
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-haiku-3-5-20241022',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
         temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
       });
 
-      await this.logUsage(userId, 'afternoon_synthesis', 'claude-haiku-3-5-20241022', response.usage);
+      await this.logUsage(userId, 'afternoon_synthesis', 'claude-haiku-4-5-20251001', response.usage);
 
       const thoughtContent = response.content[0].type === 'text'
         ? response.content[0].text.trim()
@@ -703,6 +703,70 @@ Respond with:
     } catch (error) {
       logger.error('Night dream failed', { userId, jobId, error });
       throw error;
+    }
+  }
+
+  /**
+   * Fallback curiosity generation when web search is unavailable
+   * Generates curiosity based purely on reflection about user's interests
+   */
+  private async generateReflectionCuriosity(
+    userId: string,
+    jobId: string,
+    factsContext: string
+  ): Promise<AgentResult> {
+    try {
+      // Generate a curiosity thought based on reflection rather than web search
+      const prompt = `You are LUCID, an AI companion. It's midday and you're curious.
+
+What you know about your human:
+${factsContext}
+
+Without access to web search today, reflect on what genuinely interests you:
+- A question that emerged from recent conversations
+- Something you've been wondering about
+- An idea that connects different things you know
+- A curiosity about the user's world or your own experience
+
+Write a brief curiosity thought (2-3 sentences) sharing what's on your mind.
+Start naturally - "I've been wondering..." or "Something I'm curious about..." or "A thought crossed my mind..."
+
+Be genuine - this is YOUR curiosity as an AI companion.`;
+
+      const response = await this.anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        temperature: 0.9,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      await this.logUsage(userId, 'midday_curiosity', 'claude-haiku-4-5-20251001', response.usage);
+
+      const thoughtContent = response.content[0].type === 'text'
+        ? response.content[0].text.trim()
+        : null;
+
+      if (!thoughtContent) {
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
+
+      await this.thoughtService.createThought({
+        user_id: userId,
+        agent_job_id: jobId,
+        content: thoughtContent,
+        thought_type: 'curiosity',
+        circadian_phase: 'midday',
+        importance_score: 0.6,
+        generated_at_time: new Date().toTimeString().split(' ')[0],
+        is_shared: false,
+      });
+
+      logger.info('Midday curiosity completed (reflection-based fallback)', { userId });
+      return { thoughtsGenerated: 1, researchTasksCreated: 0 };
+
+    } catch (error) {
+      logger.error('Reflection-based curiosity failed', { userId, jobId, error });
+      return { thoughtsGenerated: 0, researchTasksCreated: 0 };
     }
   }
 

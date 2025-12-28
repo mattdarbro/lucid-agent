@@ -182,12 +182,12 @@ export class SchedulerService {
    * Start polling for due jobs
    */
   private startJobPolling(): void {
-    // Check for due jobs every minute
+    // Check for due jobs every hour (AT jobs aren't time-critical, ~1hr latency is acceptable)
     this.jobCheckInterval = setInterval(async () => {
       await this.processDueJobs();
-    }, 60 * 1000); // 60 seconds
+    }, 60 * 60 * 1000); // 1 hour
 
-    // Also run immediately
+    // Also run immediately on startup
     this.processDueJobs();
   }
 

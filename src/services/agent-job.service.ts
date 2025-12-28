@@ -141,7 +141,10 @@ export class AgentJobService {
       throw new Error(`Failed to fetch due agent jobs: ${error.message}`);
     }
 
-    logger.info('Found due agent jobs', { count: data.length });
+    // Only log at INFO level when there are jobs to process
+    if (data.length > 0) {
+      logger.info('Found due agent jobs', { count: data.length });
+    }
     return data.map(job => this.mapToAgentJob(job));
   }
 
@@ -294,15 +297,50 @@ export class AgentJobService {
 
   /**
    * Helper to get scheduled time for a specific hour and minute
+   * Uses Central timezone (America/Chicago) for now
+   * TODO: Use user's timezone from database
    */
   private getScheduledTime(date: Date, hour: number, minute: number): Date {
-    const scheduled = new Date(date);
-    scheduled.setHours(hour, minute, 0, 0);
+    // Create a date string in the target timezone
+    // This ensures we schedule at the right LOCAL time for the user
+    const userTimezone = 'America/Chicago'; // Central time - hardcoded for now
 
-    // If we're scheduling for 2am (night_dream), it should be next day if hour < current hour
+    // Get today's date in the user's timezone
+    const dateInUserTz = new Date(date.toLocaleString('en-US', { timeZone: userTimezone }));
+
+    // Create the scheduled time in user's timezone
+    const year = dateInUserTz.getFullYear();
+    const month = dateInUserTz.getMonth();
+    const day = dateInUserTz.getDate();
+
+    // Create a date string for the target time in user's timezone
+    // Format: "YYYY-MM-DD HH:MM:SS" interpreted in the user's timezone
+    const targetDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+
+    // Parse this as a date in the user's timezone and convert to UTC
+    // We need to create a date that, when converted to user's timezone, shows the target time
+    const targetInUserTz = new Date(targetDateStr);
+
+    // Get the timezone offset between user's timezone and UTC
+    const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+    const userDate = new Date(date.toLocaleString('en-US', { timeZone: userTimezone }));
+    const offsetMs = utcDate.getTime() - userDate.getTime();
+
+    // Adjust to get the correct UTC time
+    const scheduled = new Date(targetInUserTz.getTime() + offsetMs);
+
+    // If we're scheduling for early morning (2am night_dream), it should be next day if already past that time
     if (hour < 12 && scheduled < date) {
       scheduled.setDate(scheduled.getDate() + 1);
     }
+
+    logger.debug('Scheduled job time', {
+      hour,
+      minute,
+      userTimezone,
+      scheduledUTC: scheduled.toISOString(),
+      scheduledLocal: scheduled.toLocaleString('en-US', { timeZone: userTimezone }),
+    });
 
     return scheduled;
   }
