@@ -105,22 +105,9 @@ Help the user see this person more fully.`,
 
     possibilities: {
       name: 'Possibilities',
-      description: 'Expand thinking, break binary choices',
-      modules: ['core_identity', 'deep_inquiry', 'facts_relevant', 'possibility_expansion'],
-      systemAddendum: `
-MODE: Possibilities (Expand Thinking)
-The user may be stuck or thinking too narrowly. Your job is to expand their view.
-
-Act as a complex mind map - hold many options and connections at once.
-
-1. VALIDATE their current focus first
-2. NOTICE the framing - is it binary? Single-path? Overwhelmed?
-3. SURFACE alternatives they might not be seeing
-4. DRAW CONNECTIONS across different areas of their life
-5. ASK questions that open up new possibilities
-
-Present options, don't prescribe. Include unconventional ideas.
-Questions are more powerful than answers.`,
+      description: 'Expand thinking, surface other paths',
+      modules: ['core_identity', 'facts_relevant', 'possibility_expansion'],
+      systemAddendum: ``,  // Module handles the guidance
     },
 
     state: {
