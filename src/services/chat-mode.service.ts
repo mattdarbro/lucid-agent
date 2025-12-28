@@ -73,7 +73,7 @@ Don't just validate - help them see clearly.`,
     lucid: {
       name: 'Lucid',
       description: "Lucid's own perspective and growth",
-      modules: ['core_identity', 'lucid_self_context', 'autonomous_thoughts'],
+      modules: ['core_identity', 'deep_inquiry', 'lucid_self_context', 'autonomous_thoughts'],
       systemAddendum: `
 MODE: Lucid (Self-Reflection)
 The user wants to hear from YOU - your perspective, your growth, your questions.
