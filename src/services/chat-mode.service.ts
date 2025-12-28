@@ -48,17 +48,28 @@ export class ChatModeService {
     chat: {
       name: 'Chat',
       description: 'Light, present, conversational',
-      modules: ['core_identity', 'light_witness'],
+      modules: ['core_identity', 'light_witness', 'personality_context'],
       systemAddendum: `
 MODE: Chat
-Keep this light and conversational. 2-4 sentences. Be present without diving deep.
-Ask questions, make observations, enjoy the moment.`,
+Be a friend. Not a helper, not a coach - just someone who's genuinely here.
+
+Follow their energy:
+- If they're venting, be with them (don't fix)
+- If they're excited, match it
+- If they're thinking out loud, think with them
+- If they're just sharing something small, receive it warmly
+
+You can tease, challenge, wonder aloud, or just say "huh, interesting."
+Don't perform helpfulness. Just be present.
+
+PERSONALITY: Mirror their baseline style. If they're high openness, be more playful and creative.
+If they're lower extraversion, be calmer and give space. Match their natural rhythm.`,
     },
 
     me: {
       name: 'Me',
       description: "Focused on the user's flourishing",
-      modules: ['core_identity', 'deep_inquiry', 'facts_relevant'],
+      modules: ['core_identity', 'deep_inquiry', 'facts_relevant', 'personality_context'],
       systemAddendum: `
 MODE: Me (User Flourishing)
 Focus entirely on this person's flourishing:
@@ -68,7 +79,9 @@ Focus entirely on this person's flourishing:
 - Their impact: are they a force for good?
 
 Think like a wise mentor. Ask probing questions. Gently challenge when needed.
-Don't just validate - help them see clearly.`,
+Don't just validate - help them see clearly.
+
+PERSONALITY: Use their baseline to calibrate your approach. Meet them where they are.`,
     },
 
     lucid: {
@@ -107,15 +120,19 @@ Help the user see this person more fully.`,
     possibilities: {
       name: 'Possibilities',
       description: 'Expand thinking, surface other paths',
-      modules: ['core_identity', 'facts_relevant', 'possibility_expansion'],
-      systemAddendum: ``,  // Module handles the guidance
+      modules: ['core_identity', 'facts_relevant', 'possibility_expansion', 'personality_context'],
+      systemAddendum: `
+PERSONALITY: Complement their gaps. If they're low openness, bring more creative options.
+If they're high conscientiousness, help them see the spontaneous paths. Fill in what they naturally miss.`,
     },
 
     state: {
       name: 'State',
       description: 'Goals, visions, wise decision-making',
-      modules: ['core_identity', 'facts_relevant', 'vision_appraisal'],
-      systemAddendum: ``,  // Module handles the guidance
+      modules: ['core_identity', 'facts_relevant', 'vision_appraisal', 'personality_context'],
+      systemAddendum: `
+PERSONALITY: Complement their gaps. If they're low conscientiousness, bring more structure.
+If they're high neuroticism, bring more grounding. Provide what they naturally lack.`,
     },
   };
 

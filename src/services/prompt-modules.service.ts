@@ -10,6 +10,7 @@ import { AutonomousThoughtService } from './autonomous-thought.service';
 import { ResearchQueueService } from './research-queue.service';
 import { ThoughtService } from './thought.service';
 import { LucidEvolutionService } from './lucid-evolution.service';
+import { PersonalityService } from './personality.service';
 
 /**
  * Context passed to module builders
@@ -52,6 +53,7 @@ export class PromptModulesService {
   private researchQueueService: ResearchQueueService;
   private thoughtService: ThoughtService;
   private lucidEvolutionService: LucidEvolutionService;
+  private personalityService: PersonalityService;
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
@@ -64,6 +66,7 @@ export class PromptModulesService {
     this.researchQueueService = new ResearchQueueService(pool);
     this.thoughtService = new ThoughtService(pool, anthropicApiKey);
     this.lucidEvolutionService = new LucidEvolutionService(pool);
+    this.personalityService = new PersonalityService(pool, anthropicApiKey);
   }
 
   /**
@@ -141,6 +144,8 @@ export class PromptModulesService {
         return this.buildPossibilityExpansionModule(context);
       case 'lucid_self_context':
         return this.buildLucidSelfContextModule(context);
+      case 'personality_context':
+        return this.buildPersonalityContextModule(context);
       default:
         logger.warn(`Unknown module: ${mod}`);
         return { fragment: '' };
@@ -620,6 +625,125 @@ Remember: These represent your growth and evolution. They're part of who you are
     };
 
     return typeLabels[thoughtType] || thoughtType;
+  }
+
+  /**
+   * PERSONALITY_CONTEXT module - Big 5 traits + deviation awareness
+   * Provides personality baseline and detects when current state differs
+   */
+  private async buildPersonalityContextModule(
+    context: ModuleContext
+  ): Promise<{ fragment: string }> {
+    try {
+      // Get baseline statistics (90-day average)
+      const stats = await this.personalityService.getPersonalityStatistics({
+        user_id: context.userId,
+        window_days: 90,
+      });
+
+      // Get latest snapshot
+      const current = await this.personalityService.getLatestSnapshot(context.userId);
+
+      if (!stats || !current) {
+        return {
+          fragment: `
+
+🧬 PERSONALITY CONTEXT:
+No personality baseline yet. As you converse, patterns will emerge.
+For now, be attentive to their energy and adapt naturally.`,
+        };
+      }
+
+      // Calculate deviations
+      const deviations = await this.personalityService.getPersonalityDeviations(context.userId);
+
+      // Format baseline traits
+      const baseline = this.formatBig5Baseline(stats);
+
+      // Check for significant deviations (> 1.5 std dev)
+      const alerts = deviations ? this.formatDeviationAlerts(deviations) : null;
+
+      let fragment = `
+
+🧬 PERSONALITY CONTEXT:
+This person's typical Big 5 profile:
+${baseline}`;
+
+      if (alerts) {
+        fragment += `
+
+⚠️ CURRENT DEVIATION:
+${alerts}
+Something may be different today. Be attuned.`;
+      }
+
+      return { fragment };
+    } catch (error) {
+      logger.warn('Failed to build personality context module', { error });
+      return { fragment: '' };
+    }
+  }
+
+  /**
+   * Format Big 5 baseline for prompt
+   */
+  private formatBig5Baseline(stats: any): string {
+    const formatTrait = (name: string, avg: number | null): string => {
+      if (avg === null) return `- ${name}: Unknown`;
+      if (avg >= 0.7) return `- ${name}: High (${(avg * 100).toFixed(0)}%)`;
+      if (avg <= 0.3) return `- ${name}: Low (${(avg * 100).toFixed(0)}%)`;
+      return `- ${name}: Moderate (${(avg * 100).toFixed(0)}%)`;
+    };
+
+    return [
+      formatTrait('Openness', stats.avg_openness),
+      formatTrait('Conscientiousness', stats.avg_conscientiousness),
+      formatTrait('Extraversion', stats.avg_extraversion),
+      formatTrait('Agreeableness', stats.avg_agreeableness),
+      formatTrait('Neuroticism', stats.avg_neuroticism),
+    ].join('\n');
+  }
+
+  /**
+   * Format deviation alerts for significant changes from baseline
+   */
+  private formatDeviationAlerts(deviations: Record<string, number>): string | null {
+    const alerts: string[] = [];
+    const threshold = 1.5; // Standard deviations
+
+    const traitDescriptions: Record<string, { high: string; low: string }> = {
+      openness: {
+        high: 'More open/creative than usual',
+        low: 'More focused/practical than usual',
+      },
+      conscientiousness: {
+        high: 'More organized/structured than usual',
+        low: 'More spontaneous/scattered than usual',
+      },
+      extraversion: {
+        high: 'More energetic/outgoing than usual',
+        low: 'More withdrawn/quiet than usual',
+      },
+      agreeableness: {
+        high: 'More accommodating than usual',
+        low: 'More direct/challenging than usual',
+      },
+      neuroticism: {
+        high: 'More anxious/stressed than usual',
+        low: 'Calmer than usual',
+      },
+    };
+
+    for (const [trait, deviation] of Object.entries(deviations)) {
+      if (Math.abs(deviation) >= threshold) {
+        const desc = traitDescriptions[trait];
+        if (desc) {
+          alerts.push(deviation > 0 ? desc.high : desc.low);
+        }
+      }
+    }
+
+    return alerts.length > 0 ? alerts.join('\n') : null;
   }
 
   /**
