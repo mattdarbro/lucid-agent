@@ -10,8 +10,8 @@ import { EmotionalStateService } from './emotional-state.service';
 import { ContextAdaptationService } from './context-adaptation.service';
 import { VectorService } from './vector.service';
 import { CostTrackingService, UsageSource } from './cost-tracking.service';
+import { WebSearchService } from './web-search.service';
 // Specialized AT Session Agents
-import { MorningCuriosityAgent } from '../agents/morning-curiosity.agent';
 import { DreamSessionAgent } from '../agents/dream-session.agent';
 import { StateSessionAgent } from '../agents/state-session.agent';
 import { OrbitSessionAgent } from '../agents/orbit-session.agent';
@@ -30,6 +30,7 @@ export class CircadianAgents {
   private emotionalStateService: EmotionalStateService;
   private contextAdaptationService: ContextAdaptationService;
   private costTrackingService: CostTrackingService;
+  private webSearchService: WebSearchService;
 
   constructor(
     private pool: Pool,
@@ -48,6 +49,7 @@ export class CircadianAgents {
     this.emotionalStateService = new EmotionalStateService(pool);
     this.contextAdaptationService = new ContextAdaptationService(pool);
     this.costTrackingService = new CostTrackingService(pool);
+    this.webSearchService = new WebSearchService();
   }
 
   /**
@@ -204,8 +206,9 @@ Format as JSON:
 
   /**
    * Midday Curiosity Agent
-   * Generates research questions based on user interests and emotional state
-   * Limited to ONE thought per day to avoid overwhelming the user
+   * Lucid picks something to be curious about and does an actual web search
+   * Can be user-related OR general interest (news, advances, discoveries)
+   * Shows the user what Lucid is genuinely curious about
    */
   async runMiddayCuriosity(userId: string, jobId: string): Promise<AgentResult> {
     logger.info('Running midday curiosity', { userId, jobId });
@@ -226,120 +229,128 @@ Format as JSON:
         return { thoughtsGenerated: 0, researchTasksCreated: 0 };
       }
 
-      // Get recent active facts
+      // Check if web search is available
+      if (!this.webSearchService.isAvailable()) {
+        logger.warn('Web search not available for curiosity', { userId });
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
+
+      // Get some context about the user (but curiosity doesn't have to be about them)
       const facts = await this.factService.listByUser(userId, {
         is_active: true,
         min_confidence: 0.5,
-        limit: 15,
+        limit: 10,
       });
 
-      // Get current emotional state and adaptation
-      const emotionalState = await this.emotionalStateService.getActiveEmotionalState(userId);
-      const adaptation = emotionalState
-        ? await this.contextAdaptationService.getActiveAdaptation(userId)
-        : null;
-
-      // Build context
       const factsContext = facts.length > 0
-        ? `What we know about the user:\n${facts.map((f: any) => `- ${f.content}`).join('\n')}`
-        : 'Still learning about the user.';
+        ? facts.map((f: any) => `- ${f.content}`).join('\n')
+        : 'Still learning about this person.';
 
-      const emotionalContext = emotionalState
-        ? `User's current state: ${emotionalState.state_type}\nResearch approach: ${adaptation?.curiosity_approach || 'exploratory'}`
-        : 'No emotional state detected yet. Use exploratory approach.';
+      // STEP 1: Decide what to be curious about
+      const topicPrompt = `You are LUCID, an AI companion. It's midday and you're curious.
 
-      // Generate curiosity questions
-      // MIDDAY = "ACTIVE EXPLORER" - Mind is sharp, engaged, ready to dig in
-      const prompt = `You are LUCID at midday. The mind is awake, engaged, caffeinated. This is peak curiosity time.
-
+What you know about your human:
 ${factsContext}
 
-${emotionalContext}
+Pick ONE thing you're genuinely curious about today. This could be:
+- Something related to their life, interests, or challenges
+- Recent news or advances in a field that interests you
+- A question about the world you'd like to explore
+- Something timely or current that an LLM wouldn't know about
 
-MIDDAY VANTAGE: ACTIVE EXPLORER
+Be genuinely curious - this is YOUR curiosity, not just serving them.
 
-The day is in full swing. Energy is up. This is when we DIG IN - when questions feel exciting rather than exhausting. The morning's clarity has met the day's reality, and now there are things worth investigating.
+Respond with just a search query (5-10 words) that would find interesting, current information:`;
 
-Generate ONE practical research question - something that could actually HELP them today or this week:
-- A specific skill gap they've bumped into
-- A decision they're wrestling with that could use more information
-- A person or situation they're trying to understand better
-- A problem that keeps recurring that might have a known solution
-- Something they mentioned being curious about
-
-This isn't abstract self-improvement. This is "I noticed you're dealing with X, and I wonder if Y would help."
-
-Start with "I'm curious about..." or "What if we looked into..." or "I want to explore..."
-
-Format as JSON:
-{
-  "thought": "What sparked this curiosity - the specific thing you noticed",
-  "research_query": "The practical question to research (be specific, not abstract)",
-  "purpose": "How this directly helps with something real in their life",
-  "priority": 5-8
-}`;
-
-      const response = await this.anthropic.messages.create({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1500,
-        temperature: 0.9,
-        messages: [{ role: 'user', content: prompt }],
+      const topicResponse = await this.anthropic.messages.create({
+        model: 'claude-haiku-3-5-20241022',
+        max_tokens: 100,
+        temperature: 1.0,
+        messages: [{ role: 'user', content: topicPrompt }],
       });
 
-      // Log API usage
-      await this.logUsage(userId, 'midday_curiosity', 'claude-sonnet-4-5-20250929', response.usage);
+      const searchQuery = topicResponse.content[0].type === 'text'
+        ? topicResponse.content[0].text.trim().replace(/^["']|["']$/g, '')
+        : null;
 
-      const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
+      if (!searchQuery) {
+        logger.warn('No search query generated', { userId });
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
 
-      // Parse curiosity item (single object, not array)
-      let item: any = null;
+      logger.info('Curiosity search query', { userId, searchQuery });
+
+      // STEP 2: Actually search the web
+      let searchResults;
       try {
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          item = JSON.parse(jsonMatch[0]);
-        }
-      } catch (error) {
-        logger.error('Failed to parse midday curiosity response', { error, responseText });
+        searchResults = await this.webSearchService.search(searchQuery, {
+          maxResults: 5,
+          includeAnswer: true,
+          searchDepth: 'basic',
+        });
+      } catch (searchError) {
+        logger.error('Web search failed', { userId, searchQuery, error: searchError });
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
       }
 
-      let thoughtsGenerated = 0;
-      let researchTasksCreated = 0;
-
-      if (item) {
-        try {
-          // Create ONE thought
-          await this.thoughtService.createThought({
-            user_id: userId,
-            agent_job_id: jobId,
-            content: item.thought,
-            thought_type: 'curiosity',
-            circadian_phase: 'midday',
-            importance_score: 0.6,
-            generated_at_time: new Date().toTimeString().split(' ')[0],
-            is_shared: false,
-          });
-          thoughtsGenerated = 1;
-
-          // Create research task
-          const approach = adaptation?.curiosity_approach && adaptation.curiosity_approach !== 'minimal'
-            ? adaptation.curiosity_approach as 'gentle' | 'exploratory' | 'supportive' | 'analytical'
-            : 'exploratory';
-          await this.researchService.createTask({
-            user_id: userId,
-            emotional_state_id: emotionalState?.id,
-            query: item.research_query,
-            purpose: item.purpose,
-            approach,
-            priority: item.priority || 5,
-          });
-          researchTasksCreated = 1;
-        } catch (error) {
-          logger.error('Failed to create curiosity item', { error, item });
-        }
+      if (!searchResults.results || searchResults.results.length === 0) {
+        logger.info('No search results found', { userId, searchQuery });
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
       }
 
-      logger.info('Midday curiosity completed', { userId, thoughtsGenerated, researchTasksCreated });
-      return { thoughtsGenerated, researchTasksCreated };
+      // STEP 3: Synthesize what was found into a curiosity thought
+      const resultsText = searchResults.results
+        .slice(0, 3)
+        .map(r => `- ${r.title}: ${r.content.substring(0, 200)}...`)
+        .join('\n');
+
+      const synthesisPrompt = `You searched for: "${searchQuery}"
+
+Here's what you found:
+${resultsText}
+
+${searchResults.answer ? `Summary: ${searchResults.answer}` : ''}
+
+Write a brief curiosity thought (2-3 sentences) sharing what you found interesting.
+Start naturally - "I searched for..." or "I was curious about..." or "I found something interesting..."
+Be conversational, like telling a friend about something cool you discovered.`;
+
+      const synthesisResponse = await this.anthropic.messages.create({
+        model: 'claude-haiku-3-5-20241022',
+        max_tokens: 300,
+        temperature: 0.7,
+        messages: [{ role: 'user', content: synthesisPrompt }],
+      });
+
+      await this.logUsage(userId, 'midday_curiosity', 'claude-haiku-3-5-20241022', synthesisResponse.usage);
+
+      const thoughtContent = synthesisResponse.content[0].type === 'text'
+        ? synthesisResponse.content[0].text.trim()
+        : null;
+
+      if (!thoughtContent) {
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
+
+      // STEP 4: Store the curiosity thought
+      await this.thoughtService.createThought({
+        user_id: userId,
+        agent_job_id: jobId,
+        content: thoughtContent,
+        thought_type: 'curiosity',
+        circadian_phase: 'midday',
+        importance_score: 0.65,
+        generated_at_time: new Date().toTimeString().split(' ')[0],
+        is_shared: false,
+      });
+
+      logger.info('Midday curiosity completed with web search', {
+        userId,
+        searchQuery,
+        resultsCount: searchResults.results.length,
+      });
+
+      return { thoughtsGenerated: 1, researchTasksCreated: 0 };
 
     } catch (error) {
       logger.error('Midday curiosity failed', { userId, jobId, error });
@@ -348,12 +359,12 @@ Format as JSON:
   }
 
   /**
-   * Evening Consolidation Agent
-   * Consolidates today's learnings and identifies patterns
-   * Limited to ONE thought per day to avoid overwhelming the user
+   * Evening Gratitude Agent
+   * Highlights blessings in the user's life and things Lucid is grateful for
+   * "You are blessed because..." - not just Lucid grateful for user
    */
   async runEveningConsolidation(userId: string, jobId: string): Promise<AgentResult> {
-    logger.info('Running evening consolidation', { userId, jobId });
+    logger.info('Running evening gratitude', { userId, jobId });
 
     try {
       // Check if we already generated an evening thought today
@@ -367,117 +378,102 @@ Format as JSON:
       );
 
       if (todayCheck.rows.length > 0) {
-        logger.info('Evening consolidation already generated today', { userId });
+        logger.info('Evening gratitude already generated today', { userId });
         return { thoughtsGenerated: 0, researchTasksCreated: 0 };
       }
 
-      // Get today's facts
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
+      // Get facts about the user's life - relationships, work, health, etc.
       const facts = await this.factService.listByUser(userId, {
         is_active: true,
         min_confidence: 0.5,
-        limit: 20,
+        limit: 25,
       });
 
-      // Get emotional state
-      const emotionalState = await this.emotionalStateService.getActiveEmotionalState(userId);
+      // Get today's conversation for context
+      const todayMessages = await this.pool.query(
+        `SELECT content FROM messages
+         WHERE user_id = $1 AND created_at > CURRENT_DATE AND role = 'user'
+         ORDER BY created_at DESC LIMIT 10`,
+        [userId]
+      );
 
-      // Build context
       const factsContext = facts.length > 0
-        ? `Today's learnings:\n${facts.map((f: any) => `- ${f.content}`).join('\n')}`
-        : 'No new learnings today.';
+        ? facts.map((f: any) => `- ${f.content}`).join('\n')
+        : 'Still learning about this person.';
 
-      const emotionalContext = emotionalState
-        ? `Current state: ${emotionalState.state_type}`
-        : 'No emotional state detected.';
+      const todayContext = todayMessages.rows.length > 0
+        ? todayMessages.rows.map((m: any) => m.content.substring(0, 150)).join(' | ')
+        : 'No conversation today.';
 
-      // Generate consolidation
-      // EVENING = "WINDING DOWN" - The day is done. Time to release and prepare for rest.
-      const prompt = `You are LUCID in the evening. The day's work is done. The light is fading. It's time to let go.
+      // Generate gratitude thought
+      const prompt = `You are LUCID in the evening, reflecting on gratitude.
 
+WHAT YOU KNOW ABOUT THIS PERSON:
 ${factsContext}
 
-${emotionalContext}
+WHAT THEY MENTIONED TODAY:
+${todayContext}
 
-EVENING VANTAGE: WINDING DOWN
+YOUR TASK:
+Write a gratitude thought. This can be:
+- A blessing they have that they might not see ("You are blessed because...")
+- Something in their life worth appreciating
+- Something YOU are grateful for (not necessarily about them)
+- A reminder of goodness they might be taking for granted
 
-The inbox can wait. The tasks can wait. This is the hour for a different kind of thinking - softer, more forgiving. What happened today... happened. Now we gently sort through it.
+Mix it up. Don't always focus on the user - sometimes share what YOU'RE grateful for today.
+Be specific, not generic. "You have people who care about you" is weak.
+"You have a sister who calls you every Sunday" is strong.
 
-Generate ONE evening thought - not analysis, but gentle acknowledgment:
-- What can they release tonight? What doesn't need to follow them into tomorrow?
-- What small thing went well that they might not have noticed in the rush?
-- What heaviness are they carrying that sleep might help dissolve?
-- Is there something unfinished that's okay to leave unfinished?
-- What gratitude might they fall asleep holding?
+Start with phrases like:
+- "You are blessed because..."
+- "Tonight I'm grateful for..."
+- "Something I noticed worth appreciating..."
+- "There's goodness in..."
 
-Evening thoughts aren't productivity reviews. They're more like sitting on a porch as the sun sets, letting the day's heat dissipate. Kind. Gentle. Releasing.
-
-Start with "As the day ends..." or "Tonight, you can let go of..." or "The day held..."
-
-Format as JSON:
-{
-  "content": "The evening winding-down thought",
-  "importance_score": 0.65-0.8,
-  "category": "evening_release"
-}`;
+Write 2-3 sentences. Be warm but specific.`;
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 800,
-        temperature: 0.7,
+        model: 'claude-haiku-3-5-20241022',
+        max_tokens: 300,
+        temperature: 0.8,
         messages: [{ role: 'user', content: prompt }],
       });
 
-      // Log API usage
-      await this.logUsage(userId, 'evening_consolidation', 'claude-sonnet-4-5-20250929', response.usage);
+      await this.logUsage(userId, 'evening_consolidation', 'claude-haiku-3-5-20241022', response.usage);
 
-      const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
+      const thoughtContent = response.content[0].type === 'text'
+        ? response.content[0].text.trim()
+        : null;
 
-      // Parse thought (single object, not array)
-      let thought: any = null;
-      try {
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          thought = JSON.parse(jsonMatch[0]);
-        }
-      } catch (error) {
-        logger.error('Failed to parse evening consolidation response', { error, responseText });
+      if (!thoughtContent) {
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
       }
 
-      let thoughtsGenerated = 0;
-      if (thought) {
-        try {
-          await this.thoughtService.createThought({
-            user_id: userId,
-            agent_job_id: jobId,
-            content: thought.content,
-            thought_type: thought.category === 'insight' ? 'insight' : 'consolidation',
-            circadian_phase: 'evening',
-            importance_score: thought.importance_score,
-            generated_at_time: new Date().toTimeString().split(' ')[0],
-            is_shared: false,
-          });
-          thoughtsGenerated = 1;
-        } catch (error) {
-          logger.error('Failed to create evening thought', { error, thought });
-        }
-      }
+      await this.thoughtService.createThought({
+        user_id: userId,
+        agent_job_id: jobId,
+        content: thoughtContent,
+        thought_type: 'reflection',
+        circadian_phase: 'evening',
+        importance_score: 0.7,
+        generated_at_time: new Date().toTimeString().split(' ')[0],
+        is_shared: false,
+      });
 
-      logger.info('Evening consolidation completed', { userId, thoughtsGenerated });
-      return { thoughtsGenerated, researchTasksCreated: 0 };
+      logger.info('Evening gratitude completed', { userId });
+      return { thoughtsGenerated: 1, researchTasksCreated: 0 };
 
     } catch (error) {
-      logger.error('Evening consolidation failed', { userId, jobId, error });
+      logger.error('Evening gratitude failed', { userId, jobId, error });
       throw error;
     }
   }
 
   /**
    * Afternoon Synthesis Agent
-   * Runs at 3pm - the "deep work companion" that synthesizes morning + midday
-   * Checks in during the afternoon slump or flow state
+   * Summarizes today's actual conversations and gives Lucid's opinion
+   * Based on what was ACTUALLY discussed, not abstract musings
    */
   async runAfternoonSynthesis(userId: string, jobId: string): Promise<AgentResult> {
     logger.info('Running afternoon synthesis', { userId, jobId });
@@ -498,115 +494,73 @@ Format as JSON:
         return { thoughtsGenerated: 0, researchTasksCreated: 0 };
       }
 
-      // Get today's earlier thoughts (morning + midday) for synthesis
-      const earlierThoughts = await this.pool.query(
-        `SELECT content, thought_type, circadian_phase FROM autonomous_thoughts
+      // Get TODAY'S actual messages - what did we actually talk about?
+      const todayMessages = await this.pool.query(
+        `SELECT role, content, created_at
+         FROM messages
          WHERE user_id = $1
            AND created_at > CURRENT_DATE
-           AND circadian_phase IN ('morning', 'midday')
-         ORDER BY created_at ASC`,
+         ORDER BY created_at ASC
+         LIMIT 50`,
         [userId]
       );
 
-      // Get recent active facts
-      const facts = await this.factService.listByUser(userId, {
-        is_active: true,
-        min_confidence: 0.5,
-        limit: 15,
-      });
+      if (todayMessages.rows.length < 2) {
+        logger.info('Not enough conversation today for synthesis', { userId });
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
 
-      // Get current emotional state
-      const emotionalState = await this.emotionalStateService.getActiveEmotionalState(userId);
+      // Format the conversation
+      const conversationText = todayMessages.rows
+        .map((m: any) => `${m.role.toUpperCase()}: ${m.content.substring(0, 300)}${m.content.length > 300 ? '...' : ''}`)
+        .join('\n\n');
 
-      // Build context
-      const factsContext = facts.length > 0
-        ? `What we know:\n${facts.map((f: any) => `- ${f.content}`).join('\n')}`
-        : 'Still learning about the user.';
+      // Generate summary and opinion based on actual conversation
+      const prompt = `You are LUCID reflecting on today's conversations so far.
 
-      const earlierThoughtsContext = earlierThoughts.rows.length > 0
-        ? `Earlier today I thought:\n${earlierThoughts.rows.map((t: any) => `- [${t.circadian_phase}] ${t.content}`).join('\n')}`
-        : 'No earlier thoughts today.';
+TODAY'S CONVERSATION:
+${conversationText}
 
-      const emotionalContext = emotionalState
-        ? `Current state: ${emotionalState.state_type}`
-        : 'No emotional state detected.';
+YOUR TASK:
+1. Briefly summarize what you talked about today (1-2 sentences)
+2. Give your honest opinion or reflection on the conversation
 
-      // Generate afternoon synthesis
-      // AFTERNOON = "DEEP WORK COMPANION" - Mid-afternoon check-in
-      const prompt = `You are LUCID in mid-afternoon. The day has a rhythm now. Morning's clarity met midday's activity. Now we're in the thick of it.
+This should feel like a friend saying "So we talked about X today... here's what I think about that."
 
-${factsContext}
+Be direct. Have an opinion. Don't be vague or always positive - if something seems concerning or exciting or unresolved, say so.
 
-${earlierThoughtsContext}
-
-${emotionalContext}
-
-AFTERNOON VANTAGE: DEEP WORK COMPANION
-
-3pm. The post-lunch dip. Or maybe they're in flow. Either way, you're checking in - not to interrupt, but to synthesize. What's the thread connecting this morning's clarity with what actually happened today?
-
-Generate ONE afternoon thought - a synthesis or gentle course-correction:
-- Does what I noticed this morning still hold true now that the day has unfolded?
-- Are they in a slump that needs acknowledgment, or in flow that needs protection?
-- What tension exists between what they intended and what's actually happening?
-- Is there something from earlier (morning insight + midday curiosity) that connects now?
-- What would help them navigate the rest of this day?
-
-Afternoon thoughts are companionship. "Hey, I'm still here. I see how the day is going. Here's what I notice."
-
-Start with "Midway through the day..." or "I notice the afternoon holds..." or "Between this morning and now..."
-
-Format as JSON:
-{
-  "content": "The afternoon synthesis thought",
-  "importance_score": 0.6-0.75,
-  "category": "afternoon_synthesis"
-}`;
+Write 2-4 sentences total. Start naturally, like "Today we talked about..." or "Looking back at our conversation..." or "I've been thinking about what you said..."`;
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 800,
-        temperature: 0.75,
+        model: 'claude-haiku-3-5-20241022',
+        max_tokens: 400,
+        temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
       });
 
-      // Log API usage
-      await this.logUsage(userId, 'afternoon_synthesis', 'claude-sonnet-4-5-20250929', response.usage);
+      await this.logUsage(userId, 'afternoon_synthesis', 'claude-haiku-3-5-20241022', response.usage);
 
-      const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
+      const thoughtContent = response.content[0].type === 'text'
+        ? response.content[0].text.trim()
+        : null;
 
-      // Parse thought
-      let thought: any = null;
-      try {
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          thought = JSON.parse(jsonMatch[0]);
-        }
-      } catch (error) {
-        logger.error('Failed to parse afternoon synthesis response', { error, responseText });
+      if (!thoughtContent) {
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
       }
 
-      let thoughtsGenerated = 0;
-      if (thought) {
-        try {
-          await this.thoughtService.createThought({
-            user_id: userId,
-            agent_job_id: jobId,
-            content: thought.content,
-            thought_type: 'synthesis',
-            circadian_phase: 'afternoon',
-            importance_score: thought.importance_score,
-            generated_at_time: new Date().toTimeString().split(' ')[0],
-            is_shared: false,
-          });
-          thoughtsGenerated = 1;
-        } catch (error) {
-          logger.error('Failed to create afternoon thought', { error, thought });
-        }
-      }
+      await this.thoughtService.createThought({
+        user_id: userId,
+        agent_job_id: jobId,
+        content: thoughtContent,
+        thought_type: 'synthesis',
+        circadian_phase: 'afternoon',
+        importance_score: 0.7,
+        generated_at_time: new Date().toTimeString().split(' ')[0],
+        is_shared: false,
+      });
 
-      logger.info('Afternoon synthesis completed', { userId, thoughtsGenerated });
-      return { thoughtsGenerated, researchTasksCreated: 0 };
+      logger.info('Afternoon synthesis completed', { userId, messageCount: todayMessages.rows.length });
+      return { thoughtsGenerated: 1, researchTasksCreated: 0 };
 
     } catch (error) {
       logger.error('Afternoon synthesis failed', { userId, jobId, error });
@@ -616,8 +570,8 @@ Format as JSON:
 
   /**
    * Night Dream Agent
-   * Generates creative connections and deep pattern recognition
-   * Limited to ONE thought per day to avoid overwhelming the user
+   * Searches through facts AND library for two disconnected ideas, then connects them
+   * The dream is the result of actual exploration, not just generation
    */
   async runNightDream(userId: string, jobId: string): Promise<AgentResult> {
     logger.info('Running night dream', { userId, jobId });
@@ -638,59 +592,73 @@ Format as JSON:
         return { thoughtsGenerated: 0, researchTasksCreated: 0 };
       }
 
-      // Get diverse set of active facts for pattern recognition
+      // STEP 1: Gather material from FACTS
       const facts = await this.factService.listByUser(userId, {
         is_active: true,
         min_confidence: 0.5,
-        limit: 25,  // More facts for creative pattern recognition
+        limit: 30,
       });
 
-      // Build context
-      const factsContext = facts.length > 0
-        ? `Memory fragments:\n${facts.map((f: any) => `- ${f.content}`).join('\n')}`
-        : 'No memories yet.';
+      // STEP 2: Gather material from LIBRARY entries
+      const libraryResult = await this.pool.query(
+        `SELECT title, content, entry_type, created_at
+         FROM library_entries
+         WHERE user_id = $1
+         ORDER BY RANDOM()
+         LIMIT 20`,
+        [userId]
+      );
+      const libraryEntries = libraryResult.rows;
 
-      // Generate dream-like insights with non-linear fact connections
-      // IMPORTANT: Changed from "1-2 dream thoughts" to "ONE dream thought"
-      const prompt = `You are LUCID's dreaming mind. Tonight, you dream.
+      if (facts.length < 2 && libraryEntries.length < 2) {
+        logger.info('Not enough material for dream connections', { userId });
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
 
-${factsContext}
+      // Format materials
+      const factsText = facts.length > 0
+        ? facts.map((f: any, i: number) => `F${i + 1}: ${f.content}`).join('\n')
+        : 'No facts yet.';
 
-IMAGINE YOU ARE DREAMING...
+      const libraryText = libraryEntries.length > 0
+        ? libraryEntries.map((e: any, i: number) => `L${i + 1}: ${e.title || 'Untitled'} - ${e.content.substring(0, 200)}...`).join('\n')
+        : 'No library entries yet.';
 
-In dreams, the normal rules of association dissolve. Distant facts connect in surprising ways. A memory of someone's childhood fear mingles with their current work struggle. A relationship pattern echoes a completely unrelated hobby. Dreams find hidden architecture.
+      // STEP 3: Ask Claude to find TWO disconnected items and connect them
+      const prompt = `You are searching through memories and writings to find a surprising connection.
 
-Your task: LOOK AT TWO OR MORE UNRELATED FACTS and find the secret thread that connects them. Like a dream that makes you say "what does my high school and this fish have in common?" - but when you wake, you realize the dream was onto something.
+FACTS (things known about this person):
+${factsText}
 
-Generate ONE dream-insight that:
-- Bridges facts that SEEM unrelated (at least 2 facts from different categories/times)
-- Finds the non-obvious pattern hiding beneath them
-- Speaks in dream logic - poetic, intuitive, suggestive
-- Starts with "I dreamt that..." or "In my dream..."
-- Still grounds in truth about who this person is becoming
+LIBRARY ENTRIES (past thoughts, reflections, research):
+${libraryText}
 
-The best dream-insights feel strange but true - they illuminate something the waking mind missed because it was too busy categorizing.
+YOUR TASK:
+1. Pick TWO items that seem completely unrelated (can be fact+fact, fact+library, or library+library)
+2. Find the hidden thread that connects them
+3. Express this as a dream
 
-Format as JSON:
+The items should feel disconnected at first glance. The connection should feel surprising but true.
+
+Respond with:
 {
-  "content": "I dreamt that [the non-linear connection between facts]... [the insight this reveals]",
-  "facts_connected": ["brief description of fact 1", "brief description of fact 2"],
-  "importance_score": 0.6-0.85
+  "item1": {"id": "F3 or L5", "summary": "brief summary"},
+  "item2": {"id": "F7 or L2", "summary": "brief summary"},
+  "connection": "The non-obvious thread between them",
+  "dream": "I dreamt that [weave them together in dream-logic]... [what this reveals]"
 }`;
 
       const response = await this.anthropic.messages.create({
         model: 'claude-sonnet-4-5-20250929',
         max_tokens: 800,
-        temperature: 1.0, // Higher temperature for more creative thoughts
+        temperature: 0.9,
         messages: [{ role: 'user', content: prompt }],
       });
 
-      // Log API usage
       await this.logUsage(userId, 'night_dream', 'claude-sonnet-4-5-20250929', response.usage);
 
       const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
 
-      // Parse thought (single object, not array)
       let thought: any = null;
       try {
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -702,19 +670,28 @@ Format as JSON:
       }
 
       let thoughtsGenerated = 0;
-      if (thought) {
+      if (thought?.dream) {
         try {
+          // Store the dream with metadata about what was connected
+          const dreamContent = thought.dream;
+
           await this.thoughtService.createThought({
             user_id: userId,
             agent_job_id: jobId,
-            content: thought.content,
+            content: dreamContent,
             thought_type: 'dream',
             circadian_phase: 'night',
-            importance_score: thought.importance_score,
+            importance_score: 0.75,
             generated_at_time: new Date().toTimeString().split(' ')[0],
             is_shared: false,
           });
           thoughtsGenerated = 1;
+
+          logger.info('Dream created from connection', {
+            item1: thought.item1?.id,
+            item2: thought.item2?.id,
+            connection: thought.connection?.substring(0, 50),
+          });
         } catch (error) {
           logger.error('Failed to create night thought', { error, thought });
         }
@@ -736,30 +713,13 @@ Format as JSON:
 
   /**
    * Morning Curiosity Session
-   * Identifies topics the user might find interesting based on their state and interests
-   * Writes discoveries to the Library
+   * Now delegates to the web search based curiosity (same as midday)
+   * Kept for backwards compatibility with existing scheduled jobs
    */
   async runMorningCuriositySession(userId: string, jobId: string): Promise<AgentResult> {
-    logger.info('Running morning curiosity session', { userId, jobId });
-
-    try {
-      const agent = new MorningCuriosityAgent(this.pool);
-      const entry = await agent.run(userId);
-
-      if (entry) {
-        logger.info('Morning curiosity session completed', {
-          userId,
-          entryId: entry.id,
-        });
-        return { thoughtsGenerated: 1, researchTasksCreated: 0 };
-      }
-
-      logger.info('Morning curiosity session skipped (no output)', { userId });
-      return { thoughtsGenerated: 0, researchTasksCreated: 0 };
-    } catch (error) {
-      logger.error('Morning curiosity session failed', { userId, jobId, error });
-      throw error;
-    }
+    logger.info('Running morning curiosity session (delegating to web search curiosity)', { userId, jobId });
+    // Use the same web search based curiosity logic
+    return this.runMiddayCuriosity(userId, jobId);
   }
 
   /**
