@@ -13,7 +13,8 @@ export type ChatMode = 'chat' | 'me' | 'lucid' | 'others' | 'possibilities' | 's
 export interface ModeParsed {
   mode: ChatMode | null;        // Detected mode, null if no change
   cleanMessage: string;         // Message with cue stripped
-  explicitSubject?: string;     // For ^O mode with explicit name (e.g., ^Rachel)
+  explicitSubject?: string;     // For /O mode with explicit name (e.g., /Rachel)
+  addToOrbit?: string;          // Name to add to orbit (e.g., /O+Rachel)
 }
 
 /**
@@ -129,6 +130,20 @@ Help the user see this person more fully.`,
   parseModeCue(message: string, orbitNames?: string[]): ModeParsed {
     const trimmed = message.trim();
 
+    // Check for /O+Name pattern first (add to orbit)
+    // e.g., /O+Rachel or /O+Rachel Let's talk about her
+    const addOrbitMatch = trimmed.match(/^\/[Oo]\+(\w+)\s*([\s\S]*)/);
+    if (addOrbitMatch) {
+      const name = addOrbitMatch[1]; // Preserve original casing for the name
+      const cleanMessage = addOrbitMatch[2].trim() || '';
+      return {
+        mode: 'others',
+        cleanMessage,
+        explicitSubject: name,
+        addToOrbit: name,
+      };
+    }
+
     // Check for mode cues at the start of message
     // Pattern: /X or /Word at the beginning
     const cueMatch = trimmed.match(/^\/(\w*)\s*([\s\S]*)/);
@@ -142,7 +157,7 @@ Help the user see this person more fully.`,
 
     // Map cues to modes
     const modeMap: Record<string, ChatMode> = {
-      '': 'chat',      // Just ^ alone
+      '': 'chat',      // Just / alone
       'c': 'chat',
       'chat': 'chat',
       'm': 'me',
@@ -180,7 +195,7 @@ Help the user see this person more fully.`,
       }
     }
 
-    // Unknown cue - treat as regular message (keep the ^)
+    // Unknown cue - treat as regular message (keep the /)
     logger.debug('Unknown mode cue, treating as regular message', { cue });
     return { mode: null, cleanMessage: message };
   }
@@ -260,6 +275,8 @@ Help the user see this person more fully.`,
       { cue: '/M', mode: 'me', description: 'Focus on my flourishing' },
       { cue: '/L', mode: 'lucid', description: "Lucid's perspective" },
       { cue: '/O', mode: 'others', description: "Others' flourishing" },
+      { cue: '/O+Name', mode: 'others', description: 'Add Name to orbit and focus on them' },
+      { cue: '/Name', mode: 'others', description: 'Focus on existing orbit member' },
       { cue: '/P', mode: 'possibilities', description: 'Expand thinking' },
       { cue: '/S', mode: 'state', description: 'Vision and goals' },
     ];

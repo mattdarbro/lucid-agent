@@ -94,8 +94,9 @@ export class ChatService {
     mode?: ChatMode;
   }> {
     try {
-      // Parse mode cue from message (^M, ^L, ^O, ^P, ^S, ^C)
-      // Get orbit names for explicit subject cues like ^Rachel
+      // Parse mode cue from message (/M, /L, /O, /P, /S, /C)
+      // Get orbit names for explicit subject cues like /Rachel
+      // Also handles /O+Name to add someone to orbit
       const orbits = await this.orbitsService.getActiveOrbits(input.user_id);
       const orbitNames = orbits.map(o => o.person_name);
       const modeParsed = this.chatModeService.parseModeCue(input.message, orbitNames);
@@ -111,6 +112,17 @@ export class ChatService {
           conversation_id: input.conversation_id,
           mode: currentMode,
           explicitSubject: modeParsed.explicitSubject,
+        });
+      }
+
+      // If user wants to add someone to orbit (/O+Name)
+      if (modeParsed.addToOrbit) {
+        await this.orbitsService.upsertOrbitPerson(input.user_id, {
+          person_name: modeParsed.addToOrbit,
+        });
+        logger.info('Added person to orbit', {
+          user_id: input.user_id,
+          person_name: modeParsed.addToOrbit,
         });
       }
 
