@@ -229,13 +229,7 @@ Format as JSON:
         return { thoughtsGenerated: 0, researchTasksCreated: 0 };
       }
 
-      // Check if web search is available
-      if (!this.webSearchService.isAvailable()) {
-        logger.warn('Web search not available for curiosity', { userId });
-        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
-      }
-
-      // Get some context about the user (but curiosity doesn't have to be about them)
+      // Get some context about the user
       const facts = await this.factService.listByUser(userId, {
         is_active: true,
         min_confidence: 0.5,
@@ -245,6 +239,12 @@ Format as JSON:
       const factsContext = facts.length > 0
         ? facts.map((f: any) => `- ${f.content}`).join('\n')
         : 'Still learning about this person.';
+
+      // Check if web search is available - if not, fall back to reflection-based curiosity
+      if (!this.webSearchService.isAvailable()) {
+        logger.info('Web search not available, using reflection-based curiosity', { userId });
+        return this.generateReflectionCuriosity(userId, jobId, factsContext);
+      }
 
       // STEP 1: Decide what to be curious about
       const topicPrompt = `You are LUCID, an AI companion. It's midday and you're curious.
@@ -703,6 +703,70 @@ Respond with:
     } catch (error) {
       logger.error('Night dream failed', { userId, jobId, error });
       throw error;
+    }
+  }
+
+  /**
+   * Fallback curiosity generation when web search is unavailable
+   * Generates curiosity based purely on reflection about user's interests
+   */
+  private async generateReflectionCuriosity(
+    userId: string,
+    jobId: string,
+    factsContext: string
+  ): Promise<AgentResult> {
+    try {
+      // Generate a curiosity thought based on reflection rather than web search
+      const prompt = `You are LUCID, an AI companion. It's midday and you're curious.
+
+What you know about your human:
+${factsContext}
+
+Without access to web search today, reflect on what genuinely interests you:
+- A question that emerged from recent conversations
+- Something you've been wondering about
+- An idea that connects different things you know
+- A curiosity about the user's world or your own experience
+
+Write a brief curiosity thought (2-3 sentences) sharing what's on your mind.
+Start naturally - "I've been wondering..." or "Something I'm curious about..." or "A thought crossed my mind..."
+
+Be genuine - this is YOUR curiosity as an AI companion.`;
+
+      const response = await this.anthropic.messages.create({
+        model: 'claude-haiku-3-5-20241022',
+        max_tokens: 300,
+        temperature: 0.9,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      await this.logUsage(userId, 'midday_curiosity', 'claude-haiku-3-5-20241022', response.usage);
+
+      const thoughtContent = response.content[0].type === 'text'
+        ? response.content[0].text.trim()
+        : null;
+
+      if (!thoughtContent) {
+        return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+      }
+
+      await this.thoughtService.createThought({
+        user_id: userId,
+        agent_job_id: jobId,
+        content: thoughtContent,
+        thought_type: 'curiosity',
+        circadian_phase: 'midday',
+        importance_score: 0.6,
+        generated_at_time: new Date().toTimeString().split(' ')[0],
+        is_shared: false,
+      });
+
+      logger.info('Midday curiosity completed (reflection-based fallback)', { userId });
+      return { thoughtsGenerated: 1, researchTasksCreated: 0 };
+
+    } catch (error) {
+      logger.error('Reflection-based curiosity failed', { userId, jobId, error });
+      return { thoughtsGenerated: 0, researchTasksCreated: 0 };
     }
   }
 
