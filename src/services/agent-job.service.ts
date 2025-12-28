@@ -141,7 +141,10 @@ export class AgentJobService {
       throw new Error(`Failed to fetch due agent jobs: ${error.message}`);
     }
 
-    logger.info('Found due agent jobs', { count: data.length });
+    // Only log at INFO level when there are jobs to process
+    if (data.length > 0) {
+      logger.info('Found due agent jobs', { count: data.length });
+    }
     return data.map(job => this.mapToAgentJob(job));
   }
 

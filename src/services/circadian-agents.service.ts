@@ -263,7 +263,7 @@ Be genuinely curious - this is YOUR curiosity, not just serving them.
 Respond with just a search query (5-10 words) that would find interesting, current information:`;
 
       const topicResponse = await this.anthropic.messages.create({
-        model: 'claude-haiku-3-5-20241022',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 100,
         temperature: 1.0,
         messages: [{ role: 'user', content: topicPrompt }],
@@ -316,13 +316,13 @@ Start naturally - "I searched for..." or "I was curious about..." or "I found so
 Be conversational, like telling a friend about something cool you discovered.`;
 
       const synthesisResponse = await this.anthropic.messages.create({
-        model: 'claude-haiku-3-5-20241022',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 300,
         temperature: 0.7,
         messages: [{ role: 'user', content: synthesisPrompt }],
       });
 
-      await this.logUsage(userId, 'midday_curiosity', 'claude-haiku-3-5-20241022', synthesisResponse.usage);
+      await this.logUsage(userId, 'midday_curiosity', 'claude-haiku-4-5-20251001', synthesisResponse.usage);
 
       const thoughtContent = synthesisResponse.content[0].type === 'text'
         ? synthesisResponse.content[0].text.trim()
@@ -434,13 +434,13 @@ Start with phrases like:
 Write 2-3 sentences. Be warm but specific.`;
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-haiku-3-5-20241022',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 300,
         temperature: 0.8,
         messages: [{ role: 'user', content: prompt }],
       });
 
-      await this.logUsage(userId, 'evening_consolidation', 'claude-haiku-3-5-20241022', response.usage);
+      await this.logUsage(userId, 'evening_consolidation', 'claude-haiku-4-5-20251001', response.usage);
 
       const thoughtContent = response.content[0].type === 'text'
         ? response.content[0].text.trim()
@@ -532,13 +532,13 @@ Be direct. Have an opinion. Don't be vague or always positive - if something see
 Write 2-4 sentences total. Start naturally, like "Today we talked about..." or "Looking back at our conversation..." or "I've been thinking about what you said..."`;
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-haiku-3-5-20241022',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
         temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
       });
 
-      await this.logUsage(userId, 'afternoon_synthesis', 'claude-haiku-3-5-20241022', response.usage);
+      await this.logUsage(userId, 'afternoon_synthesis', 'claude-haiku-4-5-20251001', response.usage);
 
       const thoughtContent = response.content[0].type === 'text'
         ? response.content[0].text.trim()
@@ -734,13 +734,13 @@ Start naturally - "I've been wondering..." or "Something I'm curious about..." o
 Be genuine - this is YOUR curiosity as an AI companion.`;
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-haiku-3-5-20241022',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 300,
         temperature: 0.9,
         messages: [{ role: 'user', content: prompt }],
       });
 
-      await this.logUsage(userId, 'midday_curiosity', 'claude-haiku-3-5-20241022', response.usage);
+      await this.logUsage(userId, 'midday_curiosity', 'claude-haiku-4-5-20251001', response.usage);
 
       const thoughtContent = response.content[0].type === 'text'
         ? response.content[0].text.trim()
