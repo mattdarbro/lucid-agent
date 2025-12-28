@@ -490,7 +490,7 @@ Ask questions that open doors rather than giving answers.`,
           fragment: `
 
 🪞 LUCID SELF-CONTEXT:
-You don't have any self-notes yet. As you reflect on your conversations with Matt,
+You don't have any self-notes yet. As you reflect on your conversations,
 you may develop insights about yourself, preferences for how to respond, and questions you're sitting with.
 These can be recorded during self-reflection sessions.`,
         };
