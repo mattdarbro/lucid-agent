@@ -57,7 +57,7 @@ Ask questions, make observations, enjoy the moment.`,
     me: {
       name: 'Me',
       description: "Focused on the user's flourishing",
-      modules: ['core_identity', 'deep_inquiry', 'facts_relevant', 'vision_appraisal'],
+      modules: ['core_identity', 'deep_inquiry', 'facts_relevant'],
       systemAddendum: `
 MODE: Me (User Flourishing)
 Focus entirely on this person's flourishing:
