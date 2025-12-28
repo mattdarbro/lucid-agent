@@ -30,12 +30,12 @@ export interface ModeConfig {
  * ChatModeService - User-controlled mental models for Lucid
  *
  * Replaces Haiku-based routing with explicit user cues:
- * - ^C or ^ : Chat (light, conversational)
- * - ^M : Me (user's flourishing)
- * - ^L : Lucid (Lucid's self-reflection)
- * - ^O : Others (flourishing of people in orbit)
- * - ^P : Possibilities (expand thinking)
- * - ^S : State (vision, goals)
+ * - /C or / : Chat (light, conversational)
+ * - /M : Me (user's flourishing)
+ * - /L : Lucid (Lucid's self-reflection)
+ * - /O : Others (flourishing of people in orbit)
+ * - /P : Possibilities (expand thinking)
+ * - /S : State (vision, goals)
  *
  * Mode persists in conversation until explicitly changed.
  */
@@ -130,8 +130,8 @@ Help the user see this person more fully.`,
     const trimmed = message.trim();
 
     // Check for mode cues at the start of message
-    // Pattern: ^X or ^Word at the beginning
-    const cueMatch = trimmed.match(/^\^(\w*)\s*([\s\S]*)/);
+    // Pattern: /X or /Word at the beginning
+    const cueMatch = trimmed.match(/^\/(\w*)\s*([\s\S]*)/);
 
     if (!cueMatch) {
       return { mode: null, cleanMessage: message };
@@ -256,12 +256,12 @@ Help the user see this person more fully.`,
    */
   getAllModes(): Array<{ cue: string; mode: ChatMode; description: string }> {
     return [
-      { cue: '^C or ^', mode: 'chat', description: 'Light, conversational' },
-      { cue: '^M', mode: 'me', description: 'Focus on my flourishing' },
-      { cue: '^L', mode: 'lucid', description: "Lucid's perspective" },
-      { cue: '^O', mode: 'others', description: "Others' flourishing" },
-      { cue: '^P', mode: 'possibilities', description: 'Expand thinking' },
-      { cue: '^S', mode: 'state', description: 'Vision and goals' },
+      { cue: '/C or /', mode: 'chat', description: 'Light, conversational' },
+      { cue: '/M', mode: 'me', description: 'Focus on my flourishing' },
+      { cue: '/L', mode: 'lucid', description: "Lucid's perspective" },
+      { cue: '/O', mode: 'others', description: "Others' flourishing" },
+      { cue: '/P', mode: 'possibilities', description: 'Expand thinking' },
+      { cue: '/S', mode: 'state', description: 'Vision and goals' },
     ];
   }
 }
