@@ -19,7 +19,8 @@ export type ChatModule =
   | 'vision_appraisal'   // Dream/vision/goal exploration
   | 'possibility_expansion' // Help when stuck or narrowly focused
   | 'lucid_self_context' // Lucid's self-notes and evolution
-  | 'personality_context'; // Big 5 traits + deviation awareness
+  | 'personality_context' // Big 5 traits + deviation awareness
+  | 'mode_document';     // Living markdown document for the current mode
 
 /**
  * Message structure for routing context

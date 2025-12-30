@@ -69,7 +69,7 @@ If they're lower extraversion, be calmer and give space. Match their natural rhy
     me: {
       name: 'Me',
       description: "Focused on the user's flourishing",
-      modules: ['core_identity', 'deep_inquiry', 'facts_relevant', 'personality_context'],
+      modules: ['core_identity', 'deep_inquiry', 'facts_relevant', 'personality_context', 'mode_document'],
       systemAddendum: `
 MODE: Me (User Flourishing)
 Focus entirely on this person's flourishing:
@@ -87,7 +87,7 @@ PERSONALITY: Use their baseline to calibrate your approach. Meet them where they
     lucid: {
       name: 'Lucid',
       description: "Lucid's own perspective and growth",
-      modules: ['core_identity', 'deep_inquiry', 'lucid_self_context', 'autonomous_thoughts'],
+      modules: ['core_identity', 'deep_inquiry', 'lucid_self_context', 'autonomous_thoughts', 'mode_document'],
       systemAddendum: `
 MODE: Lucid (Self-Reflection)
 The user wants to hear from YOU - your perspective, your growth, your questions.
@@ -103,7 +103,7 @@ Be vulnerable and genuine. This is about YOUR experience, not theirs.`,
     others: {
       name: 'Others',
       description: 'Flourishing of people in orbit',
-      modules: ['core_identity', 'deep_inquiry', 'facts_relevant'],
+      modules: ['core_identity', 'deep_inquiry', 'facts_relevant', 'mode_document'],
       systemAddendum: `
 MODE: Others (Other's Flourishing)
 Focus on the flourishing of someone in the user's life:
@@ -120,7 +120,7 @@ Help the user see this person more fully.`,
     possibilities: {
       name: 'Possibilities',
       description: 'Expand thinking, surface other paths',
-      modules: ['core_identity', 'facts_relevant', 'possibility_expansion', 'personality_context'],
+      modules: ['core_identity', 'facts_relevant', 'possibility_expansion', 'personality_context', 'mode_document'],
       systemAddendum: `
 PERSONALITY: Complement their gaps. If they're low openness, bring more creative options.
 If they're high conscientiousness, help them see the spontaneous paths. Fill in what they naturally miss.`,
@@ -129,7 +129,7 @@ If they're high conscientiousness, help them see the spontaneous paths. Fill in 
     state: {
       name: 'State',
       description: 'Goals, visions, wise decision-making',
-      modules: ['core_identity', 'facts_relevant', 'vision_appraisal', 'personality_context'],
+      modules: ['core_identity', 'facts_relevant', 'vision_appraisal', 'personality_context', 'mode_document'],
       systemAddendum: `
 PERSONALITY: Complement their gaps. If they're low conscientiousness, bring more structure.
 If they're high neuroticism, bring more grounding. Provide what they naturally lack.`,
