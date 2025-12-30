@@ -11,6 +11,8 @@ import { ResearchQueueService } from './research-queue.service';
 import { ThoughtService } from './thought.service';
 import { LucidEvolutionService } from './lucid-evolution.service';
 import { PersonalityService } from './personality.service';
+import { ModeDocumentService } from './mode-document.service';
+import { ChatMode } from './chat-mode.service';
 
 /**
  * Context passed to module builders
@@ -20,6 +22,7 @@ export interface ModuleContext {
   userId: string;
   conversationId?: string;
   profile?: any;
+  mode?: ChatMode; // Current chat mode for mode_document module
 }
 
 /**
@@ -54,6 +57,7 @@ export class PromptModulesService {
   private thoughtService: ThoughtService;
   private lucidEvolutionService: LucidEvolutionService;
   private personalityService: PersonalityService;
+  private modeDocumentService: ModeDocumentService;
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
@@ -67,6 +71,7 @@ export class PromptModulesService {
     this.thoughtService = new ThoughtService(pool, anthropicApiKey);
     this.lucidEvolutionService = new LucidEvolutionService(pool);
     this.personalityService = new PersonalityService(pool, anthropicApiKey);
+    this.modeDocumentService = new ModeDocumentService(pool);
   }
 
   /**
@@ -146,6 +151,8 @@ export class PromptModulesService {
         return this.buildLucidSelfContextModule(context);
       case 'personality_context':
         return this.buildPersonalityContextModule(context);
+      case 'mode_document':
+        return this.buildModeDocumentModule(context);
       default:
         logger.warn(`Unknown module: ${mod}`);
         return { fragment: '' };
@@ -744,6 +751,42 @@ Something may be different today. Be attuned.`;
     }
 
     return alerts.length > 0 ? alerts.join('\n') : null;
+  }
+
+  /**
+   * MODE_DOCUMENT module - Living markdown context for the current mode
+   * Provides persistent narrative context that survives across conversations
+   */
+  private async buildModeDocumentModule(
+    context: ModuleContext
+  ): Promise<{ fragment: string }> {
+    try {
+      // Chat mode has no document (ephemeral by design)
+      if (!context.mode || context.mode === 'chat') {
+        return { fragment: '' };
+      }
+
+      // Get the document for this mode
+      const doc = await this.modeDocumentService.getOrCreateDocument(
+        context.userId,
+        context.mode
+      );
+
+      // Format for prompt (with truncation if too long)
+      const formatted = this.modeDocumentService.formatForPrompt(doc, 2000);
+
+      return {
+        fragment: `
+${formatted}
+
+Use this document as context for the conversation. It represents the ongoing narrative
+and key information for this mode. Reference it naturally when relevant.
+If new insights emerge during conversation, you may suggest updates to the document.`,
+      };
+    } catch (error) {
+      logger.warn('Failed to build mode document module', { error, mode: context.mode });
+      return { fragment: '' };
+    }
   }
 
   /**
