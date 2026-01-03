@@ -92,6 +92,7 @@ export class ChatService {
     libraryEntry?: { id: string; title: string | null } | null;
     topicShift?: { tag: string; color: string } | null;
     mode?: ChatMode;
+    researchQueueItems?: any[];
   }> {
     try {
       // Parse mode cue from message (/M, /L, /O, /P, /S, /C)
