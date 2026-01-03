@@ -12,6 +12,8 @@ export const jobTypeSchema = z.enum([
   'dream_session',
   'state_session',
   'orbit_session',
+  // Document Reflection (Living Document maintenance)
+  'document_reflection',
 ]);
 
 // Job status aligned with database schema

@@ -269,6 +269,11 @@ export class AgentJobService {
         job_type: 'night_dream',
         scheduled_for: this.getScheduledTime(date, 2, 0), // 2am - Dreaming Mind
       },
+      {
+        user_id: userId,
+        job_type: 'document_reflection',
+        scheduled_for: this.getScheduledTime(date, 21, 0), // 9pm - Document Reflection
+      },
     ];
 
     // Filter out jobs that already exist

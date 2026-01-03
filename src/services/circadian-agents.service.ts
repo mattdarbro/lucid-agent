@@ -15,6 +15,7 @@ import { WebSearchService } from './web-search.service';
 import { DreamSessionAgent } from '../agents/dream-session.agent';
 import { StateSessionAgent } from '../agents/state-session.agent';
 import { OrbitSessionAgent } from '../agents/orbit-session.agent';
+import { DocumentReflectionAgent } from '../agents/document-reflection.agent';
 
 interface AgentResult {
   thoughtsGenerated: number;
@@ -866,6 +867,31 @@ Be genuine - this is YOUR curiosity as an AI companion.`;
       return { thoughtsGenerated: 0, researchTasksCreated: 0 };
     } catch (error) {
       logger.error('Orbit session failed', { userId, jobId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Document Reflection Session (Daily at 9pm)
+   * Updates Lucid's Living Document - his working memory
+   * Analyzes recent conversations for patterns, questions, insights
+   */
+  async runDocumentReflection(userId: string, jobId: string): Promise<AgentResult> {
+    logger.info('Running document reflection', { userId, jobId });
+
+    try {
+      const agent = new DocumentReflectionAgent(this.pool);
+      const success = await agent.reflect(userId);
+
+      if (success) {
+        logger.info('Document reflection completed', { userId });
+        return { thoughtsGenerated: 1, researchTasksCreated: 0 };
+      }
+
+      logger.info('Document reflection skipped (no changes)', { userId });
+      return { thoughtsGenerated: 0, researchTasksCreated: 0 };
+    } catch (error) {
+      logger.error('Document reflection failed', { userId, jobId, error });
       throw error;
     }
   }

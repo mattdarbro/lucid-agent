@@ -20,7 +20,8 @@ export type ChatModule =
   | 'possibility_expansion' // Help when stuck or narrowly focused
   | 'lucid_self_context' // Lucid's self-notes and evolution
   | 'personality_context' // Big 5 traits + deviation awareness
-  | 'mode_document';     // Living markdown document for the current mode
+  | 'mode_document'      // Living markdown document for the current mode (legacy)
+  | 'living_document';   // Lucid's working memory - unified notes
 
 /**
  * Message structure for routing context
