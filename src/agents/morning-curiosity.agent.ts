@@ -5,6 +5,7 @@ import { MattStateService } from '../services/matt-state.service';
 import { MemoryService } from '../services/memory.service';
 import { ProfileService } from '../services/profile.service';
 import { VectorService } from '../services/vector.service';
+import { ResearchQueueService } from '../services/research-queue.service';
 
 /**
  * Curiosity topic discovered by the agent
@@ -42,6 +43,7 @@ export class MorningCuriosityAgent {
   private memoryService: MemoryService;
   private profileService: ProfileService;
   private vectorService: VectorService;
+  private researchQueueService: ResearchQueueService;
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
@@ -52,6 +54,7 @@ export class MorningCuriosityAgent {
     this.memoryService = new MemoryService(pool);
     this.profileService = new ProfileService(pool);
     this.vectorService = new VectorService();
+    this.researchQueueService = new ResearchQueueService(pool);
   }
 
   /**
@@ -92,7 +95,26 @@ export class MorningCuriosityAgent {
       // 4. Store in library
       const entry = await this.storeInLibrary(userId, content);
 
-      // 5. Send notification
+      // 5. Add each topic to the research queue for user review
+      for (const topic of topics) {
+        try {
+          await this.researchQueueService.addToQueue({
+            userId,
+            topic: topic.topic,
+            whyItMatters: topic.relevance,
+            searchQuery: topic.searchQuery,
+            priority: 6, // Slightly above default for curiosity-driven items
+          });
+        } catch (err) {
+          logger.warn('[MORNING CURIOSITY] Failed to add topic to research queue', {
+            userId,
+            topic: topic.topic,
+            error: err,
+          });
+        }
+      }
+
+      // 6. Send notification
       await this.notifyUser(userId, entry.id);
 
       logger.info('[MORNING CURIOSITY] Session complete', {
