@@ -361,6 +361,7 @@ export class ChatService {
         response: assistantResponse,
         topicShift,
         mode: currentMode,
+        researchQueueItems,
       };
     } catch (error: any) {
       logger.error('Error in chat completion:', {

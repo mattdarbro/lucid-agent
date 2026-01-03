@@ -75,6 +75,7 @@ router.post('/', validateBody(chatCompletionSchema), async (req: Request, res: R
       assistant_message: result.assistant_message,
       response: result.response,
       conversation_id: input.conversation_id,
+      research_queue_items: result.researchQueueItems ?? [],
     });
   } catch (error: any) {
     logger.error('Error in POST /v1/chat:', {
