@@ -29,6 +29,7 @@ import costsRouter from './routes/costs';
 import { createMattStateRouter } from './routes/matt-state';
 import { createOrbitsRouter } from './routes/orbits';
 import { createModeDocumentsRouter } from './routes/mode-documents';
+import { createLivingDocumentRouter } from './routes/living-document';
 import researchQueueRouter from './routes/research-queue';
 import winsRouter from './routes/wins';
 
@@ -158,8 +159,11 @@ app.use('/v1/costs', costsRouter);
 app.use('/v1/matt-state', createMattStateRouter(pool));
 app.use('/v1/orbits', createOrbitsRouter(pool));
 
-// Mode Documents (Living context for each chat mode)
+// Mode Documents (Living context for each chat mode) - Legacy, being sunset
 app.use('/v1/mode-documents', createModeDocumentsRouter(pool));
+
+// Living Document (Lucid's working memory - unified notes)
+app.use('/v1/living-document', createLivingDocumentRouter(pool));
 
 // Modular Intelligence System (Research Queue)
 app.use('/v1/research-queue', researchQueueRouter);

@@ -130,7 +130,8 @@ export type AgentJobType =
   | 'morning_curiosity_session'
   | 'dream_session'
   | 'state_session'
-  | 'orbit_session';
+  | 'orbit_session'
+  | 'document_reflection';
 
 export interface AgentJob {
   id: string;

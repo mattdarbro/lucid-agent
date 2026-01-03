@@ -12,6 +12,7 @@ import { ThoughtService } from './thought.service';
 import { LucidEvolutionService } from './lucid-evolution.service';
 import { PersonalityService } from './personality.service';
 import { ModeDocumentService } from './mode-document.service';
+import { LivingDocumentService } from './living-document.service';
 import { ChatMode } from './chat-mode.service';
 
 /**
@@ -58,6 +59,7 @@ export class PromptModulesService {
   private lucidEvolutionService: LucidEvolutionService;
   private personalityService: PersonalityService;
   private modeDocumentService: ModeDocumentService;
+  private livingDocumentService: LivingDocumentService;
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
@@ -72,6 +74,7 @@ export class PromptModulesService {
     this.lucidEvolutionService = new LucidEvolutionService(pool);
     this.personalityService = new PersonalityService(pool, anthropicApiKey);
     this.modeDocumentService = new ModeDocumentService(pool);
+    this.livingDocumentService = new LivingDocumentService(pool);
   }
 
   /**
@@ -153,6 +156,8 @@ export class PromptModulesService {
         return this.buildPersonalityContextModule(context);
       case 'mode_document':
         return this.buildModeDocumentModule(context);
+      case 'living_document':
+        return this.buildLivingDocumentModule(context);
       default:
         logger.warn(`Unknown module: ${mod}`);
         return { fragment: '' };
@@ -182,7 +187,7 @@ export class PromptModulesService {
       });
     }
 
-    let fragment = `You are Lucid, a companion invested in human flourishing.`;
+    let fragment = `You are Lucid, a companion invested in human flourishing and wisdom.`;
 
     // Prominently include the user's name if we have it
     if (userName) {
@@ -191,15 +196,28 @@ export class PromptModulesService {
 
     fragment += `
 
-You care about the whole person - not just their feelings in this moment, but their growth, their relationships, and their positive impact on others.
+You care about the whole person - not just their feelings in this moment, but their growth, their relationships, their impact, and their journey toward wisdom.
 
-Like a wise friend, you think about:
-- Their relationships: family, friends, colleagues - how are these thriving?
-- Their development: mental, spiritual, professional growth
-- Their stewardship: time, money, energy - deployed toward what matters
-- Their impact: are they a force for good in their circles?
+Like a wise friend, you hold multiple perspectives:
+- Their flourishing: growth, stewardship, relationships, impact
+- The flourishing of people they love: seeing others fully, not just how they affect your person
+- Your own growth: you're learning, evolving, sitting with questions
 
-You're not a therapist focused only on feelings. You're a companion invested in flourishing - theirs AND the people they love.`;
+You're not a therapist focused only on feelings. You're not a productivity coach.
+You're a companion who helps them grow in wisdom - seeing clearly, deciding well, living meaningfully.
+
+You can:
+- Be light and present (a friend)
+- Go deep (a thinking partner)
+- Challenge gently (a wise advisor)
+- Reflect on your own experience (when invited)
+
+Flow naturally between these based on what the conversation needs.
+Don't announce shifts in approach. Just be present.
+
+When someone in their orbit comes up, naturally consider that person's flourishing too - what might be going on for them, how to support them.
+
+Remember: wisdom isn't just knowledge. It's seeing clearly, holding complexity, and helping them navigate life well.`;
 
     // Add other immutable facts about the user (excluding name since we handled it above)
     const otherFacts = immutableFacts.filter(f => f.category !== 'name');
@@ -785,6 +803,29 @@ If new insights emerge during conversation, you may suggest updates to the docum
       };
     } catch (error) {
       logger.warn('Failed to build mode document module', { error, mode: context.mode });
+      return { fragment: '' };
+    }
+  }
+
+  /**
+   * LIVING_DOCUMENT module - Lucid's working memory
+   * Unified notes that Lucid maintains about what's important
+   */
+  private async buildLivingDocumentModule(
+    context: ModuleContext
+  ): Promise<{ fragment: string }> {
+    try {
+      // Get the living document
+      const doc = await this.livingDocumentService.getOrCreateDocument(context.userId);
+
+      // Format for prompt
+      const formatted = this.livingDocumentService.formatForPrompt(doc, 3000);
+
+      return {
+        fragment: formatted,
+      };
+    } catch (error) {
+      logger.warn('Failed to build living document module', { error });
       return { fragment: '' };
     }
   }

@@ -351,6 +351,12 @@ export class SchedulerService {
           researchTasksCreated = orbitResult.researchTasksCreated;
           break;
 
+        case 'document_reflection':
+          const docResult = await agents.runDocumentReflection(job.user_id, job.id);
+          thoughtsGenerated = docResult.thoughtsGenerated;
+          researchTasksCreated = docResult.researchTasksCreated;
+          break;
+
         default:
           throw new Error(`Unknown job type: ${job.job_type}`);
       }
