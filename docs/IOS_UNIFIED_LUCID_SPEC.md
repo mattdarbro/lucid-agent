@@ -102,54 +102,59 @@ Note: No PUT endpoint for users. Lucid updates this via AT sessions.
 
 ### What It Is
 
-A structured conversation for exploring goals, visions, and decisions. Similar to Versus - a separate flow that saves to Library.
+A **guided journey** for exploring dreams and goals. Lucid initiates and guides the user through phases, discovering what they want, understanding their reality, and finding viable paths forward.
+
+This is more sophisticated than a simple chat - it's a phased exploration that helps users get from dream to actionable direction.
+
+### The Journey (Phases)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  1. DREAM         "What are you reaching for?"              │
+│        ↓                                                    │
+│  2. REALITY       Lucid discovers context (who you         │
+│                   are, constraints, dependencies)           │
+│        ↓                                                    │
+│  3. LITERAL PATH  "Here's what it would actually           │
+│                   take" (sacrifice analysis)                │
+│        ↓                                                    │
+│  4. MITIGATION    If sacrifice too high, find the          │
+│     (if needed)   *essence* - what do you really want?     │
+│        ↓                                                    │
+│  5. ALTERNATIVE   Modified paths that honor the spirit     │
+│     PATHS         without destroying everything             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Example flow:**
+- User: "I want to open a pizza shop in Rome"
+- DREAM phase: Lucid explores the dream, what draws them to it
+- REALITY phase: Lucid discovers they live in Alabama, work as a dentist, have dependent children
+- LITERAL PATH: Lucid shows the real cost - uprooting family, abandoning career, financial risk
+- MITIGATION: The sacrifice is high. Lucid asks - what's the *essence*? Is it craftsmanship? Italian culture? Sense of place?
+- ALTERNATIVE PATHS: Lucid suggests modified dreams - annual Rome trips, making pizza at home, opening an Italian place locally
 
 ### Access Point
 
 "..." menu → "State Check"
 
-### Flow
+### UI Flow
+
+**Step 1: Lucid Initiates**
+
+User taps "State Check" and Lucid opens with a warm invitation:
 
 ```
 ┌─────────────────────────────────────┐
 │ ←  State Check                      │
 ├─────────────────────────────────────┤
 │                                     │
-│  What goal, vision, or decision     │
-│  would you like to explore?         │
-│                                     │
-│  ┌─────────────────────────────────┐│
-│  │                                 ││
-│  │                                 ││
-│  │                                 ││
-│  └─────────────────────────────────┘│
-│                                     │
-│            [ Start ]                │
-│                                     │
-└─────────────────────────────────────┘
-```
-
-After starting, enters a guided conversation:
-
-```
-┌─────────────────────────────────────┐
-│ ←  State Check            Save  ⋮   │
-├─────────────────────────────────────┤
-│                                     │
-│  ┌─────────────────────────────────┐│
-│  │ You                             ││
-│  │ I'm thinking about whether to   ││
-│  │ take on the new leadership role ││
-│  └─────────────────────────────────┘│
-│                                     │
 │  ┌─────────────────────────────────┐│
 │  │ Lucid                           ││
-│  │ That's a significant decision.  ││
-│  │ Let's think through it.         ││
 │  │                                 ││
-│  │ What draws you to this role?    ││
-│  │ What would it mean for your     ││
-│  │ current priorities?             ││
+│  │ What are you dreaming about     ││
+│  │ lately? I'd love to explore     ││
+│  │ something you're reaching for.  ││
 │  └─────────────────────────────────┘│
 │                                     │
 │  ┌─────────────────────────────────┐│
@@ -159,44 +164,83 @@ After starting, enters a guided conversation:
 └─────────────────────────────────────┘
 ```
 
-### State Check Prompt (Backend)
+**Step 2: Conversational Exploration**
+
+Simple chat interface - Lucid guides naturally through phases:
 
 ```
-You are Lucid, helping explore a goal, vision, or decision.
+┌─────────────────────────────────────┐
+│ ←  State Check                  ⋮   │
+├─────────────────────────────────────┤
+│                                     │
+│  ┌─────────────────────────────────┐│
+│  │ You                             ││
+│  │ I've been thinking about        ││
+│  │ opening a pizza shop in Rome    ││
+│  └─────────────────────────────────┘│
+│                                     │
+│  ┌─────────────────────────────────┐│
+│  │ Lucid                           ││
+│  │ That's a beautiful dream. Tell  ││
+│  │ me more - what draws you to     ││
+│  │ Rome specifically? And pizza?   ││
+│  └─────────────────────────────────┘│
+│                                     │
+│  ┌─────────────────────────────────┐│
+│  │ Type your response...           ││
+│  └─────────────────────────────────┘│
+│                                     │
+└─────────────────────────────────────┘
+```
 
-Guide the conversation through:
-1. What they're reaching for (the goal or vision)
-2. Where they are now (current state)
-3. What it would cost (time, energy, relationships, identity, money)
-4. The spirit of the goal - what do they actually want underneath?
-5. Could they get the essence without disrupting everything?
+**Step 3: Completion**
 
-This is a discussion, not a checklist. Help them think wisely about
-whether this change is worth making. Surface pros and cons. Be honest
-about costs. But don't crush dreams that are hard - help them see clearly.
+When the journey is complete, Lucid summarizes and it saves to Library automatically.
 
-At the end, summarize:
-- The decision/goal being considered
-- Key trade-offs identified
-- Questions still open
-- Recommended next steps (if any)
+### Session Document (Backend)
+
+The backend maintains a "mini living document" for each session:
+
+```json
+{
+  "dream_stated": "Open a pizza shop in Rome",
+  "reality_discovered": [
+    "Lives in Alabama",
+    "Works as dentist",
+    "Has dependent children"
+  ],
+  "sacrifice_assessment": "Would require uprooting family, abandoning career, significant financial risk",
+  "essence_identified": "Connection to Italian culture, craftsmanship, sense of place",
+  "paths_explored": [
+    {
+      "path": "Full literal: Move to Rome",
+      "tradeoffs": "High family sacrifice, career loss",
+      "viability": "low"
+    },
+    {
+      "path": "Annual Rome trips + pizza-making classes",
+      "tradeoffs": "Limited immersion but preserves stability",
+      "viability": "high"
+    },
+    {
+      "path": "Open Italian restaurant locally",
+      "tradeoffs": "Different dream but similar essence",
+      "viability": "medium"
+    }
+  ],
+  "chosen_direction": "Start with annual Rome trips and master pizza-making first",
+  "insights": [
+    "The dream is really about craftsmanship and Italian culture",
+    "Family stability is a core value"
+  ]
+}
 ```
 
 ### Save to Library
 
-When user taps "Save" or ends session:
+Automatically saved when session completes. Entry includes full journey and summary.
 
-```
-POST /v1/library/:user_id
-
-{
-  "title": "State Check: Leadership Role Decision",
-  "content": "[Full conversation transcript + summary]",
-  "entry_type": "state_check",
-  "source": "state_tool",
-  "tags": ["decision", "career"]
-}
-```
+Entry type: `state_check`
 
 ---
 
@@ -310,36 +354,83 @@ POST /v1/library/:user_id
 ```
 GET /v1/living-document/:user_id
   → Returns Lucid's notes (read-only for client)
+
+Response:
+{
+  "document": {
+    "id": "uuid",
+    "content": "# Lucid's Notes\n\n...",
+    "updated_at": "2026-01-03T10:00:00Z",
+    "version": 5
+  }
+}
 ```
 
 ### State Check Tool
 
 ```
-POST /v1/tools/state-check/:user_id/start
-  Body: { "topic": "..." }
-  → Returns session_id, initial Lucid response
+POST /v1/state-check/start
+  Body: { "user_id": "uuid" }
+  → Lucid initiates, returns session and opening message
 
-POST /v1/tools/state-check/:user_id/:session_id/message
-  Body: { "message": "..." }
-  → Returns Lucid's response
+Response:
+{
+  "session_id": "uuid",
+  "phase": "dream",
+  "message": "What are you dreaming about lately?",
+  "session_doc": { ... }
+}
 
-POST /v1/tools/state-check/:user_id/:session_id/end
-  → Saves to Library, returns summary
+POST /v1/state-check/:sessionId/message
+  Body: { "user_id": "uuid", "message": "..." }
+  → Returns Lucid's response and updated state
+
+Response:
+{
+  "message": "That's a beautiful dream...",
+  "phase": "dream",
+  "session_doc": { ... },
+  "is_complete": false
+}
+
+GET /v1/state-check/user/:userId/active
+  → Check if user has an active session
+
+Response:
+{
+  "active": true,
+  "session": { ... }
+}
+
+GET /v1/state-check/user/:userId/history
+  → Get user's past State Check sessions
+
+Response:
+{
+  "sessions": [
+    {
+      "session_id": "uuid",
+      "dream": "Open a pizza shop in Rome",
+      "chosen_direction": "Annual Rome trips first",
+      "completed_at": "2026-01-03T10:00:00Z"
+    }
+  ]
+}
+
+POST /v1/state-check/:sessionId/abandon
+  Body: { "user_id": "uuid" }
+  → Abandon an active session without saving
 ```
 
 ### Possibilities Tool
 
 ```
-POST /v1/tools/possibilities/:user_id/start
-  Body: { "topic": "..." }
-  → Returns session_id, initial Lucid response
+(Coming soon - similar pattern to State Check)
 
-POST /v1/tools/possibilities/:user_id/:session_id/message
-  Body: { "message": "..." }
-  → Returns Lucid's response
-
-POST /v1/tools/possibilities/:user_id/:session_id/end
-  → Saves to Library, returns summary
+POST /v1/possibilities/start
+POST /v1/possibilities/:sessionId/message
+GET /v1/possibilities/user/:userId/active
+POST /v1/possibilities/:sessionId/abandon
 ```
 
 ---
@@ -356,7 +447,63 @@ struct LivingDocument: Codable {
     let version: Int
 }
 
-// Tool Session
+// State Check Session
+struct StateCheckSession: Codable {
+    let sessionId: UUID
+    let phase: StateCheckPhase
+    let sessionDoc: StateCheckSessionDoc
+    let status: SessionStatus
+    let createdAt: Date
+    let updatedAt: Date
+    let completedAt: Date?
+}
+
+enum StateCheckPhase: String, Codable {
+    case dream           // "What are you reaching for?"
+    case reality         // Discovering context, constraints
+    case literalPath     // "Here's what it would take"
+    case mitigation      // Finding the essence
+    case alternativePaths // Modified paths
+    case complete        // Session finished
+}
+
+struct StateCheckSessionDoc: Codable {
+    var dreamStated: String?
+    var realityDiscovered: [String]
+    var sacrificeAssessment: String?
+    var essenceIdentified: String?
+    var pathsExplored: [ExplorePath]
+    var chosenDirection: String?
+    var insights: [String]
+}
+
+struct ExplorePath: Codable {
+    let path: String
+    let tradeoffs: String
+    let viability: PathViability
+}
+
+enum PathViability: String, Codable {
+    case high
+    case medium
+    case low
+}
+
+// State Check Response (from message API)
+struct StateCheckResponse: Codable {
+    let message: String
+    let phase: StateCheckPhase
+    let sessionDoc: StateCheckSessionDoc
+    let isComplete: Bool
+}
+
+enum SessionStatus: String, Codable {
+    case active
+    case completed
+    case abandoned
+}
+
+// Generic Tool Session (for Versus, Possibilities)
 struct ToolSession: Codable {
     let id: UUID
     let userId: UUID
@@ -377,12 +524,6 @@ struct ToolMessage: Codable {
     let role: MessageRole
     let content: String
     let timestamp: Date
-}
-
-enum SessionStatus: String, Codable {
-    case active
-    case completed
-    case saved
 }
 ```
 
