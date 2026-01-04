@@ -530,7 +530,7 @@ Your conversational response (do NOT include the library link - it will be added
     userId: string,
     query: string,
     limit: number = 3,
-    minSimilarity: number = 0.3  // Minimum cosine similarity (0-1 scale)
+    minSimilarity: number = 0.75  // Minimum cosine similarity (0-1 scale) - raised for less noise
   ): Promise<Array<{ title: string | null; content: string }>> {
     try {
       const queryEmbedding = await this.vectorService.generateEmbedding(query);

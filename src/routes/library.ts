@@ -305,12 +305,13 @@ router.delete('/:id', async (req: Request, res: Response) => {
  * Query parameters:
  * - user_id: string (required) - UUID of the user
  * - query: string (required) - Search query text
- * - limit: number (optional) - Max entries to return (default: 5)
+ * - limit: number (optional) - Max entries to return (default: 10)
+ * - min_similarity: number (optional) - Minimum similarity threshold 0-1 (default: 0.8)
  * - entry_type: string (optional) - Filter by entry type
  */
 router.get('/search', async (req: Request, res: Response) => {
   try {
-    const { user_id, query, limit = '5', entry_type } = req.query;
+    const { user_id, query, limit = '10', min_similarity = '0.8', entry_type } = req.query;
 
     if (!user_id || typeof user_id !== 'string') {
       return res.status(400).json({ error: 'user_id is required' });
@@ -320,13 +321,16 @@ router.get('/search', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'query is required' });
     }
 
+    // Parse and validate min_similarity
+    const similarityThreshold = Math.min(1, Math.max(0, parseFloat(min_similarity as string) || 0.8));
+
     // Generate embedding for the search query
     const queryEmbedding = await vectorService.generateEmbedding(query);
 
     // Format embedding for PostgreSQL vector type
     const embeddingString = `[${queryEmbedding.join(',')}]`;
 
-    // Build the search query
+    // Build the search query with similarity threshold filter
     let searchQuery = `
       SELECT
         id, user_id, entry_type, title, content, time_of_day,
@@ -335,8 +339,9 @@ router.get('/search', async (req: Request, res: Response) => {
       FROM library_entries
       WHERE user_id = $2
         AND embedding IS NOT NULL
+        AND (1 - (embedding <=> $1::vector)) >= $3
     `;
-    const params: any[] = [embeddingString, user_id];
+    const params: any[] = [embeddingString, user_id, similarityThreshold];
 
     if (entry_type && typeof entry_type === 'string') {
       searchQuery += ` AND entry_type = $${params.length + 1}`;
@@ -352,6 +357,7 @@ router.get('/search', async (req: Request, res: Response) => {
     logger.info('Library semantic search', {
       user_id,
       query: query.slice(0, 50),
+      min_similarity: similarityThreshold,
       results: result.rows.length,
     });
 

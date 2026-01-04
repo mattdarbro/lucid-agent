@@ -57,7 +57,7 @@ export const searchThoughtsSchema = z.object({
   user_id: z.string().uuid(),
   query: z.string().min(1),
   limit: z.coerce.number().int().min(1).max(50).default(10),
-  min_similarity: z.coerce.number().min(0).max(1).default(0.7),
+  min_similarity: z.coerce.number().min(0).max(1).default(0.8),
   thought_type: thoughtCategorySchema.optional(),
   circadian_phase: circadianPhaseSchema.optional(),
 });
