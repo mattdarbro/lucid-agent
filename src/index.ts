@@ -33,6 +33,7 @@ import { createLivingDocumentRouter } from './routes/living-document';
 import { createStateCheckRouter } from './routes/state-check';
 import researchQueueRouter from './routes/research-queue';
 import winsRouter from './routes/wins';
+import possibilitiesRouter from './routes/possibilities';
 
 // Validate configuration on startup
 try {
@@ -174,6 +175,9 @@ app.use('/v1/research-queue', researchQueueRouter);
 
 // Wins tracking (user accomplishments)
 app.use('/v1/wins', winsRouter);
+
+// Possibilities (sigma-based alternative exploration)
+app.use('/v1/possibilities', possibilitiesRouter);
 
 // TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);

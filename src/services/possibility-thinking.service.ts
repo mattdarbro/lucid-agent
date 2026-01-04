@@ -581,4 +581,187 @@ Your conversational response (do NOT include the library link - it will be added
     );
     return result.rows;
   }
+
+  /**
+   * Generate sigma-based possibilities for visual rendering
+   *
+   * Sigma levels:
+   * - 1σ: Adjacent thinking (user might get here naturally)
+   * - 2σ: Requires stretching (user would probably miss)
+   * - 3σ: Edge cases, contrarian views (almost never considered)
+   */
+  async generateSigmaPossibilities(
+    userId: string,
+    focus: string,
+    options: {
+      sigma?: 1 | 2 | 3;  // If provided, only generate for this level
+      count?: number;      // Possibilities per sigma level (default 3)
+      conversationId?: string;
+    } = {}
+  ): Promise<{
+    focus: string;
+    focusReframed?: string;
+    possibilities: {
+      sigma1: Array<{ id: string; text: string; category: string; reasoning?: string }>;
+      sigma2: Array<{ id: string; text: string; category: string; reasoning?: string }>;
+      sigma3: Array<{ id: string; text: string; category: string; reasoning?: string }>;
+    };
+  }> {
+    const { sigma, count = 3, conversationId } = options;
+
+    logger.info('Generating sigma possibilities', {
+      user_id: userId,
+      focus: focus.slice(0, 50),
+      sigma,
+      count,
+    });
+
+    // Gather context
+    const facts = await this.memoryService.getRelevantFacts(userId, 10);
+    const factsContext = facts.length > 0
+      ? facts.map(f => `- ${f.content}`).join('\n')
+      : 'No facts known yet.';
+
+    const sigmaToGenerate = sigma ? [sigma] : [1, 2, 3];
+    const prompt = this.buildSigmaPrompt(focus, factsContext, sigmaToGenerate, count);
+
+    try {
+      const response = await this.anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',  // Faster model for structured generation
+        max_tokens: 2000,
+        temperature: 0.85,  // Higher for creative alternatives
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const content = response.content[0];
+      if (content.type !== 'text') {
+        throw new Error('Unexpected response type');
+      }
+
+      const parsed = this.parseSigmaResponse(content.text, focus);
+
+      logger.info('Sigma possibilities generated', {
+        user_id: userId,
+        sigma1_count: parsed.possibilities.sigma1.length,
+        sigma2_count: parsed.possibilities.sigma2.length,
+        sigma3_count: parsed.possibilities.sigma3.length,
+      });
+
+      return parsed;
+    } catch (error: any) {
+      logger.error('Error generating sigma possibilities:', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Build prompt for sigma-based possibility generation
+   */
+  private buildSigmaPrompt(
+    focus: string,
+    factsContext: string,
+    sigmaLevels: number[],
+    countPerLevel: number
+  ): string {
+    const sigmaDescriptions = {
+      1: '1σ (ADJACENT): Alternatives the user might reach naturally with a bit more thought. Practical, nearby options. Category: "practical"',
+      2: '2σ (STRETCH): Alternatives that require stretching - the user would probably miss these on their own. May reframe the problem. Categories: "practical" or "reframe"',
+      3: '3σ (EDGE): Contrarian views, wildcards, radical reframes. Things almost never considered. Challenge assumptions. Categories: "reframe" or "contrarian"',
+    };
+
+    const sigmaInstructions = sigmaLevels
+      .map(s => `${sigmaDescriptions[s as 1 | 2 | 3]} — Generate ${countPerLevel} possibilities`)
+      .join('\n\n');
+
+    return `You help humans see beyond their natural focus. Humans anchor on obvious options and rarely explore past their immediate thinking. You can surface the wider landscape.
+
+USER'S FOCUS:
+"${focus}"
+
+WHAT YOU KNOW ABOUT THIS USER:
+${factsContext}
+
+---
+
+Generate possibilities at the requested sigma levels. Each level represents how far from the user's natural thinking:
+
+${sigmaInstructions}
+
+CATEGORIES:
+- "practical": Concrete, actionable alternatives
+- "reframe": Questions the framing or assumptions
+- "contrarian": Challenges the premise, suggests the opposite
+
+RESPOND WITH VALID JSON ONLY:
+{
+  "focusReframed": "What the user might actually be trying to figure out (optional, if different from stated)",
+  "sigma1": [
+    { "text": "possibility text", "category": "practical", "reasoning": "why this is 1σ" }
+  ],
+  "sigma2": [
+    { "text": "possibility text", "category": "reframe", "reasoning": "why this is 2σ" }
+  ],
+  "sigma3": [
+    { "text": "possibility text", "category": "contrarian", "reasoning": "why this is 3σ" }
+  ]
+}
+
+Only include the sigma levels requested. Be specific, not generic. Each possibility should be genuinely useful.`;
+  }
+
+  /**
+   * Parse sigma response from Claude
+   */
+  private parseSigmaResponse(
+    text: string,
+    focus: string
+  ): {
+    focus: string;
+    focusReframed?: string;
+    possibilities: {
+      sigma1: Array<{ id: string; text: string; category: string; reasoning?: string }>;
+      sigma2: Array<{ id: string; text: string; category: string; reasoning?: string }>;
+      sigma3: Array<{ id: string; text: string; category: string; reasoning?: string }>;
+    };
+  } {
+    try {
+      // Extract JSON from response
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('No JSON found in response');
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      // Add IDs to each possibility
+      const addIds = (items: any[] = []) =>
+        items.map((item, i) => ({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          text: item.text || item,
+          category: item.category || 'practical',
+          reasoning: item.reasoning,
+        }));
+
+      return {
+        focus,
+        focusReframed: parsed.focusReframed,
+        possibilities: {
+          sigma1: addIds(parsed.sigma1),
+          sigma2: addIds(parsed.sigma2),
+          sigma3: addIds(parsed.sigma3),
+        },
+      };
+    } catch (error: any) {
+      logger.error('Error parsing sigma response:', { error: error.message, text: text.slice(0, 200) });
+      // Return empty structure on parse error
+      return {
+        focus,
+        possibilities: {
+          sigma1: [],
+          sigma2: [],
+          sigma3: [],
+        },
+      };
+    }
+  }
 }
