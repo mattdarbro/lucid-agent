@@ -306,12 +306,12 @@ router.delete('/:id', async (req: Request, res: Response) => {
  * - user_id: string (required) - UUID of the user
  * - query: string (required) - Search query text
  * - limit: number (optional) - Max entries to return (default: 10)
- * - min_similarity: number (optional) - Minimum similarity threshold 0-1 (default: 0.7)
+ * - min_similarity: number (optional) - Minimum similarity threshold 0-1 (default: 0.8)
  * - entry_type: string (optional) - Filter by entry type
  */
 router.get('/search', async (req: Request, res: Response) => {
   try {
-    const { user_id, query, limit = '10', min_similarity = '0.7', entry_type } = req.query;
+    const { user_id, query, limit = '10', min_similarity = '0.8', entry_type } = req.query;
 
     if (!user_id || typeof user_id !== 'string') {
       return res.status(400).json({ error: 'user_id is required' });
@@ -322,7 +322,7 @@ router.get('/search', async (req: Request, res: Response) => {
     }
 
     // Parse and validate min_similarity
-    const similarityThreshold = Math.min(1, Math.max(0, parseFloat(min_similarity as string) || 0.7));
+    const similarityThreshold = Math.min(1, Math.max(0, parseFloat(min_similarity as string) || 0.8));
 
     // Generate embedding for the search query
     const queryEmbedding = await vectorService.generateEmbedding(query);
