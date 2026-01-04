@@ -622,13 +622,26 @@ Remember: These represent your growth and evolution. They're part of who you are
    * Generate a human-readable label for a thought
    */
   private getThoughtLabel(thoughtType: string, circadianPhase: string | null): string {
+    // Handle reflection type based on circadian phase
+    if (thoughtType === 'reflection') {
+      switch (circadianPhase) {
+        case 'evening':
+          return 'Evening Gratefulness';
+        case 'afternoon':
+          return 'Afternoon Reflection';
+        case 'morning':
+        default:
+          return 'Morning Reflection';
+      }
+    }
+
     const typeLabels: Record<string, string> = {
-      reflection: 'Morning Reflection',
       curiosity: 'Curious Question',
       consolidation: 'Evening Insight',
       dream: 'Night Dream',
       insight: 'Insight',
       question: 'Question',
+      synthesis: 'Afternoon Synthesis',
     };
 
     return typeLabels[thoughtType] || thoughtType;
