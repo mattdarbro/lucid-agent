@@ -93,6 +93,7 @@ router.post('/start', async (req: Request, res: Response) => {
     res.status(200).json({
       sessionId,
       focus,
+      focusReframed: null,
       possibilities: session.possibilities,
     });
   } catch (error: any) {
@@ -346,7 +347,7 @@ router.get('/:sessionId', async (req: Request, res: Response) => {
     res.status(200).json({
       sessionId: session.id,
       focus: session.focus,
-      focusReframed: session.focusReframed,
+      focusReframed: session.focusReframed ?? null,
       possibilities: session.possibilities,
     });
   } catch (error: any) {
