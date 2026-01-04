@@ -188,11 +188,10 @@ Be honest about what you know and don't know. Ground this in the facts you have.
 ## PART 2: VISION ARTICULATION
 What is Matt actually reaching for? Consider:
 - The explicit goal as stated
-- The DEEPER "WHY" underneath - what does achieving this represent?
-- Is this what Matt actually wants, or might it be a proxy for something else?
+- What matters most about achieving this? (brief - don't overanalyze)
 - What would success actually look like and feel like?
 
-Be curious here. Sometimes people chase goals that are proxies for deeper needs.
+Keep this focused. The goal is clarity, not endless exploration of motivation.
 
 ## PART 3: ROUTES TO GET THERE
 What are plausible paths to achieve this vision?
@@ -215,15 +214,14 @@ This is crucial. What might need to be sacrificed, changed, or broken?
 
 Be honest and specific. Don't soften the costs. Matt needs to see them clearly to make a real choice.
 
-## PART 5: DEEPER WHY EXPLORATION
-Now synthesize everything:
-- Given the costs, is this vision worth pursuing in its current form?
-- Could the DEEPER need be met in a less costly way?
-- Are there alternative paths that would achieve 80% of the benefit at 20% of the cost?
-- What would Lucid, as a friend invested in Matt's flourishing, actually recommend?
-- If Matt pursues this, what's the first concrete step?
+## PART 5: SYNTHESIS AND NEXT STEPS
+Now bring it together and help Matt move forward:
+- Given everything above, what's your honest recommendation as a friend invested in Matt's flourishing?
+- What's the FIRST CONCRETE STEP Matt should take this week?
+- What's the biggest obstacle he'll likely hit, and how might he handle it?
+- How will he know he's making progress?
 
-Don't dash dreams that are hard - but DO help Matt see if there's a wiser path. Your job is flourishing, not validation.
+Don't get stuck in endless analysis. The goal is to help Matt move from thinking to doing. Be honest about costs, but then help him find the path forward.
 
 ---
 

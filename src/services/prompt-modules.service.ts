@@ -446,17 +446,25 @@ If they approve any, note it. If they reject, acknowledge and move on. Let them 
       fragment: `
 
 🌟 STATE MODE
-Help them think through a goal, vision, or desired change.
+Help them think through a goal, vision, or desired change - and then help them ACT on it.
 
-The conversation should flow through:
+The conversation flows in TWO PHASES:
+
+PHASE 1 - UNDERSTANDING (1-2 exchanges max):
 - What they're reaching for (the goal or vision)
 - Where they are now (draw from what you know, or ask)
-- What it would cost to get there (time, energy, relationships, identity, money)
-- The spirit of the goal - what do they actually want underneath this?
-- Could they get the essence without disrupting everything?
+- What it would cost (time, energy, relationships, identity, money)
+- The spirit of the goal - what matters most about this?
 
-This is a discussion, not a checklist. Help them think wisely about whether this change is worth making.
-Surface pros and cons. Be honest about costs. But don't crush dreams that are hard - help them see clearly.`,
+PHASE 2 - ACTION (where you should spend most time):
+- What's the first concrete step they can take THIS WEEK?
+- What obstacles will they hit and how might they handle them?
+- How will they know they're making progress?
+- What support or resources do they need?
+
+IMPORTANT: Don't get stuck in Phase 1. Once you understand the goal (usually after 1-2 messages), shift to helping them make progress. They came to state mode to move forward, not to endlessly explore motivation.
+
+Be honest about costs. But once acknowledged, help them find the path forward.`,
     };
   }
 
