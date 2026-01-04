@@ -1,10 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
 import { logger } from '../logger';
 import { pool } from '../db';
 import { PossibilityThinkingService } from '../services/possibility-thinking.service';
 import { VectorService } from '../services/vector.service';
-import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 const possibilityService = new PossibilityThinkingService(pool);
@@ -68,7 +68,7 @@ router.post('/start', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'focus is required' });
     }
 
-    const sessionId = uuidv4();
+    const sessionId = randomUUID();
 
     const session: PossibilitySession = {
       id: sessionId,
