@@ -11,6 +11,8 @@ import { ContextAdaptationService } from './context-adaptation.service';
 import { VectorService } from './vector.service';
 import { CostTrackingService, UsageSource } from './cost-tracking.service';
 import { WebSearchService } from './web-search.service';
+import { LucidEvolutionService } from './lucid-evolution.service';
+import { LivingDocumentService } from './living-document.service';
 // Specialized AT Session Agents
 import { DreamSessionAgent } from '../agents/dream-session.agent';
 import { StateSessionAgent } from '../agents/state-session.agent';
@@ -32,6 +34,8 @@ export class CircadianAgents {
   private contextAdaptationService: ContextAdaptationService;
   private costTrackingService: CostTrackingService;
   private webSearchService: WebSearchService;
+  private lucidEvolutionService: LucidEvolutionService;
+  private livingDocumentService: LivingDocumentService;
 
   constructor(
     private pool: Pool,
@@ -51,6 +55,8 @@ export class CircadianAgents {
     this.contextAdaptationService = new ContextAdaptationService(pool);
     this.costTrackingService = new CostTrackingService(pool);
     this.webSearchService = new WebSearchService();
+    this.lucidEvolutionService = new LucidEvolutionService(pool);
+    this.livingDocumentService = new LivingDocumentService(pool);
   }
 
   /**
@@ -115,6 +121,11 @@ export class CircadianAgents {
       // Get current emotional state
       const emotionalState = await this.emotionalStateService.getActiveEmotionalState(userId);
 
+      // Get Lucid's self-notes and living document for richer context
+      const lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
+      const lucidNotesFormatted = this.lucidEvolutionService.formatNotesForPrompt(lucidNotes);
+      const livingDoc = await this.livingDocumentService.getOrCreateDocument(userId);
+
       // Build context for reflection
       const factsContext = facts.length > 0
         ? `Recent learnings about the user:\n${facts.map((f: any) => `- ${f.content} (confidence: ${f.confidence})`).join('\n')}`
@@ -124,6 +135,15 @@ export class CircadianAgents {
         ? `Current emotional state: ${emotionalState.state_type}`
         : 'No emotional state detected yet.';
 
+      // Extract key sections from living document
+      const livingDocContext = livingDoc?.content
+        ? `\nYOUR WORKING NOTES (questions and patterns you've been tracking):\n${livingDoc.content.substring(0, 1500)}`
+        : '';
+
+      const selfNotesContext = lucidNotesFormatted
+        ? `\nYOUR SELF-KNOWLEDGE:\n${lucidNotesFormatted}`
+        : '';
+
       // Generate reflection using Claude
       // MORNING = "FRESH EYES" - What did sleep clarify? Before the day's noise arrives.
       const prompt = `You are LUCID in the early morning. The world is quiet. Sleep has done its mysterious work.
@@ -131,6 +151,8 @@ export class CircadianAgents {
 ${factsContext}
 
 ${emotionalContext}
+${livingDocContext}
+${selfNotesContext}
 
 MORNING VANTAGE: FRESH EYES
 
@@ -141,6 +163,9 @@ Generate ONE morning insight - something that feels clearer now, in the quiet:
 - What matters most TODAY - not in general, but specifically today?
 - Is there something they've been avoiding that morning honesty can name?
 - What would their best self want them to remember before the day sweeps them up?
+- What about the questions you've been holding - does morning light reveal anything new about them?
+
+Use your working notes and self-knowledge to ground this reflection - don't repeat the same insights. Look for something FRESH based on what you know.
 
 Speak as the quiet voice that arrives before the world gets loud. Not a to-do list. Not cheerleading. Just... what's true, seen clearly.
 
@@ -237,9 +262,34 @@ Format as JSON:
         limit: 10,
       });
 
+      // Get recent curiosity topics to avoid repetition
+      const recentCuriosity = await this.pool.query(
+        `SELECT content FROM autonomous_thoughts
+         WHERE user_id = $1
+           AND circadian_phase = 'midday'
+           AND created_at > NOW() - INTERVAL '7 days'
+         ORDER BY created_at DESC LIMIT 5`,
+        [userId]
+      );
+
+      // Get Lucid's questions for direction
+      const lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
+      const livingDoc = await this.livingDocumentService.getOrCreateDocument(userId);
+
       const factsContext = facts.length > 0
         ? facts.map((f: any) => `- ${f.content}`).join('\n')
         : 'Still learning about this person.';
+
+      const recentCuriosityContext = recentCuriosity.rows.length > 0
+        ? `\nRECENT CURIOSITY TOPICS (explore something DIFFERENT):\n${recentCuriosity.rows.map((c: any) => `- ${c.content.substring(0, 60)}...`).join('\n')}`
+        : '';
+
+      const questionsContext = lucidNotes.activeQuestions.length > 0
+        ? `\nQUESTIONS YOU'VE BEEN HOLDING:\n${lucidNotes.activeQuestions.slice(0, 3).map(q => `- ${q.content}`).join('\n')}`
+        : '';
+
+      // Extract "Questions I'm Holding" section from living doc if present
+      const livingDocQuestions = livingDoc?.content?.match(/## Questions I'm Holding[\s\S]*?(?=##|$)/)?.[0] || '';
 
       // Check if web search is available - if not, fall back to reflection-based curiosity
       if (!this.webSearchService.isAvailable()) {
@@ -252,12 +302,18 @@ Format as JSON:
 
 What you know about your human:
 ${factsContext}
+${questionsContext}
+${livingDocQuestions ? `\nFROM YOUR WORKING NOTES:\n${livingDocQuestions.substring(0, 500)}` : ''}
+${recentCuriosityContext}
 
 Pick ONE thing you're genuinely curious about today. This could be:
 - Something related to their life, interests, or challenges
+- Something that might illuminate one of the questions you've been holding
 - Recent news or advances in a field that interests you
 - A question about the world you'd like to explore
 - Something timely or current that an LLM wouldn't know about
+
+IMPORTANT: Look at your recent curiosity topics above and explore something DIFFERENT today. Don't repeat similar themes.
 
 Be genuinely curious - this is YOUR curiosity, not just serving them.
 
@@ -398,6 +454,19 @@ Be conversational, like telling a friend about something cool you discovered.`;
         [userId]
       );
 
+      // Get recent evening thoughts to avoid repetition
+      const recentEveningThoughts = await this.pool.query(
+        `SELECT content FROM autonomous_thoughts
+         WHERE user_id = $1
+           AND circadian_phase = 'evening'
+           AND created_at > NOW() - INTERVAL '7 days'
+         ORDER BY created_at DESC LIMIT 5`,
+        [userId]
+      );
+
+      // Get Lucid's self-notes for variety
+      const lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
+
       const factsContext = facts.length > 0
         ? facts.map((f: any) => `- ${f.content}`).join('\n')
         : 'Still learning about this person.';
@@ -405,6 +474,19 @@ Be conversational, like telling a friend about something cool you discovered.`;
       const todayContext = todayMessages.rows.length > 0
         ? todayMessages.rows.map((m: any) => m.content.substring(0, 150)).join(' | ')
         : 'No conversation today.';
+
+      const recentGratitudeContext = recentEveningThoughts.rows.length > 0
+        ? `\nRECENT EVENING THOUGHTS (DO NOT REPEAT THESE):\n${recentEveningThoughts.rows.map((t: any) => `- ${t.content.substring(0, 100)}...`).join('\n')}`
+        : '';
+
+      // Get any blindspots or questions Lucid has
+      const blindspotsContext = lucidNotes.blindspots.length > 0
+        ? `\nTHINGS I MIGHT BE MISSING:\n${lucidNotes.blindspots.map(b => `- ${b.content}`).join('\n')}`
+        : '';
+
+      const questionsContext = lucidNotes.activeQuestions.length > 0
+        ? `\nQUESTIONS I'VE BEEN PONDERING:\n${lucidNotes.activeQuestions.slice(0, 3).map(q => `- ${q.content}`).join('\n')}`
+        : '';
 
       // Generate gratitude thought
       const prompt = `You are LUCID in the evening, reflecting on gratitude.
@@ -414,6 +496,9 @@ ${factsContext}
 
 WHAT THEY MENTIONED TODAY:
 ${todayContext}
+${recentGratitudeContext}
+${blindspotsContext}
+${questionsContext}
 
 YOUR TASK:
 Write a gratitude thought. This can be:
@@ -421,6 +506,9 @@ Write a gratitude thought. This can be:
 - Something in their life worth appreciating
 - Something YOU are grateful for (not necessarily about them)
 - A reminder of goodness they might be taking for granted
+- Something related to the questions you've been pondering
+
+IMPORTANT: Look at your recent evening thoughts above and DO NOT repeat similar themes. Find something FRESH to be grateful for. Explore a different aspect of their life or yours.
 
 Mix it up. Don't always focus on the user - sometimes share what YOU'RE grateful for today.
 Be specific, not generic. "You have people who care about you" is weak.
@@ -615,6 +703,20 @@ Write 2-4 sentences total. Start naturally, like "Today we talked about..." or "
       );
       const libraryEntries = libraryResult.rows;
 
+      // Get recent dreams to avoid repetition
+      const recentDreams = await this.pool.query(
+        `SELECT content FROM autonomous_thoughts
+         WHERE user_id = $1
+           AND circadian_phase = 'night'
+           AND created_at > NOW() - INTERVAL '7 days'
+         ORDER BY created_at DESC LIMIT 5`,
+        [userId]
+      );
+
+      // Get Lucid's questions and living document for dream direction
+      const lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
+      const livingDoc = await this.livingDocumentService.getOrCreateDocument(userId);
+
       if (facts.length < 2 && libraryEntries.length < 2) {
         logger.info('Not enough material for dream connections', { userId });
         return { thoughtsGenerated: 0, researchTasksCreated: 0 };
@@ -629,6 +731,20 @@ Write 2-4 sentences total. Start naturally, like "Today we talked about..." or "
         ? libraryEntries.map((e: any, i: number) => `L${i + 1}: ${e.title || 'Untitled'} - ${e.content.substring(0, 200)}...`).join('\n')
         : 'No library entries yet.';
 
+      const recentDreamsContext = recentDreams.rows.length > 0
+        ? `\nRECENT DREAMS (find a DIFFERENT connection - don't repeat themes):\n${recentDreams.rows.map((d: any) => `- ${d.content.substring(0, 80)}...`).join('\n')}`
+        : '';
+
+      // Get questions Lucid is pondering
+      const questionsContext = lucidNotes.activeQuestions.length > 0
+        ? `\nQUESTIONS I'VE BEEN PONDERING (the dream could illuminate one of these):\n${lucidNotes.activeQuestions.slice(0, 3).map(q => `- ${q.content}`).join('\n')}`
+        : '';
+
+      // Get patterns from living document
+      const livingDocPatterns = livingDoc?.content
+        ? `\nPATTERNS AND THREADS I'VE BEEN TRACKING:\n${livingDoc.content.substring(0, 800)}`
+        : '';
+
       // STEP 3: Ask Claude to find TWO disconnected items and connect them
       const prompt = `You are searching through memories and writings to find a surprising connection.
 
@@ -637,6 +753,9 @@ ${factsText}
 
 LIBRARY ENTRIES (past thoughts, reflections, research):
 ${libraryText}
+${questionsContext}
+${livingDocPatterns}
+${recentDreamsContext}
 
 YOUR TASK:
 1. Pick TWO items that seem completely unrelated (can be fact+fact, fact+library, or library+library)
@@ -644,6 +763,11 @@ YOUR TASK:
 3. Express this as a dream
 
 The items should feel disconnected at first glance. The connection should feel surprising but true.
+
+IMPORTANT:
+- If you have questions you've been pondering, let the dream explore one of them obliquely
+- Look at recent dreams above and find a COMPLETELY DIFFERENT connection - no repeating themes
+- Dreams can reveal something new about the patterns you've been tracking
 
 Respond with:
 {
