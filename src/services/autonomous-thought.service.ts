@@ -267,22 +267,57 @@ export class AutonomousThoughtService {
   }
 
   /**
+   * Generate a human-readable label for a thought based on its type and phase
+   * This helps iOS display the correct label for each thought type
+   */
+  getThoughtLabel(thoughtType: string, circadianPhase: string | null): string {
+    // Handle reflection type based on circadian phase
+    if (thoughtType === 'reflection') {
+      switch (circadianPhase) {
+        case 'evening':
+          return 'Evening Gratitude';
+        case 'afternoon':
+          return 'Afternoon Reflection';
+        case 'morning':
+        default:
+          return 'Morning Reflection';
+      }
+    }
+
+    const typeLabels: Record<string, string> = {
+      curiosity: 'Curiosity',
+      consolidation: 'Evening Insight',
+      dream: 'Night Dream',
+      insight: 'Insight',
+      question: 'Question',
+      synthesis: 'Afternoon Thought',
+    };
+
+    return typeLabels[thoughtType] || thoughtType;
+  }
+
+  /**
    * Map database row to AutonomousThought type
    */
-  private mapToAutonomousThought(data: any): AutonomousThought {
+  private mapToAutonomousThought(data: any): AutonomousThought & { label?: string } {
+    const thoughtType = data.category as ThoughtCategory;
+    const circadianPhase = data.circadian_phase as CircadianPhase | null;
+
     return {
       id: data.id,
       user_id: data.user_id,
       agent_job_id: data.agent_job_id ?? null,
       content: data.content,
-      thought_type: data.category as ThoughtCategory,  // DB column is 'category'
-      circadian_phase: data.circadian_phase as CircadianPhase | null,
+      thought_type: thoughtType,  // DB column is 'category'
+      circadian_phase: circadianPhase,
       generated_at_time: data.generated_at_time ?? null,
       importance_score: data.importance_score ?? null,
       is_shared: data.is_shared ?? false,
       shared_at: data.shared_at ? new Date(data.shared_at) : null,
       embedding: data.embedding ?? null,
       created_at: new Date(data.created_at),
+      // Add human-readable label for iOS display
+      label: this.getThoughtLabel(thoughtType, circadianPhase),
     };
   }
 }
