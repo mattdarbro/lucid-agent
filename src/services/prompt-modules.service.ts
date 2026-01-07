@@ -423,34 +423,16 @@ While reflecting on our interactions, you've had these thoughts:\n`;
 
   /**
    * SURFACE_RESEARCH module - Present pending research queue
+   * TEMPORARILY DISABLED - Research queue feature is being reworked
    */
   private async buildSurfaceResearchModule(
     context: ModuleContext
   ): Promise<{ fragment: string; researchQueueItems?: any[] }> {
-    const pendingItems = await this.researchQueueService.getPendingItems(context.userId, 5);
-
-    if (pendingItems.length === 0) {
-      return {
-        fragment: `
-
-🔍 RESEARCH QUEUE:
-No pending research topics to surface. If the user asks what to explore, you can ask them what they're curious about.`,
-        researchQueueItems: [],
-      };
-    }
-
-    const formatted = this.researchQueueService.formatQueueForSurfacing(pendingItems);
-
+    // TEMPORARILY DISABLED: Research queue is not working correctly
+    // TODO: Re-enable when research queue feature is fixed
     return {
-      fragment: `
-
-🔍 RESEARCH QUEUE TO SURFACE:
-Present these potential research directions to the user:
-
-${formatted}
-
-If they approve any, note it. If they reject, acknowledge and move on. Let them redirect if they want.`,
-      researchQueueItems: pendingItems,
+      fragment: '',
+      researchQueueItems: [],
     };
   }
 

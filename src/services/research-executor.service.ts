@@ -251,8 +251,8 @@ export class ResearchExecutorService {
   }
 
   /**
-   * Create an autonomous thought summarizing research findings
-   * This surfaces the research to chat context so Lucid can reference it
+   * Create an autonomous thought AND library entry summarizing research findings
+   * This surfaces the research to chat context AND the Research tab
    */
   private async createResearchSummaryThought(
     userId: string,
@@ -278,6 +278,7 @@ export class ResearchExecutorService {
       factsNote,
     ].filter(Boolean).join('\n\n');
 
+    // Create autonomous thought for chat surfacing
     await this.autonomousThoughtService.createThought({
       user_id: userId,
       content: thoughtContent,
@@ -286,6 +287,63 @@ export class ResearchExecutorService {
       importance_score: 0.7, // Research findings are moderately important
       is_shared: false, // Will be shared naturally in next conversation
     });
+
+    // Also save to library_entries for Research tab visibility
+    try {
+      const vectorService = new VectorService();
+      const title = `Research: ${query.slice(0, 60)}${query.length > 60 ? '...' : ''}`;
+      const libraryContent = [
+        `# ${query}`,
+        purpose ? `**Purpose:** ${purpose}` : '',
+        '',
+        '## Summary',
+        summary,
+        '',
+        '## Key Findings',
+        keyFindings.map(f => `- ${f}`).join('\n'),
+        '',
+        factsNote ? `*${factsNote}*` : '',
+      ].filter(Boolean).join('\n');
+
+      // Generate embedding for semantic search
+      let embedding: number[] | null = null;
+      try {
+        embedding = await vectorService.generateEmbedding(`${title} ${summary}`);
+      } catch (err) {
+        logger.warn('Failed to generate embedding for research library entry', { error: err });
+      }
+
+      const embeddingString = embedding ? `[${embedding.join(',')}]` : null;
+
+      await this.pool.query(
+        `INSERT INTO library_entries
+         (user_id, entry_type, title, content, time_of_day, metadata, embedding)
+         VALUES ($1, 'research_journal', $2, $3, 'afternoon', $4, $5::vector)`,
+        [
+          userId,
+          title,
+          libraryContent,
+          JSON.stringify({
+            query,
+            purpose,
+            keyFindingsCount: keyFindings.length,
+            factsLearned,
+            source: 'autonomous_research',
+            researchedAt: new Date().toISOString(),
+          }),
+          embeddingString,
+        ]
+      );
+
+      logger.info('Created research library entry', {
+        userId,
+        query,
+        title,
+      });
+    } catch (error) {
+      logger.error('Failed to create research library entry', { error, userId, query });
+      // Don't fail the whole operation if library save fails
+    }
 
     logger.info('Created research summary thought', {
       userId,

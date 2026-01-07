@@ -475,6 +475,10 @@ Write 2-3 sentences. Be warm but specific.`;
    * Afternoon Synthesis Agent
    * Summarizes today's actual conversations and gives Lucid's opinion
    * Based on what was ACTUALLY discussed, not abstract musings
+   *
+   * NOTE: This agent requires at least 2 messages today to generate a synthesis.
+   * If there's no conversation today, the synthesis will be skipped (not sporadic - intentional).
+   * The user must have had at least one exchange for there to be something to synthesize.
    */
   async runAfternoonSynthesis(userId: string, jobId: string): Promise<AgentResult> {
     logger.info('Running afternoon synthesis', { userId, jobId });
