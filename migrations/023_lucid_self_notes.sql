@@ -51,7 +51,7 @@ CREATE TRIGGER lucid_self_notes_updated_at
 CREATE OR REPLACE VIEW active_lucid_notes AS
 SELECT
   lsn.*,
-  u.metadata->>'name' as user_name
+  u.name as user_name
 FROM lucid_self_notes lsn
 JOIN users u ON lsn.user_id = u.id
 WHERE lsn.is_active = true AND lsn.is_approved = true
@@ -61,7 +61,7 @@ ORDER BY lsn.created_at DESC;
 CREATE OR REPLACE VIEW pending_identity_proposals AS
 SELECT
   lsn.*,
-  u.metadata->>'name' as user_name
+  u.name as user_name
 FROM lucid_self_notes lsn
 JOIN users u ON lsn.user_id = u.id
 WHERE lsn.note_type = 'identity_proposal'
