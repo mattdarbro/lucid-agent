@@ -122,9 +122,20 @@ export class CircadianAgents {
       const emotionalState = await this.emotionalStateService.getActiveEmotionalState(userId);
 
       // Get Lucid's self-notes and living document for richer context
-      const lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
-      const lucidNotesFormatted = this.lucidEvolutionService.formatNotesForPrompt(lucidNotes);
-      const livingDoc = await this.livingDocumentService.getOrCreateDocument(userId);
+      // These are optional enhancements - don't fail if they're unavailable
+      let lucidNotesFormatted = '';
+      let livingDoc: any = null;
+      try {
+        const lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
+        lucidNotesFormatted = this.lucidEvolutionService.formatNotesForPrompt(lucidNotes);
+      } catch (error) {
+        logger.warn('Failed to get Lucid notes for morning reflection, continuing without', { userId, error });
+      }
+      try {
+        livingDoc = await this.livingDocumentService.getOrCreateDocument(userId);
+      } catch (error) {
+        logger.warn('Failed to get living document for morning reflection, continuing without', { userId, error });
+      }
 
       // Build context for reflection
       const factsContext = facts.length > 0
@@ -273,8 +284,19 @@ Format as JSON:
       );
 
       // Get Lucid's questions for direction
-      const lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
-      const livingDoc = await this.livingDocumentService.getOrCreateDocument(userId);
+      // These are optional enhancements - don't fail if they're unavailable
+      let lucidNotes: any = { activeQuestions: [] };
+      let livingDoc: any = null;
+      try {
+        lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
+      } catch (error) {
+        logger.warn('Failed to get Lucid notes for midday curiosity, continuing without', { userId, error });
+      }
+      try {
+        livingDoc = await this.livingDocumentService.getOrCreateDocument(userId);
+      } catch (error) {
+        logger.warn('Failed to get living document for midday curiosity, continuing without', { userId, error });
+      }
 
       const factsContext = facts.length > 0
         ? facts.map((f: any) => `- ${f.content}`).join('\n')
@@ -284,8 +306,8 @@ Format as JSON:
         ? `\nRECENT CURIOSITY TOPICS (explore something DIFFERENT):\n${recentCuriosity.rows.map((c: any) => `- ${c.content.substring(0, 60)}...`).join('\n')}`
         : '';
 
-      const questionsContext = lucidNotes.activeQuestions.length > 0
-        ? `\nQUESTIONS YOU'VE BEEN HOLDING:\n${lucidNotes.activeQuestions.slice(0, 3).map(q => `- ${q.content}`).join('\n')}`
+      const questionsContext = lucidNotes.activeQuestions?.length > 0
+        ? `\nQUESTIONS YOU'VE BEEN HOLDING:\n${lucidNotes.activeQuestions.slice(0, 3).map((q: any) => `- ${q.content}`).join('\n')}`
         : '';
 
       // Extract "Questions I'm Holding" section from living doc if present
@@ -465,7 +487,13 @@ Be conversational, like telling a friend about something cool you discovered.`;
       );
 
       // Get Lucid's self-notes for variety
-      const lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
+      // These are optional enhancements - don't fail if they're unavailable
+      let lucidNotes: any = { blindspots: [], activeQuestions: [] };
+      try {
+        lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
+      } catch (error) {
+        logger.warn('Failed to get Lucid notes for evening consolidation, continuing without', { userId, error });
+      }
 
       const factsContext = facts.length > 0
         ? facts.map((f: any) => `- ${f.content}`).join('\n')
@@ -480,12 +508,12 @@ Be conversational, like telling a friend about something cool you discovered.`;
         : '';
 
       // Get any blindspots or questions Lucid has
-      const blindspotsContext = lucidNotes.blindspots.length > 0
-        ? `\nTHINGS I MIGHT BE MISSING:\n${lucidNotes.blindspots.map(b => `- ${b.content}`).join('\n')}`
+      const blindspotsContext = lucidNotes.blindspots?.length > 0
+        ? `\nTHINGS I MIGHT BE MISSING:\n${lucidNotes.blindspots.map((b: any) => `- ${b.content}`).join('\n')}`
         : '';
 
-      const questionsContext = lucidNotes.activeQuestions.length > 0
-        ? `\nQUESTIONS I'VE BEEN PONDERING:\n${lucidNotes.activeQuestions.slice(0, 3).map(q => `- ${q.content}`).join('\n')}`
+      const questionsContext = lucidNotes.activeQuestions?.length > 0
+        ? `\nQUESTIONS I'VE BEEN PONDERING:\n${lucidNotes.activeQuestions.slice(0, 3).map((q: any) => `- ${q.content}`).join('\n')}`
         : '';
 
       // Generate gratitude thought
@@ -714,8 +742,19 @@ Write 2-4 sentences total. Start naturally, like "Today we talked about..." or "
       );
 
       // Get Lucid's questions and living document for dream direction
-      const lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
-      const livingDoc = await this.livingDocumentService.getOrCreateDocument(userId);
+      // These are optional enhancements - don't fail if they're unavailable
+      let lucidNotes: any = { activeQuestions: [] };
+      let livingDoc: any = null;
+      try {
+        lucidNotes = await this.lucidEvolutionService.getNotesForPrompt(userId);
+      } catch (error) {
+        logger.warn('Failed to get Lucid notes for night dream, continuing without', { userId, error });
+      }
+      try {
+        livingDoc = await this.livingDocumentService.getOrCreateDocument(userId);
+      } catch (error) {
+        logger.warn('Failed to get living document for night dream, continuing without', { userId, error });
+      }
 
       if (facts.length < 2 && libraryEntries.length < 2) {
         logger.info('Not enough material for dream connections', { userId });
@@ -736,8 +775,8 @@ Write 2-4 sentences total. Start naturally, like "Today we talked about..." or "
         : '';
 
       // Get questions Lucid is pondering
-      const questionsContext = lucidNotes.activeQuestions.length > 0
-        ? `\nQUESTIONS I'VE BEEN PONDERING (the dream could illuminate one of these):\n${lucidNotes.activeQuestions.slice(0, 3).map(q => `- ${q.content}`).join('\n')}`
+      const questionsContext = lucidNotes.activeQuestions?.length > 0
+        ? `\nQUESTIONS I'VE BEEN PONDERING (the dream could illuminate one of these):\n${lucidNotes.activeQuestions.slice(0, 3).map((q: any) => `- ${q.content}`).join('\n')}`
         : '';
 
       // Get patterns from living document
