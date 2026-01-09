@@ -1,37 +1,47 @@
 import cron from 'node-cron';
 import { Pool } from 'pg';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '../logger';
 import { FactService } from './fact.service';
 import { MessageService } from './message.service';
 import { VectorService } from './vector.service';
 import { ProfileService } from './profile.service';
+import { AgentJobService } from './agent-job.service';
+import { AutonomousLoopService } from './autonomous-loop.service';
+import { JobType } from '../validation/agent-job.validation';
 
 /**
  * BackgroundJobsService
  *
  * Handles scheduled background tasks for the Lucid agent:
  * - Automatic fact extraction from conversations
+ * - Autonomous loop execution (circadian thinking)
  *
- * After the refactor:
- * - Removed morning reflections (circadian system removed)
- * - Removed autonomous thought generation
- *
- * Fact extraction still runs to maintain the memory system.
+ * Autonomous Loops (AL):
+ * - evening_consolidation: Reflect on the day's conversations
+ * - (more to come: morning, midday, night)
  */
 export class BackgroundJobsService {
   private pool: Pool;
+  private supabase: SupabaseClient;
   private factService: FactService;
   private messageService: MessageService;
   private profileService: ProfileService;
+  private agentJobService: AgentJobService;
+  private autonomousLoopService: AutonomousLoopService;
   private factExtractionJob: cron.ScheduledTask | null = null;
+  private autonomousLoopJob: cron.ScheduledTask | null = null;
   private isRunning: boolean = false;
 
-  constructor(pool: Pool) {
+  constructor(pool: Pool, supabase: SupabaseClient) {
     this.pool = pool;
+    this.supabase = supabase;
     const vectorService = new VectorService();
     this.factService = new FactService(pool, vectorService);
     this.messageService = new MessageService(pool, vectorService);
     this.profileService = new ProfileService(pool);
+    this.agentJobService = new AgentJobService(pool, supabase);
+    this.autonomousLoopService = new AutonomousLoopService(pool);
   }
 
   /**
@@ -44,6 +54,7 @@ export class BackgroundJobsService {
     }
 
     this.startFactExtractionJob();
+    this.startAutonomousLoopJob();
     this.isRunning = true;
     logger.info('[BACKGROUND] Background jobs started');
   }
@@ -56,8 +67,135 @@ export class BackgroundJobsService {
       this.factExtractionJob.stop();
       this.factExtractionJob = null;
     }
+    if (this.autonomousLoopJob) {
+      this.autonomousLoopJob.stop();
+      this.autonomousLoopJob = null;
+    }
     this.isRunning = false;
     logger.info('[BACKGROUND] Background jobs stopped');
+  }
+
+  /**
+   * Start the autonomous loop job checker
+   * Runs every 5 minutes to check for due agent jobs
+   */
+  private startAutonomousLoopJob(): void {
+    // Check every 5 minutes for due jobs
+    this.autonomousLoopJob = cron.schedule('*/5 * * * *', async () => {
+      await this.runDueAutonomousLoops();
+    });
+
+    logger.info('[BACKGROUND] Autonomous loop job scheduled (every 5 minutes)');
+
+    // Also run check on startup after a delay
+    setTimeout(() => {
+      this.runDueAutonomousLoops().catch((err) => {
+        logger.error('[BACKGROUND] Initial autonomous loop check failed:', err);
+      });
+    }, 15000); // 15 second delay to let server stabilize
+  }
+
+  /**
+   * Check for and run any due autonomous loop jobs
+   */
+  private async runDueAutonomousLoops(): Promise<void> {
+    try {
+      const dueJobs = await this.agentJobService.getDueJobs();
+
+      if (dueJobs.length === 0) {
+        logger.debug('[AL] No due autonomous loop jobs');
+        return;
+      }
+
+      logger.info(`[AL] Found ${dueJobs.length} due autonomous loop jobs`);
+
+      for (const job of dueJobs) {
+        try {
+          // Check if user has autonomous agents enabled
+          const profile = await this.profileService.getUserProfile(job.user_id);
+          if (!profile.features.autonomousAgents) {
+            logger.debug(`[AL] Skipping job ${job.id} - autonomous agents disabled for user`);
+            await this.agentJobService.markJobAsSkipped(job.id, 'Autonomous agents disabled');
+            continue;
+          }
+
+          // Mark job as started
+          await this.agentJobService.markJobAsStarted(job.id);
+
+          // Run the appropriate loop based on job type
+          const result = await this.runLoop(job.job_type, job.user_id, job.id);
+
+          // Mark job as completed
+          await this.agentJobService.markJobAsCompleted(
+            job.id,
+            result.thoughtProduced ? 1 : 0,
+            0 // research tasks (not implemented yet)
+          );
+
+          logger.info(`[AL] Completed job ${job.id}`, {
+            job_type: job.job_type,
+            thought_produced: result.thoughtProduced,
+            library_entry_id: result.libraryEntryId,
+          });
+        } catch (jobError: any) {
+          logger.error(`[AL] Job ${job.id} failed`, { error: jobError.message });
+          await this.agentJobService.markJobAsFailed(job.id, jobError.message);
+        }
+
+        // Delay between jobs to avoid overwhelming the API
+        await this.sleep(3000);
+      }
+    } catch (error: any) {
+      logger.error('[AL] Autonomous loop runner failed', { error: error.message });
+    }
+  }
+
+  /**
+   * Run the appropriate loop for a job type
+   */
+  private async runLoop(
+    jobType: JobType,
+    userId: string,
+    jobId: string
+  ): Promise<{ thoughtProduced: boolean; libraryEntryId: string | null }> {
+    switch (jobType) {
+      case 'evening_consolidation':
+        const eveningResult = await this.autonomousLoopService.runEveningSynthesis(userId, jobId);
+        return {
+          thoughtProduced: eveningResult.thoughtProduced,
+          libraryEntryId: eveningResult.libraryEntryId,
+        };
+
+      // Placeholder for future loops
+      case 'morning_reflection':
+      case 'midday_curiosity':
+      case 'afternoon_synthesis':
+      case 'night_dream':
+      case 'document_reflection':
+        logger.info(`[AL] Loop type ${jobType} not yet implemented`);
+        return { thoughtProduced: false, libraryEntryId: null };
+
+      default:
+        logger.warn(`[AL] Unknown job type: ${jobType}`);
+        return { thoughtProduced: false, libraryEntryId: null };
+    }
+  }
+
+  /**
+   * Manually trigger an autonomous loop for a user (useful for testing)
+   */
+  async triggerEveningSynthesis(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    title: string | null;
+  }> {
+    logger.info('[AL] Manual trigger: evening synthesis', { userId });
+    const result = await this.autonomousLoopService.runEveningSynthesis(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      title: result.title,
+    };
   }
 
   /**
