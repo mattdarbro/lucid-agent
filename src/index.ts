@@ -30,6 +30,8 @@ import { createStateCheckRouter } from './routes/state-check';
 import researchQueueRouter from './routes/research-queue';
 import winsRouter from './routes/wins';
 import possibilitiesRouter from './routes/possibilities';
+import { createActionsRouter } from './routes/actions';
+import { createCaptureRouter } from './routes/capture';
 
 // Validate configuration on startup
 try {
@@ -167,6 +169,10 @@ app.use('/v1/wins', winsRouter);
 
 // Possibilities (sigma-based alternative exploration)
 app.use('/v1/possibilities', possibilitiesRouter);
+
+// Capture System (Phase 1-2 of simplified design)
+app.use('/v1/actions', createActionsRouter(pool));
+app.use('/v1/capture', createCaptureRouter(pool));
 
 // TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);

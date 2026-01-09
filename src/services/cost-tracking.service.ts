@@ -45,6 +45,7 @@ export type UsageSource =
   | 'chat_router'
   | 'at_router'
   | 'research_seed_detection'
+  | 'capture_classification'
   | 'other';
 
 /**
