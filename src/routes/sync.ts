@@ -59,7 +59,7 @@ router.post(
 
       logger.info(`[SYNC] Manual fact extraction triggered for user ${user_id}`);
 
-      const backgroundJobs = new BackgroundJobsService(pool);
+      const backgroundJobs = new BackgroundJobsService(pool, supabase);
       const result = await backgroundJobs.triggerFactExtractionForUser(user_id);
 
       res.json({
@@ -101,7 +101,7 @@ router.post(
 
       logger.info(`[SYNC] Full sync triggered for user ${user_id}`);
 
-      const backgroundJobs = new BackgroundJobsService(pool);
+      const backgroundJobs = new BackgroundJobsService(pool, supabase);
 
       // Run fact extraction
       const factsResult = await backgroundJobs.triggerFactExtractionForUser(user_id);
@@ -405,6 +405,65 @@ router.post(
 
       res.status(500).json({
         error: 'Failed to schedule AT jobs',
+        details: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * POST /v1/sync/evening-synthesis
+ *
+ * Manually trigger the evening synthesis autonomous loop for a user.
+ * This is useful for testing the AL system without waiting for scheduled jobs.
+ *
+ * Request body:
+ * - user_id: string (required) - UUID of the user
+ *
+ * Response:
+ * - success: boolean
+ * - library_entry_id: string | null
+ * - title: string | null
+ */
+router.post(
+  '/evening-synthesis',
+  validateBody(userIdSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { user_id } = req.body;
+
+      logger.info(`[SYNC] Manual evening synthesis triggered for user ${user_id}`);
+
+      const backgroundJobs = new BackgroundJobsService(pool, supabase);
+      const result = await backgroundJobs.triggerEveningSynthesis(user_id);
+
+      if (result.success && result.libraryEntryId) {
+        res.json({
+          success: true,
+          message: 'Evening synthesis completed successfully',
+          library_entry_id: result.libraryEntryId,
+          title: result.title,
+        });
+      } else if (result.success) {
+        res.json({
+          success: true,
+          message: 'Evening synthesis completed - nothing to write today',
+          library_entry_id: null,
+          title: null,
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: 'Evening synthesis failed',
+        });
+      }
+    } catch (error: any) {
+      logger.error('Error in POST /v1/sync/evening-synthesis:', {
+        message: error.message,
+      });
+
+      res.status(500).json({
+        error: 'Failed to run evening synthesis',
         details: error.message,
       });
     }

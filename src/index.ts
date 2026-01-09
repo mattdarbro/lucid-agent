@@ -215,11 +215,11 @@ async function startServer() {
         logger.info('🔍 Web research: ENABLED');
       }
 
-      // Start background jobs for automatic fact extraction
+      // Start background jobs for automatic fact extraction and autonomous loops
       try {
-        backgroundJobs = new BackgroundJobsService(pool);
+        backgroundJobs = new BackgroundJobsService(pool, supabase);
         backgroundJobs.start();
-        logger.info('📚 Background jobs: STARTED (fact extraction every 5 minutes)');
+        logger.info('📚 Background jobs: STARTED (fact extraction + autonomous loops)');
       } catch (error) {
         logger.error('Failed to start background jobs:', error);
         logger.warn('⚠️  Continuing without background fact extraction');
