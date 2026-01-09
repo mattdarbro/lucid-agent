@@ -166,8 +166,14 @@ export class BackgroundJobsService {
           libraryEntryId: eveningResult.libraryEntryId,
         };
 
-      // Placeholder for future loops
       case 'morning_reflection':
+        const morningResult = await this.autonomousLoopService.runMorningBriefing(userId, jobId);
+        return {
+          thoughtProduced: morningResult.thoughtProduced,
+          libraryEntryId: morningResult.libraryEntryId,
+        };
+
+      // Placeholder for future loops
       case 'midday_curiosity':
       case 'afternoon_synthesis':
       case 'night_dream':
@@ -191,6 +197,23 @@ export class BackgroundJobsService {
   }> {
     logger.info('[AL] Manual trigger: evening synthesis', { userId });
     const result = await this.autonomousLoopService.runEveningSynthesis(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      title: result.title,
+    };
+  }
+
+  /**
+   * Manually trigger morning briefing for a user (useful for testing)
+   */
+  async triggerMorningBriefing(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    title: string | null;
+  }> {
+    logger.info('[AL] Manual trigger: morning briefing', { userId });
+    const result = await this.autonomousLoopService.runMorningBriefing(userId);
     return {
       success: result.success,
       libraryEntryId: result.libraryEntryId,

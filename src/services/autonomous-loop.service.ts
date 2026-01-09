@@ -3,7 +3,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../logger';
 import { VectorService } from './vector.service';
 import { MessageService } from './message.service';
-import { LibraryEntryType } from '../types/database';
+import { ActionsService } from './actions.service';
+import { LibraryEntryType, Action } from '../types/database';
 
 /**
  * Result from running an autonomous loop
@@ -40,6 +41,7 @@ export class AutonomousLoopService {
   private anthropic: Anthropic;
   private vectorService: VectorService;
   private messageService: MessageService;
+  private actionsService: ActionsService;
   private readonly model = 'claude-sonnet-4-20250514';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
@@ -49,6 +51,7 @@ export class AutonomousLoopService {
     });
     this.vectorService = new VectorService();
     this.messageService = new MessageService(pool, this.vectorService);
+    this.actionsService = new ActionsService(pool);
   }
 
   /**
@@ -234,6 +237,185 @@ TITLE: [Your title]
       result.success = false;
       return result;
     }
+  }
+
+  /**
+   * Run the Morning Briefing loop
+   *
+   * Purpose: Provide a concise daily briefing (~150 words) with:
+   * - Open actions (tasks/reminders)
+   * - Yesterday's captured ideas
+   * - Any time-sensitive items
+   *
+   * Output: Library entry (type: briefing, time_of_day: morning)
+   */
+  async runMorningBriefing(userId: string, jobId?: string): Promise<LoopResult> {
+    const result: LoopResult = {
+      success: false,
+      libraryEntryId: null,
+      title: null,
+      thoughtProduced: false,
+      steps: {
+        notice: null,
+        connect: null,
+        question: null,
+        synthesis: null,
+      },
+    };
+
+    try {
+      logger.info('[AL] Starting morning briefing loop', { userId, jobId });
+
+      // Gather inputs
+      const openActions = await this.actionsService.getOpenActions(userId, 20);
+      const yesterdaysIdeas = await this.getYesterdaysCapturedIdeas(userId);
+      const recentlyCompletedActions = await this.actionsService.getRecentlyCompleted(userId, 3, 5);
+
+      // Check if there's anything to brief about
+      if (openActions.length === 0 && yesterdaysIdeas.length === 0) {
+        logger.info('[AL] Nothing to brief about (no actions or ideas)', { userId });
+        result.success = true;
+        result.thoughtProduced = false;
+        return result;
+      }
+
+      // Format the data for the prompt
+      const actionsText = this.formatActionsForBriefing(openActions);
+      const ideasText = this.formatIdeasForBriefing(yesterdaysIdeas);
+      const completedText = this.formatCompletedActionsForBriefing(recentlyCompletedActions);
+
+      // Generate the briefing using Claude
+      const briefingPrompt = `You are Lucid, Matt's AI companion. Generate a concise morning briefing (~150 words).
+
+OPEN ACTIONS:
+${actionsText || '(None)'}
+
+YESTERDAY'S CAPTURED IDEAS:
+${ideasText || '(None)'}
+
+${completedText ? `RECENTLY COMPLETED:\n${completedText}\n` : ''}
+GUIDELINES:
+- Be warm but brief - this is a quick morning check-in
+- Prioritize what matters most
+- If there are time-sensitive items, note them first
+- Don't add commentary - just present the information clearly
+- Use bullet points for actions
+- End with a brief, encouraging note if appropriate
+
+Write the briefing now (aim for ~150 words):`;
+
+      const briefingContent = await this.complete(briefingPrompt, 400);
+
+      if (!briefingContent || briefingContent.length < 20) {
+        logger.warn('[AL] Morning briefing generation failed or too short', { userId });
+        result.success = false;
+        return result;
+      }
+
+      // Determine title based on date
+      const today = new Date();
+      const dateStr = today.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric'
+      });
+      const title = `Morning Briefing - ${dateStr}`;
+
+      // Save to Library
+      const libraryEntry = await this.saveToLibrary(
+        userId,
+        title,
+        briefingContent,
+        'briefing',
+        'morning',
+        jobId,
+        {
+          loop_type: 'morning_briefing',
+          open_actions_count: openActions.length,
+          ideas_count: yesterdaysIdeas.length,
+          completed_count: recentlyCompletedActions.length,
+        }
+      );
+
+      result.success = true;
+      result.thoughtProduced = true;
+      result.libraryEntryId = libraryEntry.id;
+      result.title = title;
+
+      logger.info('[AL] Morning briefing completed successfully', {
+        userId,
+        libraryEntryId: libraryEntry.id,
+        title,
+        openActions: openActions.length,
+        ideas: yesterdaysIdeas.length,
+      });
+
+      return result;
+    } catch (error: any) {
+      logger.error('[AL] Morning briefing loop failed', {
+        userId,
+        jobId,
+        error: error.message,
+      });
+      result.success = false;
+      return result;
+    }
+  }
+
+  /**
+   * Get yesterday's captured ideas (insights from library)
+   */
+  private async getYesterdaysCapturedIdeas(userId: string): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT id, content, created_at
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = 'insight'
+           AND created_at > NOW() - INTERVAL '2 days'
+           AND created_at < NOW() - INTERVAL '6 hours'
+         ORDER BY created_at DESC
+         LIMIT 10`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get yesterday\'s ideas', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Format actions for briefing prompt
+   */
+  private formatActionsForBriefing(actions: Action[]): string {
+    if (actions.length === 0) return '';
+
+    return actions
+      .map((a, i) => `${i + 1}. ${a.summary || a.content}`)
+      .join('\n');
+  }
+
+  /**
+   * Format ideas for briefing prompt
+   */
+  private formatIdeasForBriefing(ideas: any[]): string {
+    if (ideas.length === 0) return '';
+
+    return ideas
+      .map((idea) => `- "${idea.content.slice(0, 100)}${idea.content.length > 100 ? '...' : ''}"`)
+      .join('\n');
+  }
+
+  /**
+   * Format completed actions for briefing
+   */
+  private formatCompletedActionsForBriefing(actions: Action[]): string {
+    if (actions.length === 0) return '';
+
+    return actions
+      .map((a) => `- ${a.summary || a.content}`)
+      .join('\n');
   }
 
   /**
