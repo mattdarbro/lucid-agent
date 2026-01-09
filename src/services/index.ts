@@ -4,6 +4,12 @@
  * This file creates singleton instances of all services to avoid
  * duplication and improve performance. All routes should import
  * services from this file instead of creating new instances.
+ *
+ * After the refactor, this container is simplified:
+ * - No mode selection services
+ * - No Haiku routing services
+ * - No personality tracking services
+ * - No circadian agent services
  */
 
 import { pool, supabase } from '../db';
@@ -15,17 +21,14 @@ import { UserService } from './user.service';
 import { EvidenceService } from './evidence.service';
 import { ChatService } from './chat.service';
 import { SummaryService } from './summary.service';
-import { PersonalityService } from './personality.service';
 import { InsightGenerationService } from './insight-generation.service';
 import { MemoryService } from './memory.service';
 import { MattStateService } from './matt-state.service';
 import { OrbitsService } from './orbits.service';
 import { LucidStateService } from './lucid-state.service';
-// Modular Intelligence services
-import { ChatRouterService } from './chat-router.service';
 import { PromptModulesService } from './prompt-modules.service';
 import { ResearchQueueService } from './research-queue.service';
-import { ATRouterService } from './at-router.service';
+import { LivingDocumentService } from './living-document.service';
 import { logger } from '../logger';
 
 // ============================================================================
@@ -43,7 +46,6 @@ export const factService = new FactService(pool, vectorService);
 export const evidenceService = new EvidenceService(pool);
 export const chatService = new ChatService(pool, supabase);
 export const summaryService = new SummaryService(pool, vectorService);
-export const personalityService = new PersonalityService(pool);
 export const insightGenerationService = new InsightGenerationService(pool);
 export const memoryService = new MemoryService(pool);
 
@@ -52,11 +54,10 @@ export const mattStateService = new MattStateService(pool);
 export const orbitsService = new OrbitsService(pool);
 export const lucidStateService = new LucidStateService(pool);
 
-// Modular Intelligence services
-export const chatRouterService = new ChatRouterService(pool);
+// Simplified services (after refactor)
 export const promptModulesService = new PromptModulesService(pool);
 export const researchQueueService = new ResearchQueueService(pool);
-export const atRouterService = new ATRouterService(pool);
+export const livingDocumentService = new LivingDocumentService(pool);
 
 logger.info('Service container initialized successfully');
 
@@ -72,18 +73,16 @@ export const services = {
   evidence: evidenceService,
   chat: chatService,
   summary: summaryService,
-  personality: personalityService,
   insightGeneration: insightGenerationService,
   memory: memoryService,
   // Layered memory services
   mattState: mattStateService,
   orbits: orbitsService,
   lucidState: lucidStateService,
-  // Modular Intelligence services
-  chatRouter: chatRouterService,
+  // Simplified services
   promptModules: promptModulesService,
   researchQueue: researchQueueService,
-  atRouter: atRouterService,
+  livingDocument: livingDocumentService,
 };
 
 export default services;

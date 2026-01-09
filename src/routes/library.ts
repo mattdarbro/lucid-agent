@@ -375,46 +375,7 @@ router.get('/search', async (req: Request, res: Response) => {
   }
 });
 
-/**
- * POST /v1/library/trigger-reflection
- *
- * Manually trigger a morning reflection for a user (for testing)
- *
- * Request body:
- * - user_id: string (required)
- */
-router.post('/trigger-reflection', async (req: Request, res: Response) => {
-  try {
-    const { user_id } = req.body;
-
-    if (!user_id) {
-      return res.status(400).json({ error: 'user_id is required' });
-    }
-
-    // Import here to avoid circular dependency
-    const { BackgroundJobsService } = await import('../services/background-jobs.service');
-    const backgroundJobs = new BackgroundJobsService(pool);
-
-    const entry = await backgroundJobs.triggerReflectionForUser(user_id);
-
-    if (!entry) {
-      return res.status(200).json({
-        message: 'No reflection generated (user may not have enough context or feature disabled)',
-        entry: null,
-      });
-    }
-
-    res.status(201).json({
-      message: 'Reflection generated successfully',
-      entry,
-    });
-  } catch (error: any) {
-    logger.error('Error in POST /v1/library/trigger-reflection:', error);
-    res.status(500).json({
-      error: 'Failed to trigger reflection',
-      details: error.message,
-    });
-  }
-});
+// Note: /trigger-reflection endpoint removed in system refactor
+// Morning reflections (circadian system) have been removed
 
 export default router;

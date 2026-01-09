@@ -13,11 +13,6 @@ const userIdSchema = z.object({
   user_id: z.string().uuid('Invalid user ID format'),
 });
 
-const triggerReflectionSchema = z.object({
-  user_id: z.string().uuid('Invalid user ID format'),
-  force: z.boolean().optional().default(false),
-});
-
 /**
  * Validation middleware helper
  */
@@ -85,95 +80,31 @@ router.post(
   }
 );
 
-/**
- * POST /v1/sync/reflection
- *
- * Manually triggers a morning reflection for a specific user.
- * Generates a thoughtful reflection based on recent conversations and facts.
- *
- * Request body:
- * - user_id: string (required) - UUID of the user
- * - force: boolean (optional) - If true, bypasses the daily limit check (default: false)
- *
- * Response:
- * - The created library entry, or { skipped: true, reason: "..." } if skipped
- */
-router.post(
-  '/reflection',
-  validateBody(triggerReflectionSchema),
-  async (req: Request, res: Response) => {
-    try {
-      const { user_id, force } = req.body;
-
-      logger.info(`[SYNC] Manual reflection triggered for user ${user_id} (force: ${force})`);
-
-      const backgroundJobs = new BackgroundJobsService(pool);
-      const result = await backgroundJobs.triggerReflectionForUser(user_id, force);
-
-      if (result?.skipped) {
-        return res.json({
-          success: false,
-          ...result,
-        });
-      }
-
-      if (!result) {
-        return res.json({
-          success: false,
-          skipped: true,
-          reason: 'No reflection generated (user may not have autonomousAgents enabled or no context available)',
-        });
-      }
-
-      res.json({
-        success: true,
-        message: 'Morning reflection generated successfully',
-        entry: result,
-      });
-    } catch (error: any) {
-      logger.error('Error in POST /v1/sync/reflection:', {
-        message: error.message,
-      });
-
-      res.status(500).json({
-        error: 'Failed to trigger reflection',
-        details: error.message,
-      });
-    }
-  }
-);
+// Note: /reflection endpoint removed in system refactor
+// Morning reflections (circadian system) have been removed
 
 /**
  * POST /v1/sync/all
  *
- * Triggers both fact extraction and morning reflection for a user.
+ * Triggers fact extraction for a user.
  * Useful for a "sync everything" button in the iOS app.
  *
  * Request body:
  * - user_id: string (required) - UUID of the user
- * - force_reflection: boolean (optional) - If true, forces reflection even if one exists today
  */
 router.post(
   '/all',
-  validateBody(
-    z.object({
-      user_id: z.string().uuid('Invalid user ID format'),
-      force_reflection: z.boolean().optional().default(false),
-    })
-  ),
+  validateBody(userIdSchema),
   async (req: Request, res: Response) => {
     try {
-      const { user_id, force_reflection } = req.body;
+      const { user_id } = req.body;
 
       logger.info(`[SYNC] Full sync triggered for user ${user_id}`);
 
       const backgroundJobs = new BackgroundJobsService(pool);
 
-      // Run fact extraction first
+      // Run fact extraction
       const factsResult = await backgroundJobs.triggerFactExtractionForUser(user_id);
-
-      // Then generate reflection
-      const reflectionResult = await backgroundJobs.triggerReflectionForUser(user_id, force_reflection);
 
       res.json({
         success: true,
@@ -181,11 +112,6 @@ router.post(
           conversations_processed: factsResult.conversations_processed,
           facts_created: factsResult.facts_created,
         },
-        reflection: reflectionResult?.skipped
-          ? { generated: false, reason: reflectionResult.reason }
-          : reflectionResult
-          ? { generated: true, entry_id: reflectionResult.id }
-          : { generated: false, reason: 'No context available or autonomousAgents disabled' },
       });
     } catch (error: any) {
       logger.error('Error in POST /v1/sync/all:', {

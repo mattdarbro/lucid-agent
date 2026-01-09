@@ -3,8 +3,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../logger';
 import { MemoryService } from './memory.service';
 import { VectorService } from './vector.service';
-import { ThoughtPromptsService, ThoughtSubject } from './thought-prompts.service';
 import { OrbitsService } from './orbits.service';
+
+/**
+ * Subject of the thought - who it's about
+ */
+export type ThoughtSubject = 'user' | 'other' | 'lucid';
 
 /**
  * Library entry structure
@@ -70,7 +74,6 @@ export class ThoughtService {
   private anthropic: Anthropic;
   private memoryService: MemoryService;
   private vectorService: VectorService;
-  private thoughtPromptsService: ThoughtPromptsService;
   private orbitsService: OrbitsService;
   private readonly model = 'claude-opus-4-5-20251101';
 
@@ -81,7 +84,6 @@ export class ThoughtService {
     });
     this.memoryService = new MemoryService(pool);
     this.vectorService = new VectorService();
-    this.thoughtPromptsService = new ThoughtPromptsService();
     this.orbitsService = new OrbitsService(pool);
   }
 
@@ -316,8 +318,8 @@ Respond with ONLY one word: DEEP or SIMPLE`;
         }
       }
 
-      // Build subject-specific prompt using ThoughtPromptsService
-      const prompt = this.thoughtPromptsService.buildDeepThinkingPrompt({
+      // Build subject-specific prompt (inlined after refactor)
+      const prompt = this.buildDeepThinkingPrompt({
         subject,
         subjectName: options.subjectName,
         subjectRelationship: options.subjectRelationship,
@@ -602,5 +604,105 @@ Your conversational response (do NOT include the library link - it will be added
     if (hour < 17) return 'afternoon';
     if (hour < 21) return 'evening';
     return 'night';
+  }
+
+  /**
+   * Build a deep thinking prompt for the Library
+   *
+   * Simplified after refactor - no longer uses separate ThoughtPromptsService.
+   * Supports subject-aware prompts (user, other, lucid).
+   */
+  private buildDeepThinkingPrompt(params: {
+    subject: ThoughtSubject;
+    subjectName?: string;
+    subjectRelationship?: string;
+    subjectContext?: string;
+    userMessage: string;
+    factsContext: string;
+    libraryContext: string;
+    patternsContext: string;
+    historyContext: string;
+    orbitsContext?: string;
+  }): string {
+    const {
+      subject,
+      subjectName,
+      subjectRelationship,
+      subjectContext,
+      userMessage,
+      factsContext,
+      libraryContext,
+      patternsContext,
+      historyContext,
+      orbitsContext,
+    } = params;
+
+    let subjectDescription: string;
+    let focusGuidance: string;
+
+    switch (subject) {
+      case 'lucid':
+        subjectDescription = 'yourself (Lucid)';
+        focusGuidance = `Reflect on your own perspective, growth, and understanding.
+Consider how you're evolving as a companion and what you're learning.`;
+        break;
+      case 'other':
+        subjectDescription = subjectName
+          ? `${subjectName}${subjectRelationship ? ` (${subjectRelationship})` : ''}`
+          : 'someone in the user\'s life';
+        focusGuidance = `Focus on understanding this person and their relationship with the user.
+Consider their perspective, needs, and how they connect to the user's flourishing.`;
+        break;
+      case 'user':
+      default:
+        subjectDescription = 'the user';
+        focusGuidance = `Focus on the user's growth, wellbeing, and flourishing.
+Consider what would genuinely help them.`;
+        break;
+    }
+
+    let contextSection = `CONTEXT:
+What you know about the user:
+${factsContext}
+
+Previous relevant thoughts from the Library:
+${libraryContext}
+
+Detected patterns:
+${patternsContext}
+
+Recent conversation:
+${historyContext}`;
+
+    if (orbitsContext) {
+      contextSection += `\n\nAbout ${subjectName || 'this person'}:\n${orbitsContext}`;
+    }
+
+    if (subjectContext) {
+      contextSection += `\n\nAdditional context:\n${subjectContext}`;
+    }
+
+    return `You are Lucid, engaging in deep thinking for the Library.
+
+This thought is about: ${subjectDescription}
+
+${focusGuidance}
+
+${contextSection}
+
+USER'S MESSAGE:
+"${userMessage}"
+
+INSTRUCTIONS:
+Think deeply about this. Write a thorough, exploratory analysis (500-2000 words).
+This will be stored in the Library for future reference.
+
+Format your response as:
+TITLE: [A descriptive title for this thought]
+CONTENT: [Your full, deep analysis]
+
+Be thorough but not verbose. Follow threads of insight.
+Connect to what you know. Be honest about uncertainty.
+Focus on what would genuinely help with flourishing.`;
   }
 }
