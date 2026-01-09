@@ -470,4 +470,63 @@ router.post(
   }
 );
 
+/**
+ * POST /v1/sync/morning-briefing
+ *
+ * Manually trigger the morning briefing autonomous loop for a user.
+ * This generates a daily briefing with open actions and yesterday's ideas.
+ *
+ * Request body:
+ * - user_id: string (required) - UUID of the user
+ *
+ * Response:
+ * - success: boolean
+ * - library_entry_id: string | null
+ * - title: string | null
+ */
+router.post(
+  '/morning-briefing',
+  validateBody(userIdSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { user_id } = req.body;
+
+      logger.info(`[SYNC] Manual morning briefing triggered for user ${user_id}`);
+
+      const backgroundJobs = new BackgroundJobsService(pool, supabase);
+      const result = await backgroundJobs.triggerMorningBriefing(user_id);
+
+      if (result.success && result.libraryEntryId) {
+        res.json({
+          success: true,
+          message: 'Morning briefing completed successfully',
+          library_entry_id: result.libraryEntryId,
+          title: result.title,
+        });
+      } else if (result.success) {
+        res.json({
+          success: true,
+          message: 'Morning briefing completed - nothing to brief about',
+          library_entry_id: null,
+          title: null,
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: 'Morning briefing failed',
+        });
+      }
+    } catch (error: any) {
+      logger.error('Error in POST /v1/sync/morning-briefing:', {
+        message: error.message,
+      });
+
+      res.status(500).json({
+        error: 'Failed to run morning briefing',
+        details: error.message,
+      });
+    }
+  }
+);
+
 export default router;

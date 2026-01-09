@@ -470,7 +470,10 @@ export type LibraryEntryType =
   | 'consolidation'
   | 'state_update'
   | 'orbit_update'
-  | 'deep_thought';
+  | 'deep_thought'
+  // Simplified design types (Phase 1-2)
+  | 'briefing'               // Morning/weekly briefings from AL
+  | 'insight';               // Ideas captured via Capture system
 
 /**
  * Subject of a thought - who/what the thought is about
