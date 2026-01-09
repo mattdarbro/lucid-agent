@@ -419,6 +419,286 @@ Write the briefing now (aim for ~150 words):`;
   }
 
   /**
+   * Run the Weekly Digest loop
+   *
+   * Purpose: Provide a weekly summary (~300-400 words) with:
+   * - Week's completed actions
+   * - Captured ideas and insights
+   * - Patterns or themes observed
+   * - Open actions carried forward
+   *
+   * Output: Library entry (type: briefing, time_of_day: morning)
+   * Typically runs on Sunday morning
+   */
+  async runWeeklyDigest(userId: string, jobId?: string): Promise<LoopResult> {
+    const result: LoopResult = {
+      success: false,
+      libraryEntryId: null,
+      title: null,
+      thoughtProduced: false,
+      steps: {
+        notice: null,
+        connect: null,
+        question: null,
+        synthesis: null,
+      },
+    };
+
+    try {
+      logger.info('[AL] Starting weekly digest loop', { userId, jobId });
+
+      // Gather week's data
+      const completedActions = await this.getWeekCompletedActions(userId);
+      const openActions = await this.actionsService.getOpenActions(userId, 20);
+      const weekIdeas = await this.getWeekCapturedIdeas(userId);
+      const weekReflections = await this.getWeekLibraryEntries(userId);
+      const conversationCount = await this.getWeekConversationCount(userId);
+
+      // Check if there's enough content for a digest
+      const totalItems = completedActions.length + weekIdeas.length + weekReflections.length;
+      if (totalItems === 0 && conversationCount === 0) {
+        logger.info('[AL] Not enough content for weekly digest', { userId });
+        result.success = true;
+        result.thoughtProduced = false;
+        return result;
+      }
+
+      // Format the data for the prompt
+      const completedText = this.formatWeekCompletedActions(completedActions);
+      const openText = this.formatActionsForBriefing(openActions);
+      const ideasText = this.formatWeekIdeas(weekIdeas);
+      const reflectionsText = this.formatWeekReflections(weekReflections);
+
+      // Generate the digest using Claude
+      const digestPrompt = `You are Lucid, Matt's AI companion. Generate a thoughtful weekly digest (~300-400 words).
+
+THIS WEEK'S COMPLETED ACTIONS (${completedActions.length}):
+${completedText || '(None completed this week)'}
+
+CAPTURED IDEAS THIS WEEK (${weekIdeas.length}):
+${ideasText || '(No new ideas captured)'}
+
+REFLECTIONS & INSIGHTS (${weekReflections.length}):
+${reflectionsText || '(No reflections this week)'}
+
+STILL OPEN (${openActions.length}):
+${openText || '(No open actions)'}
+
+CONVERSATIONS THIS WEEK: ${conversationCount}
+
+GUIDELINES:
+- Start with a warm acknowledgment of the week
+- Highlight accomplishments (completed actions) - celebrate wins!
+- Note any patterns or themes in ideas/reflections
+- If there are many open actions, gently note what's carrying forward
+- Be encouraging but not patronizing
+- End with a thoughtful observation or question for the week ahead
+- Keep it personal and warm - this is Matt's weekly reflection with Lucid
+
+Write the weekly digest now (~300-400 words):`;
+
+      const digestContent = await this.complete(digestPrompt, 700);
+
+      if (!digestContent || digestContent.length < 50) {
+        logger.warn('[AL] Weekly digest generation failed or too short', { userId });
+        result.success = false;
+        return result;
+      }
+
+      // Determine title based on week
+      const today = new Date();
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - 7);
+      const weekStartStr = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const weekEndStr = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const title = `Weekly Digest - ${weekStartStr} to ${weekEndStr}`;
+
+      // Save to Library
+      const libraryEntry = await this.saveToLibrary(
+        userId,
+        title,
+        digestContent,
+        'briefing',
+        'morning',
+        jobId,
+        {
+          loop_type: 'weekly_digest',
+          completed_actions_count: completedActions.length,
+          open_actions_count: openActions.length,
+          ideas_count: weekIdeas.length,
+          reflections_count: weekReflections.length,
+          conversation_count: conversationCount,
+          week_start: weekStart.toISOString(),
+          week_end: today.toISOString(),
+        }
+      );
+
+      result.success = true;
+      result.thoughtProduced = true;
+      result.libraryEntryId = libraryEntry.id;
+      result.title = title;
+
+      logger.info('[AL] Weekly digest completed successfully', {
+        userId,
+        libraryEntryId: libraryEntry.id,
+        title,
+        completedActions: completedActions.length,
+        ideas: weekIdeas.length,
+      });
+
+      return result;
+    } catch (error: any) {
+      logger.error('[AL] Weekly digest loop failed', {
+        userId,
+        jobId,
+        error: error.message,
+      });
+      result.success = false;
+      return result;
+    }
+  }
+
+  /**
+   * Get completed actions from the past week
+   */
+  private async getWeekCompletedActions(userId: string): Promise<Action[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT * FROM actions
+         WHERE user_id = $1
+           AND status = 'done'
+           AND completed_at > NOW() - INTERVAL '7 days'
+         ORDER BY completed_at DESC
+         LIMIT 30`,
+        [userId]
+      );
+      return result.rows.map(this.parseActionRow);
+    } catch (error: any) {
+      logger.error('[AL] Failed to get week completed actions', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get captured ideas from the past week
+   */
+  private async getWeekCapturedIdeas(userId: string): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT id, content, created_at
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = 'insight'
+           AND created_at > NOW() - INTERVAL '7 days'
+         ORDER BY created_at DESC
+         LIMIT 20`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get week ideas', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get library entries (reflections, consolidations) from the past week
+   */
+  private async getWeekLibraryEntries(userId: string): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT id, title, content, entry_type, created_at
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type IN ('consolidation', 'reflection', 'lucid_thought')
+           AND created_at > NOW() - INTERVAL '7 days'
+         ORDER BY created_at DESC
+         LIMIT 10`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get week library entries', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get conversation count for the past week
+   */
+  private async getWeekConversationCount(userId: string): Promise<number> {
+    try {
+      const result = await this.pool.query(
+        `SELECT COUNT(DISTINCT c.id) as count
+         FROM conversations c
+         JOIN messages m ON m.conversation_id = c.id
+         WHERE c.user_id = $1
+           AND m.created_at > NOW() - INTERVAL '7 days'`,
+        [userId]
+      );
+      return parseInt(result.rows[0]?.count || '0', 10);
+    } catch (error: any) {
+      logger.error('[AL] Failed to get week conversation count', { error: error.message });
+      return 0;
+    }
+  }
+
+  /**
+   * Format week's completed actions for digest
+   */
+  private formatWeekCompletedActions(actions: Action[]): string {
+    if (actions.length === 0) return '';
+
+    return actions
+      .map((a) => `✓ ${a.summary || a.content}`)
+      .join('\n');
+  }
+
+  /**
+   * Format week's ideas for digest
+   */
+  private formatWeekIdeas(ideas: any[]): string {
+    if (ideas.length === 0) return '';
+
+    return ideas
+      .map((idea) => `• "${idea.content.slice(0, 150)}${idea.content.length > 150 ? '...' : ''}"`)
+      .join('\n');
+  }
+
+  /**
+   * Format week's reflections for digest
+   */
+  private formatWeekReflections(entries: any[]): string {
+    if (entries.length === 0) return '';
+
+    return entries
+      .map((e) => {
+        const title = e.title || 'Untitled';
+        const preview = e.content.slice(0, 100);
+        return `• "${title}": ${preview}${e.content.length > 100 ? '...' : ''}`;
+      })
+      .join('\n');
+  }
+
+  /**
+   * Parse action row from database
+   */
+  private parseActionRow(row: any): Action {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      content: row.content,
+      summary: row.summary,
+      status: row.status,
+      person_id: row.person_id,
+      source: row.source,
+      created_at: row.created_at,
+      completed_at: row.completed_at,
+      updated_at: row.updated_at,
+    };
+  }
+
+  /**
    * Complete a prompt using Claude
    */
   private async complete(prompt: string, maxTokens: number = 500): Promise<string | null> {
