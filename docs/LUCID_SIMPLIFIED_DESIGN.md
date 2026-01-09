@@ -115,15 +115,16 @@ If PERSON:
 | Loop | Job Type | Status |
 |------|----------|--------|
 | Evening Synthesis | `evening_consolidation` | ✅ Built |
+| Morning Briefing | `morning_reflection` | ✅ Built |
+| Weekly Digest | `afternoon_synthesis` | ✅ Built |
 
 ### Planned
 
 | Loop | Job Type | Purpose |
 |------|----------|---------|
-| Morning Briefing | `morning_briefing` | Daily nudge (~150 words) |
-| Weekly Digest | `weekly_digest` | Sunday summary |
-| Morning Reflection | `morning_reflection` | Possibility thinking |
-| Night Dream | `night_dream` | Weird connections |
+| Midday Curiosity | `midday_curiosity` | TBD |
+| Night Dream | `night_dream` | Pattern recognition, weird connections |
+| Document Reflection | `document_reflection` | Living Document maintenance |
 | Web Research | TBD | Fresh external input |
 
 ### Evening Synthesis Loop (Reference)
@@ -182,15 +183,15 @@ Stored as: Library entry (type: `briefing`, time_of_day: `afternoon`)
 
 ## Build Phases
 
-| Phase | What | Dependency |
-|-------|------|------------|
+| Phase | What | Status |
+|-------|------|--------|
 | **0** | Evening Synthesis AL | ✅ Done |
-| **1** | Actions table + migration | None |
-| **2** | Capture endpoint + AI routing | Phase 1 |
-| **3** | Morning Briefing AL | Phase 2 |
-| **4** | Weekly Digest AL | Phase 2 |
-| **5** | iOS Capture tab | Phase 2 |
-| **6** | Additional AL loops (dreams, etc.) | Phase 0 |
+| **1** | Actions table + migration | ✅ Done |
+| **2** | Capture endpoint + AI routing | ✅ Done |
+| **3** | Morning Briefing AL | ✅ Done |
+| **4** | Weekly Digest AL | ✅ Done |
+| **5** | iOS Capture tab | 📱 Guide created |
+| **6** | Additional AL loops (dreams, etc.) | 🔜 Planned |
 
 ---
 
@@ -229,11 +230,23 @@ Output goes to Library as `tool_output` type.
 
 ## File Locations
 
+### Services
 - AL Service: `src/services/autonomous-loop.service.ts`
 - Background Jobs: `src/services/background-jobs.service.ts`
-- Manual trigger: `POST /v1/sync/evening-synthesis`
-- Future capture: `POST /v1/capture` (not built yet)
+- Actions Service: `src/services/actions.service.ts`
+- Capture Service: `src/services/capture.service.ts`
+
+### Routes
+- Capture: `POST /v1/capture`, `POST /v1/capture/force`, `POST /v1/capture/classify`
+- Actions: `GET/POST /v1/actions`, `PATCH /v1/actions/:id`, etc.
+- Manual AL triggers:
+  - `POST /v1/sync/evening-synthesis`
+  - `POST /v1/sync/morning-briefing`
+  - `POST /v1/sync/weekly-digest`
+
+### iOS Guide
+- `docs/IOS_CAPTURE_TAB_GUIDE.md` - Comprehensive iOS implementation guide
 
 ---
 
-*Next session: Start with Phase 1 (Actions table) or test Evening Synthesis AL*
+*Updated: January 9, 2026 - Phases 1-4 complete*
