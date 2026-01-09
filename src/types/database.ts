@@ -413,6 +413,40 @@ export interface Orbit {
 }
 
 // ============================================================================
+// CAPTURE SYSTEM
+// ============================================================================
+
+export type ActionStatus = 'open' | 'done' | 'cancelled';
+export type ActionSource = 'capture' | 'conversation' | 'briefing';
+
+export interface Action {
+  id: string;
+  user_id: string;
+  // Content
+  content: string;
+  summary: string | null;
+  // Status
+  status: ActionStatus;
+  // Optional person link
+  person_id: string | null;
+  // Source tracking
+  source: ActionSource;
+  // Timestamps
+  created_at: Date;
+  completed_at: Date | null;
+  updated_at: Date;
+}
+
+export type CaptureCategory = 'ACTION' | 'IDEA' | 'FACT' | 'PERSON';
+
+export interface CaptureClassification {
+  category: CaptureCategory;
+  summary: string;
+  person_name: string | null;
+  confidence: number;
+}
+
+// ============================================================================
 // SPECIALIZED AT SESSION TYPES
 // ============================================================================
 

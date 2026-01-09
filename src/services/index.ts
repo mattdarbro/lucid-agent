@@ -29,6 +29,8 @@ import { LucidStateService } from './lucid-state.service';
 import { PromptModulesService } from './prompt-modules.service';
 import { ResearchQueueService } from './research-queue.service';
 import { LivingDocumentService } from './living-document.service';
+import { ActionsService } from './actions.service';
+import { CaptureService } from './capture.service';
 import { logger } from '../logger';
 
 // ============================================================================
@@ -59,6 +61,10 @@ export const promptModulesService = new PromptModulesService(pool);
 export const researchQueueService = new ResearchQueueService(pool);
 export const livingDocumentService = new LivingDocumentService(pool);
 
+// Capture system services
+export const actionsService = new ActionsService(pool);
+export const captureService = new CaptureService(pool);
+
 logger.info('Service container initialized successfully');
 
 /**
@@ -83,6 +89,9 @@ export const services = {
   promptModules: promptModulesService,
   researchQueue: researchQueueService,
   livingDocument: livingDocumentService,
+  // Capture system
+  actions: actionsService,
+  capture: captureService,
 };
 
 export default services;
