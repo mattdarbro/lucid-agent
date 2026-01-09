@@ -10,15 +10,12 @@ import factsRouter from './routes/facts';
 import evidenceRouter from './routes/evidence';
 import chatRouter from './routes/chat';
 import summaryRouter from './routes/summary';
-import personalityRouter from './routes/personality';
 import { createAgentJobRouter } from './routes/agent-jobs';
-import { createAutonomousThoughtRouter } from './routes/autonomous-thoughts';
 import { createResearchTaskRouter } from './routes/research-tasks';
 import profilesRouter from './routes/profiles';
 import thoughtNotificationsRouter from './routes/thought-notifications';
 import multiDayTasksRouter from './routes/multi-day-tasks';
 import taskInsightsRouter from './routes/task-insights';
-import { SchedulerService } from './services/scheduler.service';
 import { BackgroundJobsService } from './services/background-jobs.service';
 import libraryRouter from './routes/library';
 import versusRouter from './routes/versus';
@@ -28,7 +25,6 @@ import mergeRouter from './routes/merge';
 import costsRouter from './routes/costs';
 import { createMattStateRouter } from './routes/matt-state';
 import { createOrbitsRouter } from './routes/orbits';
-import { createModeDocumentsRouter } from './routes/mode-documents';
 import { createLivingDocumentRouter } from './routes/living-document';
 import { createStateCheckRouter } from './routes/state-check';
 import researchQueueRouter from './routes/research-queue';
@@ -121,12 +117,8 @@ app.use('/v1/summaries', summaryRouter);
 app.use('/v1/conversations/:conversation_id/summaries', summaryRouter);
 app.use('/v1/users/:user_id/summaries', summaryRouter);
 
-// Phase 3: Emotional Intelligence routes
-app.use('/v1/personality', personalityRouter);
-
-// Phase 4: Autonomous Agents routes
+// Agent jobs and research tasks
 app.use('/v1/agent-jobs', createAgentJobRouter(pool, supabase));
-app.use('/v1/autonomous-thoughts', createAutonomousThoughtRouter(pool, supabase));
 app.use('/v1/research-tasks', createResearchTaskRouter(pool, supabase));
 
 // Phase 5: Temporal Check-In System
@@ -160,9 +152,6 @@ app.use('/v1/costs', costsRouter);
 // Layered Memory System (Phase 6 - Matt State and Orbits)
 app.use('/v1/matt-state', createMattStateRouter(pool));
 app.use('/v1/orbits', createOrbitsRouter(pool));
-
-// Mode Documents (Living context for each chat mode) - Legacy, being sunset
-app.use('/v1/mode-documents', createModeDocumentsRouter(pool));
 
 // Living Document (Lucid's working memory - unified notes)
 app.use('/v1/living-document', createLivingDocumentRouter(pool));
@@ -201,8 +190,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // SERVER STARTUP
 // ============================================================================
 
-// Initialize scheduler (will be started if autonomous agents are enabled)
-let scheduler: SchedulerService | null = null;
+// Initialize background jobs service
 let backgroundJobs: BackgroundJobsService | null = null;
 
 async function startServer() {
@@ -223,22 +211,6 @@ async function startServer() {
       logger.info(`ℹ️  Info: http://localhost:${PORT}/info`);
       logger.info(`🔗 Studio API: ${config.studioApi.url}`);
 
-      if (config.features.autonomousAgents) {
-        logger.info('🤖 Autonomous agents: ENABLED');
-
-        // Start the scheduler for autonomous agents
-        try {
-          scheduler = new SchedulerService(pool, supabase);
-          await scheduler.start();
-          logger.info('✅ Scheduler started successfully');
-        } catch (error) {
-          logger.error('Failed to start scheduler:', error);
-          logger.warn('⚠️  Continuing without autonomous agents');
-        }
-      }
-      if (config.features.dreams) {
-        logger.info('💭 Dreams: ENABLED');
-      }
       if (config.features.webResearch) {
         logger.info('🔍 Web research: ENABLED');
       }
@@ -257,12 +229,6 @@ async function startServer() {
     // Graceful shutdown handlers
     const shutdown = async () => {
       logger.info('Shutting down gracefully...');
-
-      // Stop scheduler if running
-      if (scheduler) {
-        logger.info('Stopping scheduler...');
-        scheduler.stop();
-      }
 
       // Stop background jobs if running
       if (backgroundJobs) {
