@@ -529,4 +529,64 @@ router.post(
   }
 );
 
+/**
+ * POST /v1/sync/weekly-digest
+ *
+ * Manually trigger the weekly digest autonomous loop for a user.
+ * This generates a weekly summary with completed actions, ideas, and reflections.
+ * Typically runs on Sunday mornings automatically.
+ *
+ * Request body:
+ * - user_id: string (required) - UUID of the user
+ *
+ * Response:
+ * - success: boolean
+ * - library_entry_id: string | null
+ * - title: string | null
+ */
+router.post(
+  '/weekly-digest',
+  validateBody(userIdSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { user_id } = req.body;
+
+      logger.info(`[SYNC] Manual weekly digest triggered for user ${user_id}`);
+
+      const backgroundJobs = new BackgroundJobsService(pool, supabase);
+      const result = await backgroundJobs.triggerWeeklyDigest(user_id);
+
+      if (result.success && result.libraryEntryId) {
+        res.json({
+          success: true,
+          message: 'Weekly digest completed successfully',
+          library_entry_id: result.libraryEntryId,
+          title: result.title,
+        });
+      } else if (result.success) {
+        res.json({
+          success: true,
+          message: 'Weekly digest completed - not enough content this week',
+          library_entry_id: null,
+          title: null,
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: 'Weekly digest failed',
+        });
+      }
+    } catch (error: any) {
+      logger.error('Error in POST /v1/sync/weekly-digest:', {
+        message: error.message,
+      });
+
+      res.status(500).json({
+        error: 'Failed to run weekly digest',
+        details: error.message,
+      });
+    }
+  }
+);
+
 export default router;

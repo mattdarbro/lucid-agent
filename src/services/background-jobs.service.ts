@@ -173,9 +173,16 @@ export class BackgroundJobsService {
           libraryEntryId: morningResult.libraryEntryId,
         };
 
+      case 'afternoon_synthesis':
+        // Used for Weekly Digest on Sundays
+        const weeklyResult = await this.autonomousLoopService.runWeeklyDigest(userId, jobId);
+        return {
+          thoughtProduced: weeklyResult.thoughtProduced,
+          libraryEntryId: weeklyResult.libraryEntryId,
+        };
+
       // Placeholder for future loops
       case 'midday_curiosity':
-      case 'afternoon_synthesis':
       case 'night_dream':
       case 'document_reflection':
         logger.info(`[AL] Loop type ${jobType} not yet implemented`);
@@ -214,6 +221,23 @@ export class BackgroundJobsService {
   }> {
     logger.info('[AL] Manual trigger: morning briefing', { userId });
     const result = await this.autonomousLoopService.runMorningBriefing(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      title: result.title,
+    };
+  }
+
+  /**
+   * Manually trigger weekly digest for a user (useful for testing)
+   */
+  async triggerWeeklyDigest(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    title: string | null;
+  }> {
+    logger.info('[AL] Manual trigger: weekly digest', { userId });
+    const result = await this.autonomousLoopService.runWeeklyDigest(userId);
     return {
       success: result.success,
       libraryEntryId: result.libraryEntryId,
