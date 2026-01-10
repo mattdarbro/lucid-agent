@@ -235,27 +235,35 @@ export class BackgroundJobsService {
     try {
       logger.info('[SCHEDULER] Scheduling circadian jobs for active users');
 
-      // Find all users with autonomous agents enabled who were active in last 7 days
+      // Find all users who were active in last 7 days
       const result = await this.pool.query(`
         SELECT DISTINCT u.id as user_id
         FROM users u
-        JOIN user_settings us ON us.user_id = u.id
-        WHERE us.features->>'autonomousAgents' = 'true'
-          AND u.last_active_at > NOW() - INTERVAL '7 days'
+        WHERE u.last_active_at > NOW() - INTERVAL '7 days'
       `);
 
       if (result.rows.length === 0) {
-        logger.info('[SCHEDULER] No active users with autonomous agents enabled');
+        logger.info('[SCHEDULER] No active users found');
         return;
       }
 
-      logger.info(`[SCHEDULER] Found ${result.rows.length} users to schedule jobs for`);
+      logger.info(`[SCHEDULER] Found ${result.rows.length} active users, checking agent settings...`);
 
       const today = new Date();
       let totalJobsCreated = 0;
+      let usersWithAgentsEnabled = 0;
 
       for (const row of result.rows) {
         try {
+          // Check if user has autonomous agents enabled via profile service
+          const agentsEnabled = await this.profileService.areAgentsEnabled(row.user_id);
+
+          if (!agentsEnabled) {
+            logger.debug(`[SCHEDULER] Skipping user ${row.user_id} - agents not enabled`);
+            continue;
+          }
+
+          usersWithAgentsEnabled++;
           const jobs = await this.agentJobService.scheduleCircadianJobs(row.user_id, today);
           totalJobsCreated += jobs.length;
           if (jobs.length > 0) {
@@ -271,7 +279,7 @@ export class BackgroundJobsService {
         await this.sleep(500);
       }
 
-      logger.info(`[SCHEDULER] Completed: ${totalJobsCreated} total jobs created for ${result.rows.length} users`);
+      logger.info(`[SCHEDULER] Completed: ${totalJobsCreated} jobs created for ${usersWithAgentsEnabled} users with agents enabled`);
     } catch (error: any) {
       logger.error('[SCHEDULER] Failed to schedule jobs for active users:', {
         error: error.message,
