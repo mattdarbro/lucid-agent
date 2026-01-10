@@ -284,9 +284,24 @@ TITLE: [Your title]
       const ideasText = this.formatIdeasForBriefing(yesterdaysIdeas);
       const completedText = this.formatCompletedActionsForBriefing(recentlyCompletedActions);
 
-      // Generate the briefing using Claude
-      const briefingPrompt = `You are Lucid, Matt's AI companion. Generate a concise morning briefing (~150 words).
+      // Gather additional context - recent facts and reflections
+      const recentFacts = await this.getRecentFacts(userId, 5);
+      const recentReflection = await this.getLatestReflection(userId);
 
+      const factsText = recentFacts.length > 0
+        ? recentFacts.map(f => `- ${f.content}`).join('\n')
+        : '';
+      const reflectionText = recentReflection?.content || '';
+
+      // Generate the briefing using Claude
+      const briefingPrompt = `You are Lucid, Matt's AI companion and second brain. Generate a thoughtful morning briefing (~200 words).
+
+Your job is not just to LIST items, but to explain WHY each matters and how it connects to Matt's life.
+
+WHAT YOU KNOW ABOUT MATT:
+${factsText || '(Building knowledge over time)'}
+
+${recentReflection ? `RECENT REFLECTION:\n${reflectionText}\n` : ''}
 OPEN ACTIONS:
 ${actionsText || '(None)'}
 
@@ -295,14 +310,15 @@ ${ideasText || '(None)'}
 
 ${completedText ? `RECENTLY COMPLETED:\n${completedText}\n` : ''}
 GUIDELINES:
-- Be warm but brief - this is a quick morning check-in
-- Prioritize what matters most
-- If there are time-sensitive items, note them first
-- Don't add commentary - just present the information clearly
-- Use bullet points for actions
-- End with a brief, encouraging note if appropriate
+- Start with a warm, personal greeting
+- For ACTIONS: Don't just list them. Briefly note WHY you're surfacing each one (urgency? been sitting too long? connects to a goal?)
+- For IDEAS: Explain why this idea might be worth revisiting today - what could it unlock?
+- If someone completed actions recently, acknowledge the momentum
+- Connect dots when possible - "This action relates to that idea you had..."
+- Be concise but THOUGHTFUL - you're a companion, not a to-do list
+- End with one genuine observation or encouragement
 
-Write the briefing now (aim for ~150 words):`;
+Write the briefing now (~200 words):`;
 
       const briefingContent = await this.complete(briefingPrompt, 400);
 
@@ -416,6 +432,49 @@ Write the briefing now (aim for ~150 words):`;
     return actions
       .map((a) => `- ${a.summary || a.content}`)
       .join('\n');
+  }
+
+  /**
+   * Get recent facts about the user for context
+   */
+  private async getRecentFacts(userId: string, limit: number): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT content, confidence
+         FROM facts
+         WHERE user_id = $1
+           AND confidence >= 0.7
+         ORDER BY updated_at DESC
+         LIMIT $2`,
+        [userId, limit]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get recent facts', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get the latest evening reflection for context
+   */
+  private async getLatestReflection(userId: string): Promise<any | null> {
+    try {
+      const result = await this.pool.query(
+        `SELECT content, title, created_at
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type IN ('reflection', 'consolidation')
+           AND created_at > NOW() - INTERVAL '3 days'
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [userId]
+      );
+      return result.rows[0] || null;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get latest reflection', { error: error.message });
+      return null;
+    }
   }
 
   /**
