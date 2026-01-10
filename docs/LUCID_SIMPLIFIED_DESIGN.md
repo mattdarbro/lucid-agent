@@ -117,15 +117,14 @@ If PERSON:
 | Evening Synthesis | `evening_consolidation` | ✅ Built |
 | Morning Briefing | `morning_reflection` | ✅ Built |
 | Weekly Digest | `afternoon_synthesis` | ✅ Built |
+| Web Research | `midday_curiosity` | ✅ Built |
 
 ### Planned
 
 | Loop | Job Type | Purpose |
 |------|----------|---------|
-| Midday Curiosity | `midday_curiosity` | TBD |
 | Night Dream | `night_dream` | Pattern recognition, weird connections |
 | Document Reflection | `document_reflection` | Living Document maintenance |
-| Web Research | TBD | Fresh external input |
 
 ### Evening Synthesis Loop (Reference)
 
@@ -243,6 +242,7 @@ Output goes to Library as `tool_output` type.
   - `POST /v1/sync/evening-synthesis`
   - `POST /v1/sync/morning-briefing`
   - `POST /v1/sync/weekly-digest`
+  - `POST /v1/sync/web-research`
 
 ### iOS Guide
 - `docs/IOS_CAPTURE_TAB_GUIDE.md` - Comprehensive iOS implementation guide

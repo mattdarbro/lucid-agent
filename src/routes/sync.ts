@@ -589,4 +589,64 @@ router.post(
   }
 );
 
+/**
+ * POST /v1/sync/web-research
+ *
+ * Manually trigger the web research autonomous loop for a user.
+ * This proactively researches topics from user's captures and interests.
+ * Typically runs at noon automatically (midday_curiosity job).
+ *
+ * Request body:
+ * - user_id: string (required) - UUID of the user
+ *
+ * Response:
+ * - success: boolean
+ * - library_entry_id: string | null
+ * - title: string | null
+ */
+router.post(
+  '/web-research',
+  validateBody(userIdSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { user_id } = req.body;
+
+      logger.info(`[SYNC] Manual web research triggered for user ${user_id}`);
+
+      const backgroundJobs = new BackgroundJobsService(pool, supabase);
+      const result = await backgroundJobs.triggerWebResearch(user_id);
+
+      if (result.success && result.libraryEntryId) {
+        res.json({
+          success: true,
+          message: 'Web research completed successfully',
+          library_entry_id: result.libraryEntryId,
+          title: result.title,
+        });
+      } else if (result.success) {
+        res.json({
+          success: true,
+          message: 'Web research completed - nothing to research right now',
+          library_entry_id: null,
+          title: null,
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: 'Web research failed',
+        });
+      }
+    } catch (error: any) {
+      logger.error('Error in POST /v1/sync/web-research:', {
+        message: error.message,
+      });
+
+      res.status(500).json({
+        error: 'Failed to run web research',
+        details: error.message,
+      });
+    }
+  }
+);
+
 export default router;
