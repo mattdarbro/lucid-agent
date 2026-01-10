@@ -21,10 +21,17 @@ export interface CaptureResult {
 }
 
 /**
- * Helper to get current time of day
+ * Helper to get current time of day in Chicago timezone
  */
 function getCurrentTimeOfDay(): 'morning' | 'afternoon' | 'evening' | 'night' {
-  const hour = new Date().getHours();
+  // Get current hour in Chicago timezone
+  const chicagoTime = new Date().toLocaleString('en-US', {
+    timeZone: 'America/Chicago',
+    hour: 'numeric',
+    hour12: false,
+  });
+  const hour = parseInt(chicagoTime, 10);
+
   if (hour < 12) return 'morning';
   if (hour < 17) return 'afternoon';
   if (hour < 21) return 'evening';
