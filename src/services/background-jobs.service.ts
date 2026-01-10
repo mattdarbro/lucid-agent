@@ -31,6 +31,7 @@ export class BackgroundJobsService {
   private autonomousLoopService: AutonomousLoopService;
   private factExtractionJob: cron.ScheduledTask | null = null;
   private autonomousLoopJob: cron.ScheduledTask | null = null;
+  private dailyJobScheduler: cron.ScheduledTask | null = null;
   private isRunning: boolean = false;
 
   constructor(pool: Pool, supabase: SupabaseClient) {
@@ -55,6 +56,7 @@ export class BackgroundJobsService {
 
     this.startFactExtractionJob();
     this.startAutonomousLoopJob();
+    this.startDailyJobScheduler();
     this.isRunning = true;
     logger.info('[BACKGROUND] Background jobs started');
   }
@@ -70,6 +72,10 @@ export class BackgroundJobsService {
     if (this.autonomousLoopJob) {
       this.autonomousLoopJob.stop();
       this.autonomousLoopJob = null;
+    }
+    if (this.dailyJobScheduler) {
+      this.dailyJobScheduler.stop();
+      this.dailyJobScheduler = null;
     }
     this.isRunning = false;
     logger.info('[BACKGROUND] Background jobs stopped');
@@ -191,6 +197,78 @@ export class BackgroundJobsService {
       default:
         logger.warn(`[AL] Unknown job type: ${jobType}`);
         return { thoughtProduced: false, libraryEntryId: null };
+    }
+  }
+
+  /**
+   * Start the daily job scheduler
+   * Runs at midnight (in server timezone) to schedule circadian jobs for all active users
+   * Also runs on startup to ensure today's jobs are scheduled
+   */
+  private startDailyJobScheduler(): void {
+    // Run daily at midnight to schedule jobs for the new day
+    this.dailyJobScheduler = cron.schedule('0 0 * * *', async () => {
+      await this.scheduleJobsForActiveUsers();
+    });
+
+    logger.info('[BACKGROUND] Daily job scheduler started (runs at midnight)');
+
+    // Also run on startup after a delay to schedule today's jobs
+    setTimeout(() => {
+      this.scheduleJobsForActiveUsers().catch((err) => {
+        logger.error('[BACKGROUND] Initial job scheduling failed:', err);
+      });
+    }, 20000); // 20 second delay to let server stabilize
+  }
+
+  /**
+   * Schedule circadian jobs for all users with autonomous agents enabled
+   */
+  private async scheduleJobsForActiveUsers(): Promise<void> {
+    try {
+      logger.info('[SCHEDULER] Scheduling circadian jobs for active users');
+
+      // Find all users with autonomous agents enabled who were active in last 7 days
+      const result = await this.pool.query(`
+        SELECT DISTINCT u.id as user_id
+        FROM users u
+        JOIN user_settings us ON us.user_id = u.id
+        WHERE us.features->>'autonomousAgents' = 'true'
+          AND u.last_active_at > NOW() - INTERVAL '7 days'
+      `);
+
+      if (result.rows.length === 0) {
+        logger.info('[SCHEDULER] No active users with autonomous agents enabled');
+        return;
+      }
+
+      logger.info(`[SCHEDULER] Found ${result.rows.length} users to schedule jobs for`);
+
+      const today = new Date();
+      let totalJobsCreated = 0;
+
+      for (const row of result.rows) {
+        try {
+          const jobs = await this.agentJobService.scheduleCircadianJobs(row.user_id, today);
+          totalJobsCreated += jobs.length;
+          if (jobs.length > 0) {
+            logger.info(`[SCHEDULER] Created ${jobs.length} jobs for user ${row.user_id}`);
+          }
+        } catch (error: any) {
+          logger.error(`[SCHEDULER] Failed to schedule jobs for user ${row.user_id}:`, {
+            error: error.message,
+          });
+        }
+
+        // Small delay between users
+        await this.sleep(500);
+      }
+
+      logger.info(`[SCHEDULER] Completed: ${totalJobsCreated} total jobs created for ${result.rows.length} users`);
+    } catch (error: any) {
+      logger.error('[SCHEDULER] Failed to schedule jobs for active users:', {
+        error: error.message,
+      });
     }
   }
 
