@@ -4,6 +4,7 @@ import { logger } from '../logger';
 import { VectorService } from './vector.service';
 import { MessageService } from './message.service';
 import { ActionsService } from './actions.service';
+import { WebSearchService, WebSearchResult } from './web-search.service';
 import { LibraryEntryType, Action } from '../types/database';
 
 /**
@@ -42,6 +43,7 @@ export class AutonomousLoopService {
   private vectorService: VectorService;
   private messageService: MessageService;
   private actionsService: ActionsService;
+  private webSearchService: WebSearchService;
   private readonly model = 'claude-sonnet-4-20250514';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
@@ -52,6 +54,7 @@ export class AutonomousLoopService {
     this.vectorService = new VectorService();
     this.messageService = new MessageService(pool, this.vectorService);
     this.actionsService = new ActionsService(pool);
+    this.webSearchService = new WebSearchService();
   }
 
   /**
@@ -615,6 +618,371 @@ Write the weekly digest now (~300-400 words):`;
       result.success = false;
       return result;
     }
+  }
+
+  /**
+   * Run the Midday Curiosity loop (Web Research)
+   *
+   * Purpose: Proactively research topics from captures and bring fresh external
+   * information into Matt's second brain.
+   *
+   * Steps:
+   * 1. GATHER - Collect recent captures (ideas, questions) and facts
+   * 2. SELECT - Use Claude to pick 1-2 topics worth researching
+   * 3. SEARCH - Execute web searches via Tavily
+   * 4. SYNTHESIZE - Combine findings with personal context
+   * 5. SAVE - Store as library entry
+   *
+   * Output: Library entry (type: research, time_of_day: afternoon)
+   */
+  async runMiddayCuriosity(userId: string, jobId?: string): Promise<LoopResult> {
+    const result: LoopResult = {
+      success: false,
+      libraryEntryId: null,
+      title: null,
+      thoughtProduced: false,
+      steps: {
+        notice: null,
+        connect: null,
+        question: null,
+        synthesis: null,
+      },
+    };
+
+    try {
+      logger.info('[AL] Starting midday curiosity (web research) loop', { userId, jobId });
+
+      // Check if web search is available
+      if (!this.webSearchService.isAvailable()) {
+        logger.warn('[AL] Web search not available, skipping midday curiosity');
+        result.success = true;
+        result.thoughtProduced = false;
+        return result;
+      }
+
+      // Step 1: GATHER - Collect research candidates
+      const recentIdeas = await this.getResearchCandidateIdeas(userId);
+      const researchActions = await this.getResearchActions(userId);
+      const recentFacts = await this.getRecentFacts(userId, 10);
+      const recentTopics = await this.getRecentConversationTopics(userId);
+
+      // Check if there's anything to research
+      if (recentIdeas.length === 0 && researchActions.length === 0 && recentTopics.length === 0) {
+        logger.info('[AL] Nothing to research (no ideas, research actions, or topics)', { userId });
+        result.success = true;
+        result.thoughtProduced = false;
+        return result;
+      }
+
+      // Format inputs for topic selection
+      const ideasText = recentIdeas
+        .map((i, idx) => `${idx + 1}. "${i.content}" (captured ${this.formatTimeAgo(i.created_at)})`)
+        .join('\n');
+      const actionsText = researchActions
+        .map((a, idx) => `${idx + 1}. "${a.content}"`)
+        .join('\n');
+      const factsText = recentFacts
+        .map(f => `- ${f.content}`)
+        .join('\n');
+      const topicsText = recentTopics.join(', ');
+
+      // Step 2: SELECT - Have Claude pick what to research
+      const selectionPrompt = `You are Lucid, Matt's AI companion. Your task is to select 1-2 topics worth researching from Matt's recent captures and interests.
+
+MATT'S RECENT CAPTURED IDEAS:
+${ideasText || '(None)'}
+
+OPEN ACTIONS NEEDING RESEARCH:
+${actionsText || '(None)'}
+
+WHAT YOU KNOW ABOUT MATT:
+${factsText || '(Building knowledge)'}
+
+RECENT CONVERSATION TOPICS:
+${topicsText || '(None)'}
+
+INSTRUCTIONS:
+1. Select 1-2 topics that would genuinely benefit from external research
+2. Prioritize:
+   - Questions Matt is actively curious about
+   - Ideas that could be validated or expanded with data
+   - Actions that need information to complete
+3. For each topic, provide a search query optimized for finding useful information
+
+Respond with JSON only:
+{
+  "topics": [
+    {
+      "topic": "Brief description of what to research",
+      "why": "Why this matters to Matt right now",
+      "search_queries": ["search query 1", "search query 2"]
+    }
+  ],
+  "skip_reason": "Only if there's nothing worth researching today"
+}`;
+
+      const selectionResponse = await this.complete(selectionPrompt, 600);
+      if (!selectionResponse) {
+        logger.warn('[AL] Topic selection failed', { userId });
+        result.success = false;
+        return result;
+      }
+
+      // Parse selection
+      let selection: { topics: Array<{ topic: string; why: string; search_queries: string[] }>; skip_reason?: string };
+      try {
+        // Extract JSON from potential markdown
+        let jsonText = selectionResponse;
+        const jsonMatch = selectionResponse.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+          jsonText = jsonMatch[1];
+        }
+        selection = JSON.parse(jsonText);
+      } catch (parseError) {
+        logger.error('[AL] Failed to parse topic selection', { response: selectionResponse });
+        result.success = false;
+        return result;
+      }
+
+      // Check if we should skip
+      if (selection.skip_reason || !selection.topics || selection.topics.length === 0) {
+        logger.info('[AL] No topics selected for research', { reason: selection.skip_reason });
+        result.success = true;
+        result.thoughtProduced = false;
+        return result;
+      }
+
+      logger.info('[AL] Selected research topics', {
+        userId,
+        topicCount: selection.topics.length,
+        topics: selection.topics.map(t => t.topic),
+      });
+
+      // Step 3: SEARCH - Execute web searches
+      const searchResults: Array<{ topic: string; why: string; results: WebSearchResult[] }> = [];
+
+      for (const topicInfo of selection.topics.slice(0, 2)) {
+        const topicResults: WebSearchResult[] = [];
+
+        for (const query of topicInfo.search_queries.slice(0, 2)) {
+          try {
+            const searchResult = await this.webSearchService.search(query, {
+              maxResults: 4,
+              includeAnswer: true,
+              searchDepth: 'basic',
+            });
+            topicResults.push(searchResult);
+            logger.info('[AL] Web search completed', { query, resultsCount: searchResult.results.length });
+          } catch (searchError: any) {
+            logger.error('[AL] Web search failed', { query, error: searchError.message });
+          }
+
+          // Small delay between searches
+          await this.sleep(1000);
+        }
+
+        if (topicResults.length > 0) {
+          searchResults.push({
+            topic: topicInfo.topic,
+            why: topicInfo.why,
+            results: topicResults,
+          });
+        }
+      }
+
+      if (searchResults.length === 0) {
+        logger.warn('[AL] All web searches failed', { userId });
+        result.success = false;
+        return result;
+      }
+
+      // Step 4: SYNTHESIZE - Combine findings
+      const searchSummary = this.formatSearchResultsForSynthesis(searchResults);
+
+      const synthesisPrompt = `You are Lucid, Matt's AI companion. Synthesize these web research findings into a useful report.
+
+WHAT YOU RESEARCHED:
+${searchSummary}
+
+WHAT YOU KNOW ABOUT MATT:
+${factsText || '(Building knowledge)'}
+
+GUIDELINES:
+- Start with a brief intro explaining what you researched and WHY (connect to Matt's captures/interests)
+- For each topic, share the key insights in a conversational way
+- Highlight what's actionable vs. just interesting
+- Connect findings to what you know about Matt when relevant
+- Include source links for Matt to explore further
+- Be concise but substantive (~250-350 words)
+- End with a thought about how this might be useful
+
+Write the research summary now:`;
+
+      const synthesisContent = await this.complete(synthesisPrompt, 700);
+
+      if (!synthesisContent || synthesisContent.length < 50) {
+        logger.warn('[AL] Research synthesis failed or too short', { userId });
+        result.success = false;
+        return result;
+      }
+
+      // Determine title
+      const topicNames = searchResults.map(r => r.topic).join(' & ');
+      const title = `Research: ${topicNames.slice(0, 80)}`;
+
+      // Step 5: SAVE - Store to library
+      const libraryEntry = await this.saveToLibrary(
+        userId,
+        title,
+        synthesisContent,
+        'curiosity', // Using curiosity for web research results
+        'afternoon',
+        jobId,
+        {
+          loop_type: 'midday_curiosity',
+          topics_researched: searchResults.map(r => r.topic),
+          search_queries: searchResults.flatMap(r => r.results.map(sr => sr.query)),
+          source_count: searchResults.flatMap(r => r.results.flatMap(sr => sr.results)).length,
+        }
+      );
+
+      result.success = true;
+      result.thoughtProduced = true;
+      result.libraryEntryId = libraryEntry.id;
+      result.title = title;
+
+      logger.info('[AL] Midday curiosity (web research) completed successfully', {
+        userId,
+        libraryEntryId: libraryEntry.id,
+        title,
+        topicsResearched: searchResults.length,
+      });
+
+      return result;
+    } catch (error: any) {
+      logger.error('[AL] Midday curiosity loop failed', {
+        userId,
+        jobId,
+        error: error.message,
+      });
+      result.success = false;
+      return result;
+    }
+  }
+
+  /**
+   * Get recent captured ideas that might benefit from research
+   * (questions, "what if"s, exploratory thoughts)
+   */
+  private async getResearchCandidateIdeas(userId: string): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT id, content, created_at
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = 'insight'
+           AND created_at > NOW() - INTERVAL '7 days'
+         ORDER BY created_at DESC
+         LIMIT 15`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get research candidate ideas', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get open actions that involve research
+   */
+  private async getResearchActions(userId: string): Promise<Action[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT * FROM actions
+         WHERE user_id = $1
+           AND status = 'open'
+           AND (
+             LOWER(content) LIKE '%research%'
+             OR LOWER(content) LIKE '%look into%'
+             OR LOWER(content) LIKE '%find out%'
+             OR LOWER(content) LIKE '%explore%'
+             OR LOWER(content) LIKE '%investigate%'
+           )
+         ORDER BY created_at DESC
+         LIMIT 5`,
+        [userId]
+      );
+      return result.rows.map(this.parseActionRow);
+    } catch (error: any) {
+      logger.error('[AL] Failed to get research actions', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get recent conversation topics for context
+   */
+  private async getRecentConversationTopics(userId: string): Promise<string[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT DISTINCT c.title
+         FROM conversations c
+         JOIN messages m ON m.conversation_id = c.id
+         WHERE c.user_id = $1
+           AND m.created_at > NOW() - INTERVAL '3 days'
+           AND c.title IS NOT NULL
+           AND c.title != ''
+         ORDER BY MAX(m.created_at) DESC
+         LIMIT 5`,
+        [userId]
+      );
+      return result.rows.map(r => r.title).filter(Boolean);
+    } catch (error: any) {
+      logger.error('[AL] Failed to get conversation topics', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Format time ago for display
+   */
+  private formatTimeAgo(date: Date): string {
+    const now = new Date();
+    const diffMs = now.getTime() - new Date(date).getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffDays > 0) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    return 'recently';
+  }
+
+  /**
+   * Format search results for synthesis prompt
+   */
+  private formatSearchResultsForSynthesis(
+    searchResults: Array<{ topic: string; why: string; results: WebSearchResult[] }>
+  ): string {
+    return searchResults.map(topicResult => {
+      const resultsText = topicResult.results.map(sr => {
+        const answerText = sr.answer ? `AI Summary: ${sr.answer}\n` : '';
+        const sourcesText = sr.results
+          .slice(0, 3)
+          .map(r => `- "${r.title}" (${r.url}): ${r.content.slice(0, 200)}...`)
+          .join('\n');
+        return `Query: "${sr.query}"\n${answerText}Sources:\n${sourcesText}`;
+      }).join('\n\n');
+
+      return `## ${topicResult.topic}\nWhy: ${topicResult.why}\n\n${resultsText}`;
+    }).join('\n\n---\n\n');
+  }
+
+  /**
+   * Sleep utility
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**

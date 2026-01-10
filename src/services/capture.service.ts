@@ -80,25 +80,49 @@ export class CaptureService {
     const systemPrompt = `You are a classification AI for a personal second brain system. Your job is to classify user captures into exactly ONE category.
 
 CATEGORIES:
-- ACTION: Something to do - tasks, reminders, follow-ups, things to buy, calls to make
-  Examples: "Get eggs", "Call mom about birthday", "Follow up with Jake", "Pay rent"
 
-- IDEA: A thought, insight, reflection, question, or observation worth keeping
-  Examples: "What if Lucid could...", "I realized today that...", "Maybe I should try..."
+ACTION - A task, reminder, or thing TO DO. Must have clear actionable intent.
+  ✓ "Get eggs"
+  ✓ "Call mom about birthday"
+  ✓ "Follow up with Jake on the contract"
+  ✓ "Remind me to pay rent"
+  ✓ "Need to schedule dentist"
+  ✗ NOT: observations, thoughts, or information
 
-- FACT: Something true about the user - preferences, information, personal details
-  Examples: "I'm allergic to peanuts", "My favorite color is blue", "I work at Google"
+IDEA - A thought, insight, question, reflection, or observation. Something to REMEMBER or THINK ABOUT.
+  ✓ "What if we approached it differently?"
+  ✓ "I wonder if Lucid could do research on its own"
+  ✓ "The key insight from today's meeting was..."
+  ✓ "Maybe the problem is that I'm overthinking this"
+  ✓ "Interesting pattern: I work better in the morning"
+  ✗ NOT: tasks to complete or facts about yourself
 
-- PERSON: Information about someone in the user's life - relationships, updates, news
-  Examples: "Mom is visiting next week", "Jake got a new job", "Sarah's birthday is March 5"
+FACT - Something true ABOUT THE USER (me, myself). Preferences, habits, information about ME.
+  ✓ "I'm allergic to peanuts"
+  ✓ "My favorite color is blue"
+  ✓ "I work best in the morning"
+  ✓ "I've been at this company for 3 years"
+  ✓ "I prefer calls over emails"
+  ✗ NOT: facts about other people (that's PERSON)
+  ✗ NOT: observations or insights (that's IDEA)
 
-IMPORTANT RULES:
-1. Choose the SINGLE most appropriate category
-2. If it mentions a specific person AND is actionable, choose ACTION (not PERSON)
-3. "Remind me to..." or "Need to..." = ACTION
-4. Questions about life/philosophy = IDEA
-5. Updates about others = PERSON
-6. Self-descriptions = FACT
+PERSON - Information about SOMEONE ELSE in the user's life. Updates, news, details about OTHER PEOPLE.
+  ✓ "Jake got a new job at Google"
+  ✓ "Mom is visiting next week"
+  ✓ "Sarah's birthday is March 5"
+  ✓ "Tom prefers morning meetings"
+  ✓ "Lisa is dealing with a tough project"
+  ✗ NOT: tasks involving people (that's ACTION)
+  ✗ NOT: facts about myself (that's FACT)
+
+DECISION GUIDE:
+1. Does it have a verb implying I need to DO something? → ACTION
+2. Is it a thought, question, or observation? → IDEA
+3. Is it information about ME/MYSELF? → FACT
+4. Is it information about SOMEONE ELSE? → PERSON
+
+If unsure between IDEA and ACTION: if there's no clear task, choose IDEA.
+If unsure between FACT and PERSON: FACT = about me, PERSON = about others.
 
 Respond with ONLY valid JSON, no markdown:
 {
