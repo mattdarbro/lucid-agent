@@ -10,6 +10,7 @@ import { ProfileService } from './profile.service';
 import { CostTrackingService } from './cost-tracking.service';
 import { PromptModulesService } from './prompt-modules.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
+import { withRetry, wrapAnthropicError } from '../utils/anthropic-errors';
 
 /**
  * Configuration for chat behavior
@@ -195,15 +196,19 @@ export class ChatService {
         temperature,
       });
 
-      // Call Claude API
+      // Call Claude API with retry for transient errors
       const modelUsed = input.model || chatConfig.defaultModel || this.DEFAULT_CONFIG.defaultModel!;
-      const response = await this.anthropic.messages.create({
-        model: modelUsed,
-        max_tokens: input.max_tokens || chatConfig.maxTokens || this.DEFAULT_CONFIG.maxTokens!,
-        temperature: temperature,
-        system: moduleResult.prompt,
-        messages,
-      });
+      const response = await withRetry(
+        () =>
+          this.anthropic.messages.create({
+            model: modelUsed,
+            max_tokens: input.max_tokens || chatConfig.maxTokens || this.DEFAULT_CONFIG.maxTokens!,
+            temperature: temperature,
+            system: moduleResult.prompt,
+            messages,
+          }),
+        { maxRetries: 2, initialDelayMs: 1000 }
+      );
 
       // Log API usage for cost tracking
       if (response.usage) {
@@ -250,7 +255,16 @@ export class ChatService {
       logger.error('Error in chat completion:', {
         message: error.message,
         status: error.status,
+        name: error.name,
       });
+      // Re-throw AnthropicApiError as-is to preserve status code
+      if (error.name === 'AnthropicApiError') {
+        throw error;
+      }
+      // Wrap other Anthropic errors to preserve status
+      if (error.status) {
+        throw wrapAnthropicError(error);
+      }
       throw new Error(`Chat completion failed: ${error.message}`);
     }
   }
