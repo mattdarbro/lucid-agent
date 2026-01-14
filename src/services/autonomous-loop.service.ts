@@ -660,11 +660,20 @@ Write the weekly digest now (~300-400 words):`;
         return result;
       }
 
-      // Step 1: GATHER - Collect research candidates
+      // Step 1: GATHER - Collect research candidates AND history
       const recentIdeas = await this.getResearchCandidateIdeas(userId);
       const researchActions = await this.getResearchActions(userId);
       const recentFacts = await this.getRecentFacts(userId, 10);
       const recentTopics = await this.getRecentConversationTopics(userId);
+      const researchHistory = await this.getRecentResearchHistory(userId, 14);
+
+      logger.info('[AL] Gathered research context', {
+        userId,
+        ideasCount: recentIdeas.length,
+        actionsCount: researchActions.length,
+        historyTopicsCount: researchHistory.topics.length,
+        recentResearchCount: researchHistory.summaries.length,
+      });
 
       // Check if there's anything to research
       if (recentIdeas.length === 0 && researchActions.length === 0 && recentTopics.length === 0) {
@@ -686,8 +695,28 @@ Write the weekly digest now (~300-400 words):`;
         .join('\n');
       const topicsText = recentTopics.join(', ');
 
+      // Format research history for anti-repetition
+      const recentResearchText = researchHistory.summaries.length > 0
+        ? researchHistory.summaries
+            .map(s => `- "${s.topic}" (${s.date})`)
+            .join('\n')
+        : '(No recent research)';
+
+      const previousQueriesText = researchHistory.queries.length > 0
+        ? researchHistory.queries.slice(0, 10).join(', ')
+        : '(None)';
+
       // Step 2: SELECT - Have Claude pick what to research
-      const selectionPrompt = `You are Lucid, Matt's AI companion. Your task is to select 1-2 topics worth researching from Matt's recent captures and interests.
+      const selectionPrompt = `You are Lucid, Matt's AI companion. Your task is to select 1-2 NEW topics worth researching from Matt's recent captures and interests.
+
+CRITICAL: AVOID REPETITION
+You've already researched these topics recently - DO NOT repeat them:
+${recentResearchText}
+
+Previous search queries used (avoid similar queries):
+${previousQueriesText}
+
+---
 
 MATT'S RECENT CAPTURED IDEAS:
 ${ideasText || '(None)'}
@@ -701,13 +730,17 @@ ${factsText || '(Building knowledge)'}
 RECENT CONVERSATION TOPICS:
 ${topicsText || '(None)'}
 
+---
+
 INSTRUCTIONS:
-1. Select 1-2 topics that would genuinely benefit from external research
-2. Prioritize:
-   - Questions Matt is actively curious about
+1. First, review the AVOID REPETITION section above - DO NOT research the same topics again
+2. Select 1-2 GENUINELY NEW topics that haven't been researched yet
+3. If all available topics have already been researched, use skip_reason to explain this
+4. Prioritize:
+   - Questions Matt is actively curious about that are NEW
    - Ideas that could be validated or expanded with data
    - Actions that need information to complete
-3. For each topic, provide a search query optimized for finding useful information
+5. For each topic, provide search queries that are DIFFERENT from the previous queries listed above
 
 Respond with JSON only:
 {
@@ -718,10 +751,11 @@ Respond with JSON only:
       "search_queries": ["search query 1", "search query 2"]
     }
   ],
-  "skip_reason": "Only if there's nothing worth researching today"
+  "skip_reason": "If nothing new to research, explain what's been covered and suggest waiting for new captures"
 }`;
 
-      const selectionResponse = await this.complete(selectionPrompt, 600);
+      // Increased token limit to account for research history context
+      const selectionResponse = await this.complete(selectionPrompt, 800);
       if (!selectionResponse) {
         logger.warn('[AL] Topic selection failed', { userId });
         result.success = false;
@@ -744,9 +778,14 @@ Respond with JSON only:
         return result;
       }
 
-      // Check if we should skip
+      // Check if we should skip (nothing new to research)
       if (selection.skip_reason || !selection.topics || selection.topics.length === 0) {
-        logger.info('[AL] No topics selected for research', { reason: selection.skip_reason });
+        logger.info('[AL] No new topics to research - avoiding repetition', {
+          userId,
+          skipReason: selection.skip_reason,
+          previouslyResearched: researchHistory.summaries.length,
+          candidateIdeas: recentIdeas.length,
+        });
         result.success = true;
         result.thoughtProduced = false;
         return result;
@@ -941,6 +980,61 @@ Write the research summary now:`;
     } catch (error: any) {
       logger.error('[AL] Failed to get conversation topics', { error: error.message });
       return [];
+    }
+  }
+
+  /**
+   * Get recent research history to avoid repetitive searches
+   * Returns topics and queries from past web research runs
+   */
+  private async getRecentResearchHistory(userId: string, days: number = 14): Promise<{
+    topics: string[];
+    queries: string[];
+    summaries: Array<{ topic: string; date: string }>;
+  }> {
+    try {
+      const result = await this.pool.query(
+        `SELECT title, metadata, created_at
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = 'curiosity'
+           AND metadata->>'loop_type' = 'midday_curiosity'
+           AND created_at > NOW() - INTERVAL '${days} days'
+         ORDER BY created_at DESC
+         LIMIT 20`,
+        [userId]
+      );
+
+      const topics: string[] = [];
+      const queries: string[] = [];
+      const summaries: Array<{ topic: string; date: string }> = [];
+
+      for (const row of result.rows) {
+        // Extract topics researched
+        if (row.metadata?.topics_researched) {
+          topics.push(...row.metadata.topics_researched);
+        }
+        // Extract search queries used
+        if (row.metadata?.search_queries) {
+          queries.push(...row.metadata.search_queries);
+        }
+        // Create summary for prompt
+        if (row.title) {
+          summaries.push({
+            topic: row.title.replace('Research: ', ''),
+            date: this.formatTimeAgo(row.created_at),
+          });
+        }
+      }
+
+      return {
+        topics: [...new Set(topics)], // Dedupe
+        queries: [...new Set(queries)],
+        summaries,
+      };
+    } catch (error: any) {
+      logger.error('[AL] Failed to get research history', { error: error.message });
+      return { topics: [], queries: [], summaries: [] };
     }
   }
 
