@@ -660,15 +660,46 @@ Write the weekly digest now (~300-400 words):`;
         return result;
       }
 
-      // Step 1: GATHER - Collect research candidates
+      // Step 1: GATHER - Collect research candidates AND history
       const recentIdeas = await this.getResearchCandidateIdeas(userId);
       const researchActions = await this.getResearchActions(userId);
       const recentFacts = await this.getRecentFacts(userId, 10);
       const recentTopics = await this.getRecentConversationTopics(userId);
+      const researchHistory = await this.getRecentResearchHistory(userId, 14);
+
+      logger.info('[AL] Gathered research context', {
+        userId,
+        ideasCount: recentIdeas.length,
+        actionsCount: researchActions.length,
+        historyTopicsCount: researchHistory.topics.length,
+        recentResearchCount: researchHistory.summaries.length,
+      });
 
       // Check if there's anything to research
       if (recentIdeas.length === 0 && researchActions.length === 0 && recentTopics.length === 0) {
         logger.info('[AL] Nothing to research (no ideas, research actions, or topics)', { userId });
+        result.success = true;
+        result.thoughtProduced = false;
+        return result;
+      }
+
+      // Smart pre-check: Skip if all candidates have likely been researched already
+      // This avoids wasting an API call when there's nothing genuinely new
+      const hasNewContent = this.hasUnresearchedContent(
+        recentIdeas,
+        researchActions,
+        recentTopics,
+        researchHistory
+      );
+
+      if (!hasNewContent) {
+        logger.info('[AL] Skipping research - all candidates already covered in recent research', {
+          userId,
+          candidateIdeas: recentIdeas.length,
+          researchActions: researchActions.length,
+          previouslyResearched: researchHistory.summaries.length,
+          message: 'Waiting for new captures before researching again',
+        });
         result.success = true;
         result.thoughtProduced = false;
         return result;
@@ -686,8 +717,28 @@ Write the weekly digest now (~300-400 words):`;
         .join('\n');
       const topicsText = recentTopics.join(', ');
 
+      // Format research history for anti-repetition
+      const recentResearchText = researchHistory.summaries.length > 0
+        ? researchHistory.summaries
+            .map(s => `- "${s.topic}" (${s.date})`)
+            .join('\n')
+        : '(No recent research)';
+
+      const previousQueriesText = researchHistory.queries.length > 0
+        ? researchHistory.queries.slice(0, 10).join(', ')
+        : '(None)';
+
       // Step 2: SELECT - Have Claude pick what to research
-      const selectionPrompt = `You are Lucid, Matt's AI companion. Your task is to select 1-2 topics worth researching from Matt's recent captures and interests.
+      const selectionPrompt = `You are Lucid, Matt's AI companion. Your task is to select 1-2 NEW topics worth researching from Matt's recent captures and interests.
+
+CRITICAL: AVOID REPETITION
+You've already researched these topics recently - DO NOT repeat them:
+${recentResearchText}
+
+Previous search queries used (avoid similar queries):
+${previousQueriesText}
+
+---
 
 MATT'S RECENT CAPTURED IDEAS:
 ${ideasText || '(None)'}
@@ -701,13 +752,17 @@ ${factsText || '(Building knowledge)'}
 RECENT CONVERSATION TOPICS:
 ${topicsText || '(None)'}
 
+---
+
 INSTRUCTIONS:
-1. Select 1-2 topics that would genuinely benefit from external research
-2. Prioritize:
-   - Questions Matt is actively curious about
+1. First, review the AVOID REPETITION section above - DO NOT research the same topics again
+2. Select 1-2 GENUINELY NEW topics that haven't been researched yet
+3. If all available topics have already been researched, use skip_reason to explain this
+4. Prioritize:
+   - Questions Matt is actively curious about that are NEW
    - Ideas that could be validated or expanded with data
    - Actions that need information to complete
-3. For each topic, provide a search query optimized for finding useful information
+5. For each topic, provide search queries that are DIFFERENT from the previous queries listed above
 
 Respond with JSON only:
 {
@@ -718,10 +773,11 @@ Respond with JSON only:
       "search_queries": ["search query 1", "search query 2"]
     }
   ],
-  "skip_reason": "Only if there's nothing worth researching today"
+  "skip_reason": "If nothing new to research, explain what's been covered and suggest waiting for new captures"
 }`;
 
-      const selectionResponse = await this.complete(selectionPrompt, 600);
+      // Increased token limit to account for research history context
+      const selectionResponse = await this.complete(selectionPrompt, 800);
       if (!selectionResponse) {
         logger.warn('[AL] Topic selection failed', { userId });
         result.success = false;
@@ -744,9 +800,14 @@ Respond with JSON only:
         return result;
       }
 
-      // Check if we should skip
+      // Check if we should skip (nothing new to research)
       if (selection.skip_reason || !selection.topics || selection.topics.length === 0) {
-        logger.info('[AL] No topics selected for research', { reason: selection.skip_reason });
+        logger.info('[AL] No new topics to research - avoiding repetition', {
+          userId,
+          skipReason: selection.skip_reason,
+          previouslyResearched: researchHistory.summaries.length,
+          candidateIdeas: recentIdeas.length,
+        });
         result.success = true;
         result.thoughtProduced = false;
         return result;
@@ -942,6 +1003,125 @@ Write the research summary now:`;
       logger.error('[AL] Failed to get conversation topics', { error: error.message });
       return [];
     }
+  }
+
+  /**
+   * Get recent research history to avoid repetitive searches
+   * Returns topics and queries from past web research runs
+   */
+  private async getRecentResearchHistory(userId: string, days: number = 14): Promise<{
+    topics: string[];
+    queries: string[];
+    summaries: Array<{ topic: string; date: string }>;
+  }> {
+    try {
+      const result = await this.pool.query(
+        `SELECT title, metadata, created_at
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = 'curiosity'
+           AND metadata->>'loop_type' = 'midday_curiosity'
+           AND created_at > NOW() - INTERVAL '${days} days'
+         ORDER BY created_at DESC
+         LIMIT 20`,
+        [userId]
+      );
+
+      const topics: string[] = [];
+      const queries: string[] = [];
+      const summaries: Array<{ topic: string; date: string }> = [];
+
+      for (const row of result.rows) {
+        // Extract topics researched
+        if (row.metadata?.topics_researched) {
+          topics.push(...row.metadata.topics_researched);
+        }
+        // Extract search queries used
+        if (row.metadata?.search_queries) {
+          queries.push(...row.metadata.search_queries);
+        }
+        // Create summary for prompt
+        if (row.title) {
+          summaries.push({
+            topic: row.title.replace('Research: ', ''),
+            date: this.formatTimeAgo(row.created_at),
+          });
+        }
+      }
+
+      return {
+        topics: [...new Set(topics)], // Dedupe
+        queries: [...new Set(queries)],
+        summaries,
+      };
+    } catch (error: any) {
+      logger.error('[AL] Failed to get research history', { error: error.message });
+      return { topics: [], queries: [], summaries: [] };
+    }
+  }
+
+  /**
+   * Check if there's genuinely new content worth researching
+   * Returns false if all candidates have likely been covered by recent research
+   * This is a heuristic to avoid unnecessary API calls
+   */
+  private hasUnresearchedContent(
+    ideas: any[],
+    actions: any[],
+    topics: string[],
+    history: { topics: string[]; queries: string[]; summaries: Array<{ topic: string; date: string }> }
+  ): boolean {
+    // If no research history, everything is new
+    if (history.summaries.length === 0) {
+      return true;
+    }
+
+    // Get the most recent research timestamp from summaries
+    // If we have ideas/actions that are newer than the last research, there's likely new content
+    const lastResearchDate = history.summaries[0]?.date;
+    const hasRecentActivity = ideas.some(idea => {
+      const ideaAge = this.formatTimeAgo(idea.created_at);
+      // If idea is from "today" or "X hours ago" and last research was "X days ago", it's new
+      return ideaAge.includes('hour') || ideaAge.includes('minute');
+    });
+
+    if (hasRecentActivity) {
+      logger.debug('[AL] Found recent captures since last research');
+      return true;
+    }
+
+    // Check if any candidate content doesn't overlap with researched topics
+    // Use simple keyword matching as a heuristic
+    const researchedKeywords = history.topics
+      .flatMap(t => t.toLowerCase().split(/\s+/))
+      .filter(w => w.length > 3); // Only meaningful words
+
+    const candidateTexts = [
+      ...ideas.map(i => i.content?.toLowerCase() || ''),
+      ...actions.map(a => a.content?.toLowerCase() || ''),
+      ...topics.map(t => t.toLowerCase()),
+    ];
+
+    // Check if any candidate has significant content not in researched keywords
+    for (const text of candidateTexts) {
+      const words = text.split(/\s+/).filter((w: string) => w.length > 3);
+      const newWords = words.filter((w: string) => !researchedKeywords.some((rk: string) =>
+        rk.includes(w) || w.includes(rk)
+      ));
+
+      // If more than 30% of words are new, there's likely new content
+      if (words.length > 0 && newWords.length / words.length > 0.3) {
+        logger.debug('[AL] Found candidate with novel content', {
+          text: text.slice(0, 50),
+          noveltyRatio: newWords.length / words.length
+        });
+        return true;
+      }
+    }
+
+    // All candidates seem to overlap with existing research
+    logger.debug('[AL] All candidates appear to overlap with recent research');
+    return false;
   }
 
   /**
