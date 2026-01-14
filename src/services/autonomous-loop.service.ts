@@ -683,6 +683,28 @@ Write the weekly digest now (~300-400 words):`;
         return result;
       }
 
+      // Smart pre-check: Skip if all candidates have likely been researched already
+      // This avoids wasting an API call when there's nothing genuinely new
+      const hasNewContent = this.hasUnresearchedContent(
+        recentIdeas,
+        researchActions,
+        recentTopics,
+        researchHistory
+      );
+
+      if (!hasNewContent) {
+        logger.info('[AL] Skipping research - all candidates already covered in recent research', {
+          userId,
+          candidateIdeas: recentIdeas.length,
+          researchActions: researchActions.length,
+          previouslyResearched: researchHistory.summaries.length,
+          message: 'Waiting for new captures before researching again',
+        });
+        result.success = true;
+        result.thoughtProduced = false;
+        return result;
+      }
+
       // Format inputs for topic selection
       const ideasText = recentIdeas
         .map((i, idx) => `${idx + 1}. "${i.content}" (captured ${this.formatTimeAgo(i.created_at)})`)
@@ -1036,6 +1058,70 @@ Write the research summary now:`;
       logger.error('[AL] Failed to get research history', { error: error.message });
       return { topics: [], queries: [], summaries: [] };
     }
+  }
+
+  /**
+   * Check if there's genuinely new content worth researching
+   * Returns false if all candidates have likely been covered by recent research
+   * This is a heuristic to avoid unnecessary API calls
+   */
+  private hasUnresearchedContent(
+    ideas: any[],
+    actions: any[],
+    topics: string[],
+    history: { topics: string[]; queries: string[]; summaries: Array<{ topic: string; date: string }> }
+  ): boolean {
+    // If no research history, everything is new
+    if (history.summaries.length === 0) {
+      return true;
+    }
+
+    // Get the most recent research timestamp from summaries
+    // If we have ideas/actions that are newer than the last research, there's likely new content
+    const lastResearchDate = history.summaries[0]?.date;
+    const hasRecentActivity = ideas.some(idea => {
+      const ideaAge = this.formatTimeAgo(idea.created_at);
+      // If idea is from "today" or "X hours ago" and last research was "X days ago", it's new
+      return ideaAge.includes('hour') || ideaAge.includes('minute');
+    });
+
+    if (hasRecentActivity) {
+      logger.debug('[AL] Found recent captures since last research');
+      return true;
+    }
+
+    // Check if any candidate content doesn't overlap with researched topics
+    // Use simple keyword matching as a heuristic
+    const researchedKeywords = history.topics
+      .flatMap(t => t.toLowerCase().split(/\s+/))
+      .filter(w => w.length > 3); // Only meaningful words
+
+    const candidateTexts = [
+      ...ideas.map(i => i.content?.toLowerCase() || ''),
+      ...actions.map(a => a.content?.toLowerCase() || ''),
+      ...topics.map(t => t.toLowerCase()),
+    ];
+
+    // Check if any candidate has significant content not in researched keywords
+    for (const text of candidateTexts) {
+      const words = text.split(/\s+/).filter((w: string) => w.length > 3);
+      const newWords = words.filter((w: string) => !researchedKeywords.some((rk: string) =>
+        rk.includes(w) || w.includes(rk)
+      ));
+
+      // If more than 30% of words are new, there's likely new content
+      if (words.length > 0 && newWords.length / words.length > 0.3) {
+        logger.debug('[AL] Found candidate with novel content', {
+          text: text.slice(0, 50),
+          noveltyRatio: newWords.length / words.length
+        });
+        return true;
+      }
+    }
+
+    // All candidates seem to overlap with existing research
+    logger.debug('[AL] All candidates appear to overlap with recent research');
+    return false;
   }
 
   /**
