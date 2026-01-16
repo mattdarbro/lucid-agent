@@ -175,7 +175,8 @@ CREATE TABLE calendar_events (
 CREATE INDEX idx_calendar_user ON calendar_events(user_id);
 CREATE INDEX idx_calendar_external ON calendar_events(external_id);
 CREATE INDEX idx_calendar_time ON calendar_events(user_id, start_time, end_time);
-CREATE INDEX idx_calendar_upcoming ON calendar_events(user_id, start_time) WHERE start_time > NOW() AND status != 'cancelled';
+-- Note: Cannot use NOW() in index predicate (not IMMUTABLE). Filter by status only.
+CREATE INDEX idx_calendar_upcoming ON calendar_events(user_id, start_time) WHERE status != 'cancelled';
 CREATE INDEX idx_calendar_source ON calendar_events(source);
 CREATE INDEX idx_calendar_sync_status ON calendar_events(sync_status) WHERE sync_status != 'synced';
 
