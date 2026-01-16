@@ -78,60 +78,75 @@ export interface Summary {
 export interface PersonalitySnapshot {
   id: string;
   user_id: string;
-  openness: number | null;
-  conscientiousness: number | null;
-  extraversion: number | null;
-  agreeableness: number | null;
-  neuroticism: number | null;
-  confidence: number;
-  snapshot_at: Date;
-  sample_size: number;
-  reasoning: string | null;
-  metadata: Record<string, any>;
+  conversation_id: string | null;
+  openness: number;
+  conscientiousness: number;
+  extraversion: number;
+  agreeableness: number;
+  neuroticism: number;
+  assessment_reasoning: string | null;
+  message_count: number | null;
+  created_at: Date;
 }
 
 export interface AutonomousThought {
   id: string;
   user_id: string;
-  thought_type: 'dream' | 'reflection' | 'curiosity' | 'insight' | 'question';
-  circadian_phase: 'morning' | 'midday' | 'evening' | 'night' | null;
+  agent_job_id: string | null;
   content: string;
-  trigger_type: 'scheduled' | 'pattern_detected' | 'user_mention' | 'memory_consolidation' | null;
-  trigger_data: Record<string, any> | null;
-  created_at: Date;
-  shared_with_user: boolean;
+  thought_type: 'dream' | 'reflection' | 'curiosity' | 'insight' | 'question' | 'consolidation' | 'synthesis';
+  circadian_phase: 'morning' | 'midday' | 'afternoon' | 'evening' | 'night' | null;
+  generated_at_time: string | null;
+  importance_score: number | null;
+  is_shared: boolean;
   shared_at: Date | null;
-  importance: number;
-  metadata: Record<string, any>;
   embedding: number[] | null;
+  created_at: Date;
 }
 
 export interface ResearchTask {
   id: string;
   user_id: string;
+  emotional_state_id: string | null;
   query: string;
-  reason: string | null;
+  purpose: string | null;
+  approach: 'gentle' | 'exploratory' | 'supportive' | 'analytical';
+  priority: number;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  results: Record<string, any> | null;
+  derived_facts: string[] | null;
   created_at: Date;
   started_at: Date | null;
   completed_at: Date | null;
-  results: Record<string, any> | null;
-  summary: string | null;
-  derived_facts: string[] | null;
-  metadata: Record<string, any>;
 }
+
+export type AgentJobType =
+  | 'morning_reflection'
+  | 'midday_curiosity'
+  | 'afternoon_synthesis'
+  | 'evening_consolidation'
+  | 'night_dream'
+  // Specialized AT Session Types (layered memory system)
+  | 'morning_curiosity_session'
+  | 'dream_session'
+  | 'state_session'
+  | 'orbit_session'
+  | 'document_reflection';
 
 export interface AgentJob {
   id: string;
   user_id: string;
-  job_type: 'morning_reflection' | 'midday_curiosity' | 'evening_consolidation' | 'night_dream';
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  job_type: AgentJobType;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
   scheduled_for: Date;
+  thoughts_generated: number;
+  research_tasks_created: number;
+  error_message: string | null;
+  session_metadata: Record<string, any>;
+  library_entry_id: string | null;
+  created_at: Date;
   started_at: Date | null;
   completed_at: Date | null;
-  output: Record<string, any> | null;
-  error: string | null;
-  metadata: Record<string, any>;
 }
 
 // ============================================================================
@@ -452,4 +467,189 @@ export interface PersonalityOverview {
   assessment_reasoning: string | null;
   message_count: number | null;
   created_at: Date;
+}
+
+// ============================================================================
+// LAYERED MEMORY SYSTEM
+// ============================================================================
+
+export interface MattState {
+  id: string;
+  user_id: string;
+  // Current state snapshot
+  active_goals: MattStateGoal[];
+  active_commitments: MattStateCommitment[];
+  resources: MattStateResources;
+  constraints: MattStateConstraints;
+  values_priorities: MattStateValues;
+  // Metadata
+  confidence: number;
+  last_updated_by: 'user' | 'state_session' | 'conversation' | null;
+  // Timestamps
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface MattStateGoal {
+  goal: string;
+  timeline?: string;
+  progress?: string;
+}
+
+export interface MattStateCommitment {
+  commitment: string;
+  frequency?: string;
+  impact?: string;
+}
+
+export interface MattStateResources {
+  time_budget?: string;
+  financial_runway?: string;
+  skills?: string[];
+  support?: string[];
+}
+
+export interface MattStateConstraints {
+  api_costs?: string;
+  technical_debt?: string[];
+  health?: string;
+  other?: string[];
+}
+
+export interface MattStateValues {
+  top_values?: string[];
+  current_focus?: string;
+}
+
+export interface MattStateHistory {
+  id: string;
+  user_id: string;
+  state_snapshot: Record<string, any>;
+  changes_summary: string | null;
+  updated_by: string | null;
+  created_at: Date;
+}
+
+export interface LucidState {
+  id: string;
+  user_id: string;
+  // Self-awareness
+  current_understanding: Record<string, any>;
+  confidence_levels: Record<string, number>;
+  areas_needing_witnessing: string[];
+  evolution_notes: string | null;
+  // Current focus
+  active_questions: string[];
+  recent_insights: string[];
+  // Timestamps
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface Orbit {
+  id: string;
+  user_id: string;
+  // Person identity
+  person_name: string;
+  relationship: string | null;
+  // Their state
+  current_situation: Record<string, any>;
+  recent_interactions: Record<string, any>[];
+  // User's perspective
+  how_this_affects_user: string | null;
+  last_discussed_at: Date | null;
+  // Orbit tier
+  orbit_tier: 'inner' | 'mid' | 'outer';
+  // Status
+  is_active: boolean;
+  // Timestamps
+  first_mentioned_at: Date;
+  last_mentioned_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// ============================================================================
+// CAPTURE SYSTEM
+// ============================================================================
+
+export type ActionStatus = 'open' | 'done' | 'cancelled';
+export type ActionSource = 'capture' | 'conversation' | 'briefing';
+
+export interface Action {
+  id: string;
+  user_id: string;
+  // Content
+  content: string;
+  summary: string | null;
+  // Status
+  status: ActionStatus;
+  // Optional person link
+  person_id: string | null;
+  // Source tracking
+  source: ActionSource;
+  // Timestamps
+  created_at: Date;
+  completed_at: Date | null;
+  updated_at: Date;
+}
+
+export type CaptureCategory = 'ACTION' | 'IDEA' | 'FACT' | 'PERSON';
+
+export interface CaptureClassification {
+  category: CaptureCategory;
+  summary: string;
+  person_name: string | null;
+  confidence: number;
+}
+
+// ============================================================================
+// SPECIALIZED AT SESSION TYPES
+// ============================================================================
+
+export type SpecializedSessionType =
+  | 'morning_curiosity'
+  | 'dream_session'
+  | 'state_session'
+  | 'orbit_session';
+
+export type LibraryEntryType =
+  | 'lucid_thought'
+  | 'lucid_self_reflection'  // Lucid thinking about himself
+  | 'orbit_reflection'       // Thinking about someone in orbits
+  | 'vision_appraisal'       // Dream/vision/goal exploration
+  | 'possibility_map'        // Branching alternatives when stuck
+  | 'user_reflection'
+  | 'journal'
+  | 'reflection'
+  | 'curiosity'
+  | 'dream'
+  | 'consolidation'
+  | 'state_update'
+  | 'orbit_update'
+  | 'deep_thought'
+  // Simplified design types (Phase 1-2)
+  | 'briefing'               // Morning/weekly briefings from AL
+  | 'insight';               // Ideas captured via Capture system
+
+/**
+ * Subject of a thought - who/what the thought is about
+ */
+export type ThoughtSubject = 'user' | 'other' | 'lucid';
+
+export interface LibraryEntry {
+  id: string;
+  user_id: string;
+  entry_type: LibraryEntryType;
+  title: string | null;
+  content: string;
+  time_of_day: 'morning' | 'afternoon' | 'evening' | 'night' | null;
+  related_conversation_id: string | null;
+  metadata: Record<string, any>;
+  session_type: SpecializedSessionType | null;
+  session_metadata: Record<string, any>;
+  is_shared: boolean;
+  embedding: number[] | null;
+  created_at: Date;
+  updated_at: Date;
 }

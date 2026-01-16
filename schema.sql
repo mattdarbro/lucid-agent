@@ -14,15 +14,19 @@ CREATE EXTENSION IF NOT EXISTS "vector"; -- for pgvector (semantic search)
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   external_id VARCHAR(255) UNIQUE NOT NULL, -- iOS app user ID
-  
+
   -- User metadata
   name VARCHAR(255),
   email VARCHAR(255),
   timezone VARCHAR(50) DEFAULT 'UTC',
-  
+
   -- Preferences
   preferences JSONB DEFAULT '{}',
-  
+
+  -- Push notifications
+  push_token TEXT, -- Device push notification token for iOS
+  push_token_updated_at TIMESTAMP,
+
   -- Timestamps
   created_at TIMESTAMPTZ DEFAULT NOW(),
   last_active_at TIMESTAMPTZ DEFAULT NOW()
@@ -32,34 +36,64 @@ CREATE INDEX idx_users_external_id ON users(external_id);
 CREATE INDEX idx_users_last_active ON users(last_active_at);
 
 -- ============================================================================
--- 2. Conversations
+-- 2. User Profiles (Modular Configuration)
+-- ============================================================================
+
+CREATE TABLE user_profiles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES users(id) NOT NULL UNIQUE,
+
+  -- Profile selection
+  profile_id VARCHAR(50) NOT NULL, -- 'full-lucid', 'decision-assistant', 'news-digest', 'simple-chat'
+
+  -- Settings overrides (allows per-user feature toggles without changing profile)
+  settings_overrides JSONB DEFAULT '{}'::jsonb,
+
+  -- Timestamps
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_user_profiles_user ON user_profiles(user_id);
+CREATE INDEX idx_user_profiles_profile_id ON user_profiles(profile_id);
+
+-- ============================================================================
+-- 3. Conversations
 -- ============================================================================
 
 CREATE TABLE conversations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES users(id) NOT NULL,
-  
+
   -- Conversation metadata
   title TEXT,
   message_count INT DEFAULT 0,
-  
+
   -- Context tracking
   time_of_day VARCHAR(20), -- 'early_morning', 'morning', 'afternoon', 'evening', 'night', 'late_night'
   user_timezone VARCHAR(50), -- timezone at time of conversation
   emotional_state_id UUID, -- link to detected emotional state (added via FK later)
-  
+
+  -- Task/context linking (added by migration 009)
+  conversation_context TEXT, -- 'general', 'task_check_in', 'insight_review'
+  related_task_id UUID, -- references multi_day_research_tasks(id) - FK added in migration 009
+  related_insight_id UUID, -- references task_insights(id) - FK added in migration 009
+  metadata JSONB DEFAULT '{}',
+
   -- Status
   is_active BOOLEAN DEFAULT TRUE,
-  
+
   -- Timestamps
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  ended_at TIMESTAMPTZ
+  ended_at TIMESTAMPTZ,
+  last_fact_extraction_at TIMESTAMPTZ -- When facts were last extracted from this conversation
 );
 
 CREATE INDEX idx_conversations_user ON conversations(user_id);
 CREATE INDEX idx_conversations_active ON conversations(user_id, is_active);
 CREATE INDEX idx_conversations_time_of_day ON conversations(user_id, time_of_day);
+CREATE INDEX idx_conversations_fact_extraction ON conversations(last_fact_extraction_at NULLS FIRST, updated_at DESC) WHERE is_active = true;
 
 -- Auto-populate time_of_day based on created_at
 CREATE OR REPLACE FUNCTION set_time_of_day()
@@ -593,11 +627,83 @@ WHERE ps.id IN (
 );
 
 -- ============================================================================
+-- Library System (Phase 2)
+-- ============================================================================
+
+CREATE TABLE library_entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+  -- Entry type: LUCID thoughts, user reflections, debate syntheses, or research journals
+  entry_type TEXT NOT NULL CHECK (entry_type IN (
+    'lucid_thought',      -- LUCID's deep thinking
+    'user_reflection',    -- User's long-form writing
+    'versus_synthesis',   -- Debate summaries from Lu & Cid
+    'research_journal'    -- User's observations about LUCID
+  )),
+
+  -- Content
+  title TEXT,
+  content TEXT NOT NULL,
+
+  -- Temporal context
+  time_of_day TEXT CHECK (time_of_day IN ('morning', 'afternoon', 'evening', 'night')),
+
+  -- Optional link to source conversation
+  related_conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
+
+  -- Metadata for additional context
+  metadata JSONB DEFAULT '{}'::jsonb,
+
+  -- Vector embedding for semantic search
+  embedding vector(1536),
+
+  -- Timestamps
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_library_user_time ON library_entries(user_id, created_at DESC);
+CREATE INDEX idx_library_time_of_day ON library_entries(user_id, time_of_day);
+CREATE INDEX idx_library_entry_type ON library_entries(user_id, entry_type);
+CREATE INDEX idx_library_embedding ON library_entries USING ivfflat (embedding vector_cosine_ops);
+
+-- ============================================================================
+-- API Usage Tracking (Cost monitoring)
+-- ============================================================================
+
+CREATE TABLE api_usage (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES users(id) NOT NULL,
+
+  -- What triggered this API call
+  source VARCHAR(50) NOT NULL, -- 'chat', 'morning_reflection', 'midday_curiosity', etc.
+
+  -- Model and token counts
+  model VARCHAR(100) NOT NULL,
+  input_tokens INT NOT NULL DEFAULT 0,
+  output_tokens INT NOT NULL DEFAULT 0,
+
+  -- Cost in USD (calculated at time of logging)
+  cost_usd DECIMAL(10,6) NOT NULL DEFAULT 0,
+
+  -- Additional context
+  metadata JSONB DEFAULT '{}'::jsonb,
+
+  -- Timestamp
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_api_usage_user ON api_usage(user_id);
+CREATE INDEX idx_api_usage_user_date ON api_usage(user_id, created_at DESC);
+CREATE INDEX idx_api_usage_source ON api_usage(user_id, source);
+
+-- ============================================================================
 -- Sample Data (Optional - for testing)
 -- ============================================================================
 
 -- Uncomment to insert sample user
--- INSERT INTO users (external_id, name, email, timezone) 
+-- INSERT INTO users (external_id, name, email, timezone)
 -- VALUES ('ios_user_123', 'Matt', 'matt@example.com', 'America/Los_Angeles');
 
 -- ============================================================================

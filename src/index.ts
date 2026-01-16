@@ -1,10 +1,38 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { config, validateConfig } from './config';
-import { testConnection, closeConnections } from './db';
+import { testConnection, closeConnections, pool, supabase } from './db';
 import { logger } from './logger';
 import usersRouter from './routes/users';
 import conversationsRouter from './routes/conversations';
+import messagesRouter from './routes/messages';
+import factsRouter from './routes/facts';
+import evidenceRouter from './routes/evidence';
+import chatRouter from './routes/chat';
+import summaryRouter from './routes/summary';
+import { createAgentJobRouter } from './routes/agent-jobs';
+import { createResearchTaskRouter } from './routes/research-tasks';
+import profilesRouter from './routes/profiles';
+import thoughtNotificationsRouter from './routes/thought-notifications';
+import multiDayTasksRouter from './routes/multi-day-tasks';
+import taskInsightsRouter from './routes/task-insights';
+import { BackgroundJobsService } from './services/background-jobs.service';
+import libraryRouter from './routes/library';
+import versusRouter from './routes/versus';
+import syncRouter from './routes/sync';
+import devicesRouter from './routes/devices';
+import mergeRouter from './routes/merge';
+import costsRouter from './routes/costs';
+import { createMattStateRouter } from './routes/matt-state';
+import { createOrbitsRouter } from './routes/orbits';
+import { createLivingDocumentRouter } from './routes/living-document';
+import { createStateCheckRouter } from './routes/state-check';
+import researchQueueRouter from './routes/research-queue';
+import winsRouter from './routes/wins';
+import possibilitiesRouter from './routes/possibilities';
+import { createActionsRouter } from './routes/actions';
+import { createCaptureRouter } from './routes/capture';
+// New Calendar/Reminders integration routes
 import capturesRouter from './routes/captures';
 import calendarRouter from './routes/calendar';
 import peopleRouter from './routes/people';
@@ -23,12 +51,30 @@ const PORT = config.port;
 const HOST = '0.0.0.0';
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: true, // Allow all origins (Railway URLs, localhost, iOS, etc.)
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Type'],
+    maxAge: 86400, // 24 hours preflight cache
+  })
+);
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging
+// Request logging with error tracking
 app.use((req, res, next) => {
+  const start = Date.now();
   logger.debug(`${req.method} ${req.path}`);
+
+  // Log response status
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    logger.debug(`${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
+  });
+
   next();
 });
 
@@ -67,21 +113,78 @@ app.get('/info', (req, res) => {
 
 app.use('/v1/users', usersRouter);
 app.use('/v1/conversations', conversationsRouter);
+app.use('/v1/messages', messagesRouter);
+app.use('/v1/facts', factsRouter);
+app.use('/v1/users/:user_id/facts', factsRouter);
+app.use('/v1/evidence', evidenceRouter);
+app.use('/v1/facts/:fact_id/evidence', evidenceRouter);
+app.use('/v1/chat', chatRouter);
+app.use('/v1/summaries', summaryRouter);
+app.use('/v1/conversations/:conversation_id/summaries', summaryRouter);
+app.use('/v1/users/:user_id/summaries', summaryRouter);
+
+// Calendar & Reminders Integration (new)
 app.use('/v1/captures', capturesRouter);
 app.use('/v1/calendar', calendarRouter);
 app.use('/v1/people', peopleRouter);
 
-// TODO: Chat endpoint with streaming
-// app.use('/v1/chat', chatRouter);
+// Agent jobs and research tasks
+app.use('/v1/agent-jobs', createAgentJobRouter(pool, supabase));
+app.use('/v1/research-tasks', createResearchTaskRouter(pool, supabase));
 
-// TODO: Memory endpoints
+// Phase 5: Temporal Check-In System
+app.use('/v1/thought-notifications', thoughtNotificationsRouter);
+app.use('/v1/multi-day-tasks', multiDayTasksRouter);
+app.use('/v1/users/:user_id/multi-day-tasks', multiDayTasksRouter);
+app.use('/v1/tasks', taskInsightsRouter); // Task insights and conversations
+app.use('/v1/insights', taskInsightsRouter); // Direct insight access
+
+// Profile Management (Modular Configuration)
+app.use('/v1/profiles', profilesRouter);
+
+// Library (Phase 2 - autonomous thoughts and user reflections)
+app.use('/v1/library', libraryRouter);
+
+// Versus Mode (Phase F - Lu & Cid debates)
+app.use('/v1/versus', versusRouter);
+
+// Manual Sync endpoints (trigger fact extraction and reflections on-demand)
+app.use('/v1/sync', syncRouter);
+
+// Device linking (multi-device support)
+app.use('/v1/devices', devicesRouter);
+
+// User data export and merge (consolidate multiple Lucid instances)
+app.use('/v1/merge', mergeRouter);
+
+// Cost tracking (API usage monitoring)
+app.use('/v1/costs', costsRouter);
+
+// Layered Memory System (Phase 6 - Matt State and Orbits)
+app.use('/v1/matt-state', createMattStateRouter(pool));
+app.use('/v1/orbits', createOrbitsRouter(pool));
+
+// Living Document (Lucid's working memory - unified notes)
+app.use('/v1/living-document', createLivingDocumentRouter(pool));
+
+// State Check Tool (guided dream/goal discovery conversations)
+app.use('/v1/state-check', createStateCheckRouter(pool));
+
+// Modular Intelligence System (Research Queue)
+app.use('/v1/research-queue', researchQueueRouter);
+
+// Wins tracking (user accomplishments)
+app.use('/v1/wins', winsRouter);
+
+// Possibilities (sigma-based alternative exploration)
+app.use('/v1/possibilities', possibilitiesRouter);
+
+// Capture System (Phase 1-2 of simplified design)
+app.use('/v1/actions', createActionsRouter(pool));
+app.use('/v1/capture', createCaptureRouter(pool));
+
+// TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);
-
-// TODO: Personality endpoint
-// app.use('/v1/personality', personalityRouter);
-
-// TODO: Autonomous thoughts endpoint
-// app.use('/v1/thoughts', thoughtsRouter);
 
 // ============================================================================
 // ERROR HANDLERS
@@ -102,6 +205,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // SERVER STARTUP
 // ============================================================================
 
+// Initialize background jobs service
+let backgroundJobs: BackgroundJobsService | null = null;
+
 async function startServer() {
   try {
     // Test database connection
@@ -114,26 +220,37 @@ async function startServer() {
     }
 
     // Start Express server
-    const server = app.listen(PORT, HOST, () => {
+    const server = app.listen(PORT, HOST, async () => {
       logger.info(`🧠 ${config.agent.name} agent running on ${HOST}:${PORT}`);
       logger.info(`📊 Health: http://localhost:${PORT}/health`);
       logger.info(`ℹ️  Info: http://localhost:${PORT}/info`);
       logger.info(`🔗 Studio API: ${config.studioApi.url}`);
 
-      if (config.features.autonomousAgents) {
-        logger.info('🤖 Autonomous agents: ENABLED');
-      }
-      if (config.features.dreams) {
-        logger.info('💭 Dreams: ENABLED');
-      }
       if (config.features.webResearch) {
         logger.info('🔍 Web research: ENABLED');
+      }
+
+      // Start background jobs for automatic fact extraction and autonomous loops
+      try {
+        backgroundJobs = new BackgroundJobsService(pool, supabase);
+        backgroundJobs.start();
+        logger.info('📚 Background jobs: STARTED (fact extraction + autonomous loops)');
+      } catch (error) {
+        logger.error('Failed to start background jobs:', error);
+        logger.warn('⚠️  Continuing without background fact extraction');
       }
     });
 
     // Graceful shutdown handlers
     const shutdown = async () => {
       logger.info('Shutting down gracefully...');
+
+      // Stop background jobs if running
+      if (backgroundJobs) {
+        logger.info('Stopping background jobs...');
+        backgroundJobs.stop();
+      }
+
       server.close(async () => {
         await closeConnections();
         logger.info('Server shut down complete');

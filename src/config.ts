@@ -20,7 +20,7 @@ export const config = {
   // Anthropic (for LLM/chat)
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
-    model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022',
+    model: process.env.ANTHROPIC_MODEL || 'claude-opus-4-5-20251101',
   },
 
   // OpenAI (for embeddings only)
@@ -47,6 +47,9 @@ export const config = {
     midday: process.env.MIDDAY_CRON || '0 12 * * *',
     evening: process.env.EVENING_CRON || '0 20 * * *',
     night: process.env.NIGHT_CRON || '0 2 * * *',
+    // Fact extraction: default every 10 minutes (was 5 minutes)
+    // Options: '*/5 * * * *' (5 min), '*/10 * * * *' (10 min), '0 * * * *' (hourly), '0 0 * * *' (daily)
+    factExtraction: process.env.FACT_EXTRACTION_CRON || '*/10 * * * *',
   },
 
   // Feature Flags

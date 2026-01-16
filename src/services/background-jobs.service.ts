@@ -1,0 +1,596 @@
+import cron from 'node-cron';
+import { Pool } from 'pg';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { logger } from '../logger';
+import { FactService } from './fact.service';
+import { MessageService } from './message.service';
+import { VectorService } from './vector.service';
+import { ProfileService } from './profile.service';
+import { AgentJobService } from './agent-job.service';
+import { AutonomousLoopService } from './autonomous-loop.service';
+import { JobType } from '../validation/agent-job.validation';
+
+/**
+ * BackgroundJobsService
+ *
+ * Handles scheduled background tasks for the Lucid agent:
+ * - Automatic fact extraction from conversations
+ * - Autonomous loop execution (circadian thinking)
+ *
+ * Autonomous Loops (AL):
+ * - evening_consolidation: Reflect on the day's conversations
+ * - (more to come: morning, midday, night)
+ */
+export class BackgroundJobsService {
+  private pool: Pool;
+  private supabase: SupabaseClient;
+  private factService: FactService;
+  private messageService: MessageService;
+  private profileService: ProfileService;
+  private agentJobService: AgentJobService;
+  private autonomousLoopService: AutonomousLoopService;
+  private factExtractionJob: cron.ScheduledTask | null = null;
+  private autonomousLoopJob: cron.ScheduledTask | null = null;
+  private dailyJobScheduler: cron.ScheduledTask | null = null;
+  private isRunning: boolean = false;
+
+  constructor(pool: Pool, supabase: SupabaseClient) {
+    this.pool = pool;
+    this.supabase = supabase;
+    const vectorService = new VectorService();
+    this.factService = new FactService(pool, vectorService);
+    this.messageService = new MessageService(pool, vectorService);
+    this.profileService = new ProfileService(pool);
+    this.agentJobService = new AgentJobService(pool, supabase);
+    this.autonomousLoopService = new AutonomousLoopService(pool);
+  }
+
+  /**
+   * Start all background jobs
+   */
+  start(): void {
+    if (this.isRunning) {
+      logger.warn('[BACKGROUND] Jobs already running');
+      return;
+    }
+
+    this.startFactExtractionJob();
+    this.startAutonomousLoopJob();
+    this.startDailyJobScheduler();
+    this.isRunning = true;
+    logger.info('[BACKGROUND] Background jobs started');
+  }
+
+  /**
+   * Stop all background jobs
+   */
+  stop(): void {
+    if (this.factExtractionJob) {
+      this.factExtractionJob.stop();
+      this.factExtractionJob = null;
+    }
+    if (this.autonomousLoopJob) {
+      this.autonomousLoopJob.stop();
+      this.autonomousLoopJob = null;
+    }
+    if (this.dailyJobScheduler) {
+      this.dailyJobScheduler.stop();
+      this.dailyJobScheduler = null;
+    }
+    this.isRunning = false;
+    logger.info('[BACKGROUND] Background jobs stopped');
+  }
+
+  /**
+   * Start the autonomous loop job checker
+   * Runs every 5 minutes to check for due agent jobs
+   */
+  private startAutonomousLoopJob(): void {
+    // Check every 5 minutes for due jobs
+    this.autonomousLoopJob = cron.schedule('*/5 * * * *', async () => {
+      await this.runDueAutonomousLoops();
+    });
+
+    logger.info('[BACKGROUND] Autonomous loop job scheduled (every 5 minutes)');
+
+    // Also run check on startup after a delay
+    setTimeout(() => {
+      this.runDueAutonomousLoops().catch((err) => {
+        logger.error('[BACKGROUND] Initial autonomous loop check failed:', err);
+      });
+    }, 15000); // 15 second delay to let server stabilize
+  }
+
+  /**
+   * Check for and run any due autonomous loop jobs
+   */
+  private async runDueAutonomousLoops(): Promise<void> {
+    try {
+      const dueJobs = await this.agentJobService.getDueJobs();
+
+      if (dueJobs.length === 0) {
+        logger.debug('[AL] No due autonomous loop jobs');
+        return;
+      }
+
+      logger.info(`[AL] Found ${dueJobs.length} due autonomous loop jobs`);
+
+      for (const job of dueJobs) {
+        try {
+          // Check if user has autonomous agents enabled
+          const profile = await this.profileService.getUserProfile(job.user_id);
+          if (!profile.features.autonomousAgents) {
+            logger.debug(`[AL] Skipping job ${job.id} - autonomous agents disabled for user`);
+            await this.agentJobService.markJobAsSkipped(job.id, 'Autonomous agents disabled');
+            continue;
+          }
+
+          // Mark job as started
+          await this.agentJobService.markJobAsStarted(job.id);
+
+          // Run the appropriate loop based on job type
+          const result = await this.runLoop(job.job_type, job.user_id, job.id);
+
+          // Mark job as completed
+          await this.agentJobService.markJobAsCompleted(
+            job.id,
+            result.thoughtProduced ? 1 : 0,
+            0 // research tasks (not implemented yet)
+          );
+
+          logger.info(`[AL] Completed job ${job.id}`, {
+            job_type: job.job_type,
+            thought_produced: result.thoughtProduced,
+            library_entry_id: result.libraryEntryId,
+          });
+        } catch (jobError: any) {
+          logger.error(`[AL] Job ${job.id} failed`, { error: jobError.message });
+          await this.agentJobService.markJobAsFailed(job.id, jobError.message);
+        }
+
+        // Delay between jobs to avoid overwhelming the API
+        await this.sleep(3000);
+      }
+    } catch (error: any) {
+      logger.error('[AL] Autonomous loop runner failed', { error: error.message });
+    }
+  }
+
+  /**
+   * Run the appropriate loop for a job type
+   */
+  private async runLoop(
+    jobType: JobType,
+    userId: string,
+    jobId: string
+  ): Promise<{ thoughtProduced: boolean; libraryEntryId: string | null }> {
+    switch (jobType) {
+      case 'evening_consolidation':
+        const eveningResult = await this.autonomousLoopService.runEveningSynthesis(userId, jobId);
+        return {
+          thoughtProduced: eveningResult.thoughtProduced,
+          libraryEntryId: eveningResult.libraryEntryId,
+        };
+
+      case 'morning_reflection':
+        const morningResult = await this.autonomousLoopService.runMorningBriefing(userId, jobId);
+        return {
+          thoughtProduced: morningResult.thoughtProduced,
+          libraryEntryId: morningResult.libraryEntryId,
+        };
+
+      case 'afternoon_synthesis':
+        // Used for Weekly Digest on Sundays
+        const weeklyResult = await this.autonomousLoopService.runWeeklyDigest(userId, jobId);
+        return {
+          thoughtProduced: weeklyResult.thoughtProduced,
+          libraryEntryId: weeklyResult.libraryEntryId,
+        };
+
+      case 'midday_curiosity':
+        // Web Research loop
+        const researchResult = await this.autonomousLoopService.runMiddayCuriosity(userId, jobId);
+        return {
+          thoughtProduced: researchResult.thoughtProduced,
+          libraryEntryId: researchResult.libraryEntryId,
+        };
+
+      // Placeholder for future loops
+      case 'night_dream':
+      case 'document_reflection':
+        logger.info(`[AL] Loop type ${jobType} not yet implemented`);
+        return { thoughtProduced: false, libraryEntryId: null };
+
+      default:
+        logger.warn(`[AL] Unknown job type: ${jobType}`);
+        return { thoughtProduced: false, libraryEntryId: null };
+    }
+  }
+
+  /**
+   * Start the daily job scheduler
+   * Runs at midnight (in server timezone) to schedule circadian jobs for all active users
+   * Also runs on startup to ensure today's jobs are scheduled
+   */
+  private startDailyJobScheduler(): void {
+    // Run daily at midnight to schedule jobs for the new day
+    this.dailyJobScheduler = cron.schedule('0 0 * * *', async () => {
+      await this.scheduleJobsForActiveUsers();
+    });
+
+    logger.info('[BACKGROUND] Daily job scheduler started (runs at midnight)');
+
+    // Also run on startup after a delay to schedule today's jobs
+    setTimeout(() => {
+      this.scheduleJobsForActiveUsers().catch((err) => {
+        logger.error('[BACKGROUND] Initial job scheduling failed:', err);
+      });
+    }, 20000); // 20 second delay to let server stabilize
+  }
+
+  /**
+   * Schedule circadian jobs for all users with autonomous agents enabled
+   */
+  private async scheduleJobsForActiveUsers(): Promise<void> {
+    try {
+      logger.info('[SCHEDULER] Scheduling circadian jobs for active users');
+
+      // Find all users who were active in last 7 days
+      const result = await this.pool.query(`
+        SELECT DISTINCT u.id as user_id
+        FROM users u
+        WHERE u.last_active_at > NOW() - INTERVAL '7 days'
+      `);
+
+      if (result.rows.length === 0) {
+        logger.info('[SCHEDULER] No active users found');
+        return;
+      }
+
+      logger.info(`[SCHEDULER] Found ${result.rows.length} active users, checking agent settings...`);
+
+      const today = new Date();
+      let totalJobsCreated = 0;
+      let usersWithAgentsEnabled = 0;
+
+      for (const row of result.rows) {
+        try {
+          // Check if user has autonomous agents enabled via profile service
+          const agentsEnabled = await this.profileService.areAgentsEnabled(row.user_id);
+
+          if (!agentsEnabled) {
+            logger.debug(`[SCHEDULER] Skipping user ${row.user_id} - agents not enabled`);
+            continue;
+          }
+
+          usersWithAgentsEnabled++;
+          const jobs = await this.agentJobService.scheduleCircadianJobs(row.user_id, today);
+          totalJobsCreated += jobs.length;
+          if (jobs.length > 0) {
+            logger.info(`[SCHEDULER] Created ${jobs.length} jobs for user ${row.user_id}`);
+          }
+        } catch (error: any) {
+          logger.error(`[SCHEDULER] Failed to schedule jobs for user ${row.user_id}:`, {
+            error: error.message,
+          });
+        }
+
+        // Small delay between users
+        await this.sleep(500);
+      }
+
+      logger.info(`[SCHEDULER] Completed: ${totalJobsCreated} jobs created for ${usersWithAgentsEnabled} users with agents enabled`);
+    } catch (error: any) {
+      logger.error('[SCHEDULER] Failed to schedule jobs for active users:', {
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * Manually trigger an autonomous loop for a user (useful for testing)
+   */
+  async triggerEveningSynthesis(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    title: string | null;
+  }> {
+    logger.info('[AL] Manual trigger: evening synthesis', { userId });
+    const result = await this.autonomousLoopService.runEveningSynthesis(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      title: result.title,
+    };
+  }
+
+  /**
+   * Manually trigger morning briefing for a user (useful for testing)
+   */
+  async triggerMorningBriefing(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    title: string | null;
+  }> {
+    logger.info('[AL] Manual trigger: morning briefing', { userId });
+    const result = await this.autonomousLoopService.runMorningBriefing(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      title: result.title,
+    };
+  }
+
+  /**
+   * Manually trigger weekly digest for a user (useful for testing)
+   */
+  async triggerWeeklyDigest(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    title: string | null;
+  }> {
+    logger.info('[AL] Manual trigger: weekly digest', { userId });
+    const result = await this.autonomousLoopService.runWeeklyDigest(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      title: result.title,
+    };
+  }
+
+  /**
+   * Manually trigger web research for a user (useful for testing)
+   */
+  async triggerWebResearch(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    title: string | null;
+  }> {
+    logger.info('[AL] Manual trigger: web research', { userId });
+    const result = await this.autonomousLoopService.runMiddayCuriosity(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      title: result.title,
+    };
+  }
+
+  /**
+   * Starts the automatic fact extraction job
+   * Runs hourly, but only extracts from conversations idle for 60+ minutes
+   * This ensures facts are extracted once per conversation "session"
+   */
+  private startFactExtractionJob(): void {
+    // Check hourly for idle conversations
+    this.factExtractionJob = cron.schedule('0 * * * *', async () => {
+      await this.runFactExtraction();
+    });
+
+    logger.info('[BACKGROUND] Fact extraction job scheduled (hourly, 60min idle trigger)');
+
+    // Also run immediately on startup after a short delay
+    setTimeout(() => {
+      this.runFactExtraction().catch((err) => {
+        logger.error('[BACKGROUND] Initial fact extraction failed:', err);
+      });
+    }, 10000); // 10 second delay to let server stabilize
+  }
+
+  /**
+   * Run fact extraction for eligible conversations
+   * Only extracts from conversations that have been idle for 60+ minutes
+   * This ensures we extract once per conversation "session" rather than constantly polling
+   */
+  private async runFactExtraction(): Promise<void> {
+    try {
+      logger.debug('[BACKGROUND] Checking for idle conversations needing fact extraction');
+
+      // Find conversations with:
+      // - 5+ messages
+      // - Idle for 60+ minutes (no activity in last hour)
+      // - Not extracted since last activity (or never extracted)
+      // - Had activity in last 7 days (don't process ancient conversations)
+      const result = await this.pool.query(`
+        SELECT c.id as conversation_id, c.user_id, c.updated_at
+        FROM conversations c
+        JOIN messages m ON m.conversation_id = c.id
+        WHERE c.updated_at < NOW() - INTERVAL '60 minutes'
+          AND c.updated_at > NOW() - INTERVAL '7 days'
+          AND (c.last_fact_extraction_at IS NULL
+               OR c.last_fact_extraction_at < c.updated_at)
+        GROUP BY c.id, c.user_id, c.updated_at
+        HAVING COUNT(m.id) >= 5
+        ORDER BY c.updated_at DESC
+        LIMIT 10
+      `);
+
+      if (result.rows.length === 0) {
+        logger.debug('[BACKGROUND] No conversations need fact extraction');
+        return;
+      }
+
+      logger.info(`[BACKGROUND] Found ${result.rows.length} conversations for fact extraction`);
+
+      for (const row of result.rows) {
+        try {
+          // Check if user has fact extraction enabled in their profile
+          const profile = await this.profileService.getUserProfile(row.user_id);
+          const factExtractionEnabled = profile.features.memorySystem &&
+            (profile.memory?.factExtraction ?? true);
+
+          if (!factExtractionEnabled) {
+            logger.debug(`[BACKGROUND] Skipping fact extraction for user ${row.user_id} (disabled in profile)`);
+            // Still mark as processed to avoid re-checking constantly
+            await this.pool.query(
+              'UPDATE conversations SET last_fact_extraction_at = NOW() WHERE id = $1',
+              [row.conversation_id]
+            );
+            continue;
+          }
+
+          await this.extractFactsForConversation(row.conversation_id, row.user_id);
+
+          // Mark extraction done
+          await this.pool.query(
+            'UPDATE conversations SET last_fact_extraction_at = NOW() WHERE id = $1',
+            [row.conversation_id]
+          );
+
+          logger.info(`[BACKGROUND] Extracted facts for conversation ${row.conversation_id}`);
+        } catch (error: any) {
+          logger.error(`[BACKGROUND] Failed to extract facts for conversation ${row.conversation_id}:`, {
+            error: error.message,
+          });
+          // Continue with other conversations even if one fails
+        }
+
+        // Small delay between extractions to avoid overwhelming the LLM API
+        await this.sleep(2000);
+      }
+    } catch (error: any) {
+      logger.error('[BACKGROUND] Fact extraction job failed:', {
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * Extract facts from a specific conversation
+   */
+  private async extractFactsForConversation(
+    conversationId: string,
+    userId: string
+  ): Promise<void> {
+    // Fetch recent messages from the conversation
+    const messages = await this.messageService.getRecentMessages(conversationId, 20);
+
+    if (messages.length === 0) {
+      logger.debug(`[BACKGROUND] No messages found for conversation ${conversationId}`);
+      return;
+    }
+
+    // Format messages for fact extraction
+    const formattedMessages = messages.map((m) => {
+      const prefix = m.role === 'user' ? 'User: ' : 'Assistant: ';
+      return prefix + m.content;
+    });
+
+    // Extract facts using LLM
+    const extractedFacts = await this.factService.extractFactsFromMessages(
+      formattedMessages,
+      userId
+    );
+
+    if (extractedFacts.length === 0) {
+      logger.debug(`[BACKGROUND] No facts extracted from conversation ${conversationId}`);
+      return;
+    }
+
+    // Create the extracted facts in database
+    let createdCount = 0;
+    for (const extracted of extractedFacts) {
+      try {
+        await this.factService.createFact({
+          user_id: userId,
+          content: extracted.content,
+          category: extracted.category,
+          confidence: extracted.confidence,
+        });
+        createdCount++;
+      } catch (error: any) {
+        // Log but don't fail - fact might be duplicate
+        logger.debug(`[BACKGROUND] Failed to create fact: ${error.message}`);
+      }
+    }
+
+    logger.info(`[BACKGROUND] Created ${createdCount}/${extractedFacts.length} facts from conversation ${conversationId}`);
+  }
+
+  /**
+   * Utility function for delays
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Manually trigger fact extraction (useful for testing)
+   */
+  async triggerFactExtraction(): Promise<void> {
+    await this.runFactExtraction();
+  }
+
+  /**
+   * Trigger fact extraction for a specific user's conversations
+   */
+  async triggerFactExtractionForUser(userId: string): Promise<{
+    conversations_processed: number;
+    facts_created: number;
+    details: Array<{ conversation_id: string; facts_created: number }>;
+  }> {
+    const result = {
+      conversations_processed: 0,
+      facts_created: 0,
+      details: [] as Array<{ conversation_id: string; facts_created: number }>,
+    };
+
+    try {
+      // Find all eligible conversations for this user (ignore the 10-minute cooldown for manual trigger)
+      const conversations = await this.pool.query(`
+        SELECT c.id as conversation_id, c.title, MAX(c.updated_at) as updated_at
+        FROM conversations c
+        JOIN messages m ON m.conversation_id = c.id
+        WHERE c.user_id = $1
+          AND c.updated_at > NOW() - INTERVAL '7 days'
+        GROUP BY c.id, c.title
+        HAVING COUNT(m.id) >= 3
+        ORDER BY updated_at DESC
+        LIMIT 10
+      `, [userId]);
+
+      if (conversations.rows.length === 0) {
+        logger.info(`[MANUAL TRIGGER] No eligible conversations for user ${userId}`);
+        return result;
+      }
+
+      logger.info(`[MANUAL TRIGGER] Processing ${conversations.rows.length} conversations for user ${userId}`);
+
+      for (const row of conversations.rows) {
+        try {
+          const beforeCount = await this.factService.getCountByUser(userId);
+
+          await this.extractFactsForConversation(row.conversation_id, userId);
+
+          // Mark extraction done
+          await this.pool.query(
+            'UPDATE conversations SET last_fact_extraction_at = NOW() WHERE id = $1',
+            [row.conversation_id]
+          );
+
+          const afterCount = await this.factService.getCountByUser(userId);
+          const factsCreated = afterCount - beforeCount;
+
+          result.conversations_processed++;
+          result.facts_created += factsCreated;
+          result.details.push({
+            conversation_id: row.conversation_id,
+            facts_created: factsCreated,
+          });
+
+          // Small delay between extractions
+          await this.sleep(1000);
+        } catch (error: any) {
+          logger.error(`[MANUAL TRIGGER] Failed to extract from conversation ${row.conversation_id}:`, {
+            error: error.message,
+          });
+        }
+      }
+
+      logger.info(`[MANUAL TRIGGER] Completed for user ${userId}: ${result.facts_created} facts from ${result.conversations_processed} conversations`);
+      return result;
+    } catch (error: any) {
+      logger.error(`[MANUAL TRIGGER] Failed for user ${userId}:`, { error: error.message });
+      throw error;
+    }
+  }
+}

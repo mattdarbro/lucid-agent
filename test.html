@@ -157,6 +157,105 @@
             font-weight: 600;
             color: #2d3748;
         }
+
+        /* Chat Interface Styles */
+        .chat-container {
+            max-height: 500px;
+            overflow-y: auto;
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #f7fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .message {
+            margin-bottom: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            max-width: 80%;
+        }
+
+        .message.user {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-left: auto;
+        }
+
+        .message.assistant {
+            background: white;
+            color: #2d3748;
+            border: 1px solid #e2e8f0;
+        }
+
+        .message.system {
+            background: #fef3c7;
+            color: #78350f;
+            border: 1px solid #fcd34d;
+            font-size: 13px;
+            text-align: center;
+            max-width: 100%;
+        }
+
+        .message-role {
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            opacity: 0.8;
+            text-transform: uppercase;
+        }
+
+        .message-content {
+            line-height: 1.5;
+        }
+
+        .message-time {
+            font-size: 11px;
+            margin-top: 4px;
+            opacity: 0.7;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #2d3748;
+        }
+
+        .btn-secondary:hover {
+            background: #cbd5e0;
+        }
+
+        .success-badge {
+            display: inline-block;
+            background: #c6f6d5;
+            color: #22543d;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
     </style>
 </head>
 <body>
@@ -224,6 +323,122 @@
             </form>
 
             <div id="conversationResponse" class="response" style="display: none;"></div>
+        </div>
+
+        <div class="card">
+            <h2>Chat Interface</h2>
+            <p class="subtitle">Send messages and test semantic search</p>
+
+            <div class="form-group">
+                <label for="conversation_id_chat">Conversation ID (from create conversation above)</label>
+                <input type="text" id="conversation_id_chat" placeholder="Paste conversation ID here">
+            </div>
+
+            <div class="chat-container" id="chatContainer">
+                <div class="message system">
+                    <div class="message-content">Create a conversation above to start chatting!</div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="messageInput">Your Message</label>
+                <textarea id="messageInput" placeholder="Type your message here..."></textarea>
+            </div>
+
+            <div class="btn-group">
+                <button id="sendMessageBtn" class="btn-primary">Send Message</button>
+                <button id="loadMessagesBtn" class="btn-secondary">Load Messages</button>
+            </div>
+
+            <div class="form-group" style="margin-top: 20px;">
+                <label for="searchQuery">Semantic Search</label>
+                <input type="text" id="searchQuery" placeholder="Search for similar messages...">
+            </div>
+
+            <div class="form-group">
+                <label for="messageSimilaritySlider">Minimum Similarity: <span id="messageSimilarityValue">0.82</span> (82%)</label>
+                <input type="range" id="messageSimilaritySlider" min="0" max="1" step="0.01" value="0.82"
+                       style="width: 100%; cursor: pointer;">
+                <div style="font-size: 0.85em; color: #718096; margin-top: 5px;">
+                    Lower = more results (less strict), Higher = fewer results (more strict)
+                </div>
+            </div>
+
+            <button id="searchBtn" class="btn-secondary">Search</button>
+
+            <div id="searchResults" class="response" style="display: none;"></div>
+        </div>
+
+        <div class="card">
+            <h2>🧠 AI Fact Extraction</h2>
+            <p class="subtitle">Let AI automatically extract facts from your messages!</p>
+
+            <div class="form-group">
+                <label for="extract_conversation_id">Conversation ID (from above)</label>
+                <input type="text" id="extract_conversation_id" placeholder="Paste conversation ID">
+            </div>
+
+            <button id="extractFactsBtn" class="btn-primary">Extract Facts from Conversation</button>
+
+            <div id="extractionResults" class="response" style="display: none;"></div>
+
+            <hr style="margin: 30px 0; border: 1px solid #e2e8f0;">
+
+            <h3>My Facts</h3>
+            <div class="btn-group">
+                <button id="loadFactsBtn" class="btn-secondary">Load All Facts</button>
+                <button id="searchFactsBtn" class="btn-secondary">Search Facts</button>
+            </div>
+
+            <div class="form-group" id="factSearchGroup" style="display: none; margin-top: 15px;">
+                <label for="factSearchQuery">Search Query</label>
+                <input type="text" id="factSearchQuery" placeholder="e.g., food preferences">
+
+                <div class="form-group" style="margin-top: 10px;">
+                    <label for="factSimilaritySlider">Minimum Similarity: <span id="factSimilarityValue">0.82</span> (82%)</label>
+                    <input type="range" id="factSimilaritySlider" min="0" max="1" step="0.01" value="0.82"
+                           style="width: 100%; cursor: pointer;">
+                    <div style="font-size: 0.85em; color: #718096; margin-top: 5px;">
+                        Lower = more results (less strict), Higher = fewer results (more strict)
+                    </div>
+                </div>
+            </div>
+
+            <div id="factsDisplay" class="response" style="display: none;"></div>
+        </div>
+
+        <div class="card">
+            <h2>🎭 Personality Assessment (Big 5)</h2>
+            <p class="subtitle">See your personality scores and emotional state!</p>
+
+            <div class="form-group">
+                <label for="personality_user_id">User ID (from above)</label>
+                <input type="text" id="personality_user_id" placeholder="Paste user ID">
+            </div>
+
+            <div class="btn-group">
+                <button id="assessPersonalityBtn" class="btn-primary">Assess Personality Now</button>
+                <button id="loadPersonalityBtn" class="btn-secondary">Load Latest Assessment</button>
+            </div>
+
+            <div id="personalityResults" class="response" style="display: none;">
+                <h3>Current Personality (OCEAN Model)</h3>
+                <div id="personalityScores"></div>
+
+                <div id="personalityBaseline" style="margin-top: 20px; display: none;">
+                    <h4>Deviations from Baseline</h4>
+                    <p style="font-size: 0.9em; color: #718096; margin-bottom: 10px;">
+                        These show how your current personality differs from your baseline (in standard deviations).
+                        Values > 1.5σ indicate significant shifts.
+                    </p>
+                    <div id="personalityDeviations"></div>
+                </div>
+
+                <div id="personalityReasoning" style="margin-top: 20px; padding: 15px; background: #f7fafc; border-radius: 8px; display: none;">
+                    <h4 style="margin-bottom: 10px;">Assessment Reasoning</h4>
+                    <p id="reasoningText" style="font-size: 0.9em; line-height: 1.6; color: #4a5568;"></p>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -344,6 +559,11 @@
 
                 responseEl.style.display = 'block';
                 responseEl.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+
+                // Auto-fill conversation_id for chat
+                if (result.id) {
+                    document.getElementById('conversation_id_chat').value = result.id;
+                }
             } catch (error) {
                 responseEl.style.display = 'block';
                 responseEl.innerHTML = `<pre style="color: #e53e3e;">Error: ${error.message}</pre>`;
@@ -352,6 +572,649 @@
                 submitBtn.textContent = 'Create Conversation';
             }
         });
+
+        // Send message
+        document.getElementById('sendMessageBtn').addEventListener('click', async () => {
+            const conversationId = document.getElementById('conversation_id_chat').value;
+            const userId = document.getElementById('user_id').value;
+            const content = document.getElementById('messageInput').value;
+
+            if (!conversationId || !userId || !content) {
+                alert('Please fill in conversation ID, user ID, and message');
+                return;
+            }
+
+            const sendBtn = document.getElementById('sendMessageBtn');
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Sending...';
+
+            try {
+                const response = await fetch(`${API_URL}/v1/chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        conversation_id: conversationId,
+                        user_id: userId,
+                        message: content,
+                    })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    // Show detailed error
+                    const errorMsg = result.details || result.error || 'Unknown error';
+                    alert(`Failed to send message: ${errorMsg}\n\nCode: ${result.code || 'N/A'}`);
+                    return;
+                }
+
+                // Clear input
+                document.getElementById('messageInput').value = '';
+
+                // Add user message to chat container
+                addMessageToChat({
+                    role: 'user',
+                    content: content,
+                    created_at: result.user_message.created_at || new Date().toISOString(),
+                    embedding: result.user_message.embedding ? '✓ Embedded' : '✗ No embedding',
+                });
+
+                // Add AI response to chat container
+                addMessageToChat({
+                    role: 'assistant',
+                    content: result.response,
+                    created_at: result.assistant_message.created_at || new Date().toISOString(),
+                    embedding: result.assistant_message.embedding ? '✓ Embedded' : '✗ No embedding',
+                });
+            } catch (error) {
+                alert(`Error sending message: ${error.message}`);
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'Send Message';
+            }
+        });
+
+        // Load messages
+        document.getElementById('loadMessagesBtn').addEventListener('click', async () => {
+            const conversationId = document.getElementById('conversation_id_chat').value;
+
+            if (!conversationId) {
+                alert('Please enter a conversation ID');
+                return;
+            }
+
+            const loadBtn = document.getElementById('loadMessagesBtn');
+            loadBtn.disabled = true;
+            loadBtn.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(
+                    `${API_URL}/v1/messages/conversations/${conversationId}/messages?limit=50`
+                );
+                const result = await response.json();
+
+                // Clear chat container
+                const chatContainer = document.getElementById('chatContainer');
+                chatContainer.innerHTML = '';
+
+                if (result.messages && result.messages.length > 0) {
+                    result.messages.forEach(msg => {
+                        addMessageToChat(msg);
+                    });
+                } else {
+                    chatContainer.innerHTML = '<div class="message system"><div class="message-content">No messages yet. Start the conversation!</div></div>';
+                }
+            } catch (error) {
+                alert(`Error loading messages: ${error.message}`);
+            } finally {
+                loadBtn.disabled = false;
+                loadBtn.textContent = 'Load Messages';
+            }
+        });
+
+        // Update similarity slider display for messages
+        document.getElementById('messageSimilaritySlider').addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById('messageSimilarityValue').textContent = value.toFixed(2);
+        });
+
+        // Semantic search
+        document.getElementById('searchBtn').addEventListener('click', async () => {
+            const query = document.getElementById('searchQuery').value;
+            const conversationId = document.getElementById('conversation_id_chat').value;
+            const minSimilarity = parseFloat(document.getElementById('messageSimilaritySlider').value);
+
+            if (!query) {
+                alert('Please enter a search query');
+                return;
+            }
+
+            const searchBtn = document.getElementById('searchBtn');
+            const resultsEl = document.getElementById('searchResults');
+
+            searchBtn.disabled = true;
+            searchBtn.textContent = 'Searching...';
+
+            try {
+                const body = {
+                    query,
+                    min_similarity: minSimilarity
+                };
+                if (conversationId) {
+                    body.conversation_id = conversationId;
+                }
+
+                const response = await fetch(`${API_URL}/v1/messages/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                const result = await response.json();
+
+                resultsEl.style.display = 'block';
+                if (result.results && result.results.length > 0) {
+                    const formatted = result.results.map(r => ({
+                        content: r.message.content.substring(0, 100) + '...',
+                        similarity: (r.similarity * 100).toFixed(1) + '%',
+                        role: r.message.role,
+                        created_at: new Date(r.message.created_at).toLocaleString(),
+                    }));
+                    resultsEl.innerHTML = `<pre>${JSON.stringify({
+                        query: result.query,
+                        count: result.count,
+                        results: formatted
+                    }, null, 2)}</pre>`;
+                } else {
+                    resultsEl.innerHTML = '<pre>No results found</pre>';
+                }
+            } catch (error) {
+                resultsEl.style.display = 'block';
+                resultsEl.innerHTML = `<pre style="color: #e53e3e;">Error: ${error.message}</pre>`;
+            } finally {
+                searchBtn.disabled = false;
+                searchBtn.textContent = 'Search';
+            }
+        });
+
+        // Helper function to add message to chat
+        function addMessageToChat(message) {
+            const chatContainer = document.getElementById('chatContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${message.role}`;
+
+            const roleDiv = document.createElement('div');
+            roleDiv.className = 'message-role';
+            roleDiv.textContent = message.role.toUpperCase();
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.textContent = message.content;
+
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'message-time';
+            const time = message.created_at ? new Date(message.created_at).toLocaleTimeString() : '';
+            const embedding = message.embedding ? ' • Embedded' : '';
+            timeDiv.textContent = time + embedding;
+
+            messageDiv.appendChild(roleDiv);
+            messageDiv.appendChild(contentDiv);
+            messageDiv.appendChild(timeDiv);
+
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Extract facts from conversation
+        document.getElementById('extractFactsBtn').addEventListener('click', async () => {
+            const conversationId = document.getElementById('extract_conversation_id').value ||
+                                 document.getElementById('conversation_id_chat').value;
+            const userId = document.getElementById('user_id').value;
+
+            if (!conversationId || !userId) {
+                alert('Please enter conversation ID and user ID');
+                return;
+            }
+
+            const extractBtn = document.getElementById('extractFactsBtn');
+            const resultsEl = document.getElementById('extractionResults');
+
+            extractBtn.disabled = true;
+            extractBtn.textContent = 'Extracting... (AI is analyzing your messages)';
+
+            try {
+                const response = await fetch(`${API_URL}/v1/facts/extract`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        conversation_id: conversationId,
+                        limit: 50
+                    })
+                });
+
+                const result = await response.json();
+
+                resultsEl.style.display = 'block';
+
+                if (result.created && result.created.length > 0) {
+                    const factsHtml = result.created.map(fact => `
+                        <div style="padding: 10px; margin: 10px 0; background: #f7fafc; border-left: 3px solid #805ad5; border-radius: 4px;">
+                            <div style="font-weight: bold; color: #805ad5;">${fact.category}</div>
+                            <div style="margin: 5px 0;">${fact.content}</div>
+                            <div style="font-size: 0.9em; color: #718096;">
+                                Confidence: ${(fact.confidence * 100).toFixed(0)}%
+                            </div>
+                        </div>
+                    `).join('');
+
+                    const debugInfo = result.debug ? `
+                        <div style="font-size: 0.85em; color: #718096; margin-bottom: 10px;">
+                            Analyzed ${result.debug.messages_analyzed} messages
+                        </div>
+                    ` : '';
+
+                    resultsEl.innerHTML = `
+                        <div style="color: #38a169; font-weight: bold; margin-bottom: 10px;">
+                            ✓ ${result.message}
+                        </div>
+                        ${debugInfo}
+                        ${factsHtml}
+                    `;
+
+                    // Auto-fill conversation ID for next extraction
+                    document.getElementById('extract_conversation_id').value = conversationId;
+                } else {
+                    const debugInfo = result.debug ? `
+                        <div style="margin-top: 10px; padding: 10px; background: #f7fafc; border-radius: 4px;">
+                            <div style="font-weight: bold; margin-bottom: 5px;">Debug Info:</div>
+                            <div style="font-size: 0.9em;">Messages analyzed: ${result.debug.messages_analyzed}</div>
+                            <div style="font-size: 0.85em; color: #718096; margin-top: 5px;">Sample messages:</div>
+                            ${result.debug.sample_messages.map(msg => `
+                                <div style="font-size: 0.85em; color: #718096; margin-left: 10px;">• ${msg}</div>
+                            `).join('')}
+                        </div>
+                    ` : '';
+
+                    resultsEl.innerHTML = `
+                        <pre>No facts extracted from the conversation.</pre>
+                        ${debugInfo}
+                        <div style="margin-top: 10px; font-size: 0.9em; color: #718096;">
+                            Tips:
+                            <ul style="margin: 5px 0; padding-left: 20px;">
+                                <li>Try having a more detailed conversation</li>
+                                <li>Mention specific things you like, do, or are interested in</li>
+                                <li>Share information about yourself or your work</li>
+                            </ul>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultsEl.style.display = 'block';
+                resultsEl.innerHTML = `<pre style="color: #e53e3e;">Error: ${error.message}</pre>`;
+            } finally {
+                extractBtn.disabled = false;
+                extractBtn.textContent = 'Extract Facts from Conversation';
+            }
+        });
+
+        // Load all facts for user
+        document.getElementById('loadFactsBtn').addEventListener('click', async () => {
+            const userId = document.getElementById('user_id').value;
+
+            if (!userId) {
+                alert('Please enter user ID');
+                return;
+            }
+
+            const loadBtn = document.getElementById('loadFactsBtn');
+            const displayEl = document.getElementById('factsDisplay');
+
+            loadBtn.disabled = true;
+            loadBtn.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(`${API_URL}/v1/users/${userId}/facts?limit=100`);
+                const result = await response.json();
+
+                displayEl.style.display = 'block';
+
+                if (result.facts && result.facts.length > 0) {
+                    // Group by category
+                    const byCategory = result.facts.reduce((acc, fact) => {
+                        const cat = fact.category || 'other';
+                        if (!acc[cat]) acc[cat] = [];
+                        acc[cat].push(fact);
+                        return acc;
+                    }, {});
+
+                    let html = `<div style="margin-bottom: 10px;"><strong>Total Facts: ${result.count}</strong></div>`;
+
+                    for (const [category, facts] of Object.entries(byCategory)) {
+                        html += `<div style="margin: 15px 0;">`;
+                        html += `<div style="font-weight: bold; color: #805ad5; text-transform: capitalize;">${category} (${facts.length})</div>`;
+
+                        facts.forEach(fact => {
+                            const activeStyle = fact.is_active ? '' : 'opacity: 0.5; text-decoration: line-through;';
+                            html += `
+                                <div style="padding: 8px; margin: 5px 0; background: #f7fafc; border-radius: 4px; ${activeStyle}">
+                                    <div>${fact.content}</div>
+                                    <div style="font-size: 0.85em; color: #718096;">
+                                        Confidence: ${(fact.confidence * 100).toFixed(0)}% |
+                                        Evidence: ${fact.evidence_count} |
+                                        ${fact.is_active ? 'Active' : 'Inactive'}
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        html += '</div>';
+                    }
+
+                    displayEl.innerHTML = html;
+                } else {
+                    displayEl.innerHTML = '<pre>No facts found. Try extracting some facts first!</pre>';
+                }
+            } catch (error) {
+                displayEl.style.display = 'block';
+                displayEl.innerHTML = `<pre style="color: #e53e3e;">Error: ${error.message}</pre>`;
+            } finally {
+                loadBtn.disabled = false;
+                loadBtn.textContent = 'Load All Facts';
+            }
+        });
+
+        // Toggle fact search input
+        document.getElementById('searchFactsBtn').addEventListener('click', () => {
+            const searchGroup = document.getElementById('factSearchGroup');
+            const searchQuery = document.getElementById('factSearchQuery');
+
+            if (searchGroup.style.display === 'none') {
+                searchGroup.style.display = 'block';
+                searchQuery.focus();
+            } else {
+                performFactSearch();
+            }
+        });
+
+        // Update similarity slider display for facts
+        document.getElementById('factSimilaritySlider').addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById('factSimilarityValue').textContent = value.toFixed(2);
+        });
+
+        // Perform fact search on Enter key
+        document.getElementById('factSearchQuery').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performFactSearch();
+            }
+        });
+
+        async function performFactSearch() {
+            const query = document.getElementById('factSearchQuery').value;
+            const userId = document.getElementById('user_id').value;
+            const minSimilarity = parseFloat(document.getElementById('factSimilaritySlider').value);
+
+            if (!query) {
+                alert('Please enter a search query');
+                return;
+            }
+
+            const searchBtn = document.getElementById('searchFactsBtn');
+            const displayEl = document.getElementById('factsDisplay');
+
+            searchBtn.disabled = true;
+            searchBtn.textContent = 'Searching...';
+
+            try {
+                const body = {
+                    query,
+                    min_similarity: minSimilarity
+                };
+                if (userId) {
+                    body.user_id = userId;
+                }
+
+                const response = await fetch(`${API_URL}/v1/facts/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                const result = await response.json();
+
+                displayEl.style.display = 'block';
+
+                if (result.results && result.results.length > 0) {
+                    let html = `<div style="margin-bottom: 10px;"><strong>Search: "${result.query}" (${result.count} results)</strong></div>`;
+
+                    result.results.forEach(r => {
+                        const fact = r.fact;
+                        html += `
+                            <div style="padding: 10px; margin: 10px 0; background: #f7fafc; border-left: 3px solid #805ad5; border-radius: 4px;">
+                                <div style="font-weight: bold; color: #805ad5;">${fact.category || 'other'}</div>
+                                <div style="margin: 5px 0;">${fact.content}</div>
+                                <div style="font-size: 0.85em; color: #718096;">
+                                    Similarity: ${(r.similarity * 100).toFixed(1)}% |
+                                    Confidence: ${(fact.confidence * 100).toFixed(0)}%
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    displayEl.innerHTML = html;
+                } else {
+                    displayEl.innerHTML = `<pre>No facts found matching "${query}"</pre>`;
+                }
+            } catch (error) {
+                displayEl.style.display = 'block';
+                displayEl.innerHTML = `<pre style="color: #e53e3e;">Error: ${error.message}</pre>`;
+            } finally {
+                searchBtn.disabled = false;
+                searchBtn.textContent = 'Search Facts';
+            }
+        }
+
+        // ============================================================================
+        // PERSONALITY ASSESSMENT
+        // ============================================================================
+
+        document.getElementById('assessPersonalityBtn').addEventListener('click', assessPersonality);
+        document.getElementById('loadPersonalityBtn').addEventListener('click', loadPersonalityOverview);
+
+        async function assessPersonality() {
+            const userId = document.getElementById('personality_user_id').value;
+            const conversationId = document.getElementById('conversation_id_chat').value;
+
+            if (!userId) {
+                alert('Please enter a User ID');
+                return;
+            }
+
+            const btn = document.getElementById('assessPersonalityBtn');
+            btn.disabled = true;
+            btn.textContent = 'Assessing... (this may take 10-30 seconds)';
+
+            try {
+                const response = await fetch(`${API_URL}/v1/personality/assess`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        conversation_id: conversationId || undefined,
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    displayPersonalityResults(result.snapshot);
+                    // Auto-load overview to show deviations
+                    await loadPersonalityOverview();
+                } else {
+                    alert(`Error: ${result.error}`);
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Assess Personality Now';
+            }
+        }
+
+        async function loadPersonalityOverview() {
+            const userId = document.getElementById('personality_user_id').value;
+
+            if (!userId) {
+                alert('Please enter a User ID');
+                return;
+            }
+
+            const btn = document.getElementById('loadPersonalityBtn');
+            btn.disabled = true;
+            btn.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(`${API_URL}/v1/personality/overview/${userId}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    displayPersonalityOverview(result.overview);
+                } else {
+                    alert(`Error: ${result.error}`);
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Load Latest Assessment';
+            }
+        }
+
+        function displayPersonalityResults(snapshot) {
+            const resultsEl = document.getElementById('personalityResults');
+            const scoresEl = document.getElementById('personalityScores');
+            const reasoningEl = document.getElementById('personalityReasoning');
+            const reasoningText = document.getElementById('reasoningText');
+
+            resultsEl.style.display = 'block';
+
+            // Display scores
+            const traits = [
+                { name: 'Openness', key: 'openness', emoji: '🎨', description: 'Creativity, curiosity, openness to new experiences' },
+                { name: 'Conscientiousness', key: 'conscientiousness', emoji: '📋', description: 'Organization, responsibility, self-discipline' },
+                { name: 'Extraversion', key: 'extraversion', emoji: '🎉', description: 'Sociability, energy, assertiveness' },
+                { name: 'Agreeableness', key: 'agreeableness', emoji: '🤝', description: 'Compassion, cooperation, trust' },
+                { name: 'Neuroticism', key: 'neuroticism', emoji: '😰', description: 'Emotional stability, anxiety, mood' },
+            ];
+
+            let html = '';
+            traits.forEach(trait => {
+                const value = snapshot[trait.key];
+                const percentage = value !== null ? (value * 100).toFixed(0) : 'N/A';
+                const color = getTraitColor(value);
+
+                html += `
+                    <div style="margin-bottom: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <span style="font-weight: 600;">${trait.emoji} ${trait.name}</span>
+                            <span style="font-weight: bold; color: ${color};">${percentage}%</span>
+                        </div>
+                        <div style="background: #e2e8f0; border-radius: 10px; height: 8px; overflow: hidden;">
+                            <div style="background: ${color}; height: 100%; width: ${percentage}%; transition: width 0.3s;"></div>
+                        </div>
+                        <div style="font-size: 0.85em; color: #718096; margin-top: 3px;">${trait.description}</div>
+                    </div>
+                `;
+            });
+
+            html += `
+                <div style="margin-top: 15px; padding: 10px; background: #edf2f7; border-radius: 6px;">
+                    <strong>Confidence:</strong> ${(snapshot.confidence * 100).toFixed(0)}% |
+                    <strong>Assessed:</strong> ${new Date(snapshot.snapshot_at).toLocaleString()}
+                </div>
+            `;
+
+            scoresEl.innerHTML = html;
+
+            // Display reasoning
+            if (snapshot.reasoning) {
+                reasoningEl.style.display = 'block';
+                reasoningText.textContent = snapshot.reasoning;
+            }
+        }
+
+        function displayPersonalityOverview(overview) {
+            // First display the current scores
+            if (overview.current) {
+                displayPersonalityResults(overview.current);
+            }
+
+            // Then show deviations if available
+            if (overview.deviations) {
+                const baselineEl = document.getElementById('personalityBaseline');
+                const deviationsEl = document.getElementById('personalityDeviations');
+
+                baselineEl.style.display = 'block';
+
+                const traits = [
+                    { name: 'Openness', key: 'openness', emoji: '🎨' },
+                    { name: 'Conscientiousness', key: 'conscientiousness', emoji: '📋' },
+                    { name: 'Extraversion', key: 'extraversion', emoji: '🎉' },
+                    { name: 'Agreeableness', key: 'agreeableness', emoji: '🤝' },
+                    { name: 'Neuroticism', key: 'neuroticism', emoji: '😰' },
+                ];
+
+                let html = '';
+                traits.forEach(trait => {
+                    const deviation = overview.deviations[trait.key];
+                    const deviationValue = parseFloat(deviation);
+                    const color = getDeviationColor(deviationValue);
+                    const icon = getDeviationIcon(deviationValue);
+
+                    html += `
+                        <div style="padding: 10px; margin: 8px 0; background: #f7fafc; border-left: 3px solid ${color}; border-radius: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span><strong>${trait.emoji} ${trait.name}</strong></span>
+                                <span style="font-weight: bold; color: ${color};">${icon} ${deviation}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                deviationsEl.innerHTML = html;
+            }
+        }
+
+        function getTraitColor(value) {
+            if (value === null) return '#cbd5e0';
+            if (value < 0.3) return '#fc8181'; // Low - red
+            if (value < 0.5) return '#f6ad55'; // Medium-low - orange
+            if (value < 0.7) return '#68d391'; // Medium-high - green
+            return '#4299e1'; // High - blue
+        }
+
+        function getDeviationColor(deviation) {
+            const abs = Math.abs(deviation);
+            if (abs < 1.0) return '#718096'; // Gray - normal
+            if (abs < 1.5) return '#ed8936'; // Orange - moderate
+            return '#e53e3e'; // Red - significant
+        }
+
+        function getDeviationIcon(deviation) {
+            if (Math.abs(deviation) < 1.0) return '→';
+            if (deviation > 0) return '⬆';
+            return '⬇';
+        }
 
         // Check API status on page load
         checkAPIStatus();
