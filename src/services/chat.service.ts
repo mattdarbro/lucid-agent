@@ -9,6 +9,7 @@ import { TopicService } from './topic.service';
 import { ProfileService } from './profile.service';
 import { CostTrackingService } from './cost-tracking.service';
 import { PromptModulesService } from './prompt-modules.service';
+import { LucidToolsService, LUCID_TOOLS } from './lucid-tools.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
 import { withRetry, wrapAnthropicError } from '../utils/anthropic-errors';
 
@@ -62,6 +63,7 @@ export class ChatService {
   private profileService: ProfileService;
   private costTrackingService: CostTrackingService;
   private promptModulesService: PromptModulesService;
+  private lucidToolsService: LucidToolsService;
 
   // Default configuration - word limits unified at service layer
   private readonly DEFAULT_CONFIG: ChatConfig = {
@@ -87,6 +89,7 @@ export class ChatService {
     this.profileService = new ProfileService(pool);
     this.costTrackingService = new CostTrackingService(pool);
     this.promptModulesService = new PromptModulesService(pool, anthropicApiKey);
+    this.lucidToolsService = new LucidToolsService(pool);
   }
 
   /**
@@ -196,41 +199,131 @@ export class ChatService {
         temperature,
       });
 
-      // Call Claude API with retry for transient errors
+      // Call Claude API with tools and retry for transient errors
       const modelUsed = input.model || chatConfig.defaultModel || this.DEFAULT_CONFIG.defaultModel!;
-      const response = await withRetry(
-        () =>
-          this.anthropic.messages.create({
-            model: modelUsed,
-            max_tokens: input.max_tokens || chatConfig.maxTokens || this.DEFAULT_CONFIG.maxTokens!,
-            temperature: temperature,
-            system: moduleResult.prompt,
-            messages,
-          }),
-        { maxRetries: 2, initialDelayMs: 1000 }
-      );
+      const maxTokens = input.max_tokens || chatConfig.maxTokens || this.DEFAULT_CONFIG.maxTokens!;
 
-      // Log API usage for cost tracking
-      if (response.usage) {
+      // Prepare tools with user_id injected (so Claude doesn't need to guess it)
+      const toolsWithContext = LUCID_TOOLS.map((tool) => ({
+        ...tool,
+        description: `${tool.description} The user_id is: ${input.user_id}`,
+      }));
+
+      // Conversation messages for the API (we'll add tool results as we go)
+      let apiMessages: Anthropic.MessageParam[] = [...messages];
+      let assistantResponse = '';
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
+
+      // Tool use loop - keep calling until we get a text response
+      const MAX_TOOL_ITERATIONS = 5;
+      for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+        const response = await withRetry(
+          () =>
+            this.anthropic.messages.create({
+              model: modelUsed,
+              max_tokens: maxTokens,
+              temperature: temperature,
+              system: moduleResult.prompt,
+              messages: apiMessages,
+              tools: toolsWithContext,
+            }),
+          { maxRetries: 2, initialDelayMs: 1000 }
+        );
+
+        // Track token usage
+        if (response.usage) {
+          totalInputTokens += response.usage.input_tokens;
+          totalOutputTokens += response.usage.output_tokens;
+        }
+
+        // Check if we got a final text response (stop_reason is 'end_turn')
+        if (response.stop_reason === 'end_turn') {
+          // Extract text from the response
+          const textContent = response.content.find((c) => c.type === 'text');
+          if (textContent && textContent.type === 'text') {
+            assistantResponse = textContent.text;
+          }
+          break;
+        }
+
+        // Check for tool use
+        if (response.stop_reason === 'tool_use') {
+          const toolUseBlocks = response.content.filter((c) => c.type === 'tool_use');
+
+          if (toolUseBlocks.length === 0) {
+            // No tools to execute, extract any text
+            const textContent = response.content.find((c) => c.type === 'text');
+            if (textContent && textContent.type === 'text') {
+              assistantResponse = textContent.text;
+            }
+            break;
+          }
+
+          // Add assistant's response (with tool calls) to messages
+          apiMessages.push({
+            role: 'assistant',
+            content: response.content,
+          });
+
+          // Execute each tool and collect results
+          const toolResults: Anthropic.ToolResultBlockParam[] = [];
+          for (const toolUse of toolUseBlocks) {
+            if (toolUse.type === 'tool_use') {
+              logger.info('Executing tool', {
+                tool: toolUse.name,
+                input: toolUse.input,
+                iteration,
+              });
+
+              const result = await this.lucidToolsService.executeTool(
+                toolUse.name,
+                toolUse.input as Record<string, any>
+              );
+
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: toolUse.id,
+                content: result,
+              });
+            }
+          }
+
+          // Add tool results to messages
+          apiMessages.push({
+            role: 'user',
+            content: toolResults,
+          });
+
+          logger.debug('Tool execution complete, continuing conversation', {
+            toolsExecuted: toolResults.length,
+            iteration,
+          });
+        } else {
+          // Unknown stop reason, extract any text and break
+          const textContent = response.content.find((c) => c.type === 'text');
+          if (textContent && textContent.type === 'text') {
+            assistantResponse = textContent.text;
+          }
+          break;
+        }
+      }
+
+      // Log total API usage for cost tracking
+      if (totalInputTokens > 0 || totalOutputTokens > 0) {
         await this.costTrackingService.logUsage(
           input.user_id,
           'chat',
           modelUsed,
-          response.usage.input_tokens,
-          response.usage.output_tokens,
+          totalInputTokens,
+          totalOutputTokens,
           { conversation_id: input.conversation_id }
         );
       }
 
-      // Extract text response
-      const content = response.content[0];
-      if (content.type !== 'text') {
-        throw new Error('Unexpected response type from Claude');
-      }
-
       // Enforce word limit at service layer (unified approach)
       const maxWords = chatConfig.maxResponseWords || this.DEFAULT_CONFIG.maxResponseWords!;
-      const assistantResponse = this.enforceWordLimit(content.text, maxWords);
+      assistantResponse = this.enforceWordLimit(assistantResponse, maxWords);
 
       // Store assistant message
       const assistantMessage = await this.messageService.createMessage({
