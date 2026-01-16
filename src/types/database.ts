@@ -218,6 +218,163 @@ export interface ContextAdaptation {
   created_at: Date;
 }
 
+// ============================================================================
+// CAPTURE, CALENDAR, AND PEOPLE ENTITIES
+// ============================================================================
+
+export interface Person {
+  id: string;
+  user_id: string;
+  // Identity
+  name: string;
+  nickname: string | null;
+  // Relationship
+  relationship_type: 'family' | 'friend' | 'colleague' | 'acquaintance' | 'professional' | null;
+  relationship_detail: string | null;
+  context: string | null;
+  // Contact
+  email: string | null;
+  phone: string | null;
+  // Tracking
+  mention_count: number;
+  first_mentioned_at: Date;
+  last_mentioned_at: Date;
+  // Sentiment
+  sentiment: 'positive' | 'neutral' | 'complicated' | 'negative';
+  importance_score: number;
+  // Vector
+  embedding: number[] | null;
+  // Metadata
+  metadata: Record<string, any>;
+  // Timestamps
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface Capture {
+  id: string;
+  user_id: string;
+  // Content
+  content: string;
+  // Source
+  source: 'app' | 'voice' | 'share_extension' | 'ios_import';
+  source_metadata: Record<string, any>;
+  // Status
+  status: 'inbox' | 'processing' | 'processed' | 'archived' | 'deleted';
+  // Lucid's interpretation
+  interpreted_type: 'task' | 'idea' | 'event' | 'reminder' | 'note' | 'person_mention' | null;
+  interpreted_title: string | null;
+  interpreted_details: string | null;
+  // Scheduling
+  has_deadline: boolean;
+  deadline_at: Date | null;
+  preferred_time: 'morning' | 'afternoon' | 'evening' | 'weekend' | 'anytime' | null;
+  estimated_duration_minutes: number | null;
+  // Priority & Energy
+  priority: number; // 1-5
+  energy_required: 'high' | 'medium' | 'low' | null;
+  // Recurrence
+  is_recurring: boolean;
+  recurrence_rule: string | null;
+  // Links
+  scheduled_event_id: string | null;
+  related_person_id: string | null;
+  related_capture_ids: string[] | null;
+  // Completion
+  is_completed: boolean;
+  completed_at: Date | null;
+  // Context
+  context_notes: string | null;
+  // Vector
+  embedding: number[] | null;
+  // Timestamps
+  created_at: Date;
+  updated_at: Date;
+  processed_at: Date | null;
+}
+
+export interface CalendarEvent {
+  id: string;
+  user_id: string;
+  // iOS sync
+  external_id: string | null;
+  external_calendar_id: string | null;
+  calendar_name: string | null;
+  // Event details
+  title: string;
+  description: string | null;
+  location: string | null;
+  // Timing
+  start_time: Date;
+  end_time: Date;
+  is_all_day: boolean;
+  timezone: string | null;
+  // Recurrence
+  is_recurring: boolean;
+  recurrence_rule: string | null;
+  recurrence_end_date: Date | null;
+  // Attendees
+  attendee_ids: string[] | null;
+  attendee_names: string[] | null;
+  // Lucid integration
+  source: 'ios_sync' | 'lucid_scheduled' | 'user_created';
+  source_capture_id: string | null;
+  lucid_prep_notes: string | null;
+  lucid_follow_up: string | null;
+  // Status
+  status: 'tentative' | 'confirmed' | 'cancelled';
+  sync_status: 'synced' | 'pending_push' | 'pending_delete' | 'conflict';
+  // Timestamps
+  last_synced_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface PersonFact {
+  id: string;
+  person_id: string;
+  fact_id: string;
+  created_at: Date;
+}
+
+export interface CaptureProcessingLog {
+  id: string;
+  capture_id: string;
+  action: 'classified' | 'scheduled' | 'linked_person' | 'set_priority' | 'completed';
+  action_details: Record<string, any> | null;
+  reasoning: string | null;
+  confidence: number | null;
+  created_at: Date;
+}
+
+// ============================================================================
+// CAPTURE, CALENDAR, AND PEOPLE VIEWS
+// ============================================================================
+
+export interface ActiveCapture extends Capture {
+  related_person_name: string | null;
+  scheduled_event_title: string | null;
+  scheduled_start_time: Date | null;
+}
+
+export interface TodaysScheduleEvent extends CalendarEvent {
+  attendee_display_names: string[] | null;
+}
+
+export interface UpcomingDeadline extends Capture {
+  related_person_name: string | null;
+  hours_until_deadline: number;
+}
+
+export interface ImportantPerson extends Person {
+  open_captures_count: number;
+  upcoming_events_count: number;
+}
+
+// ============================================================================
+// ORIGINAL VIEW TYPES
+// ============================================================================
+
 // View types
 export interface ActiveUserFact {
   user_id: string;

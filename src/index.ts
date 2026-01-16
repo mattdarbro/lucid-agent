@@ -32,6 +32,10 @@ import winsRouter from './routes/wins';
 import possibilitiesRouter from './routes/possibilities';
 import { createActionsRouter } from './routes/actions';
 import { createCaptureRouter } from './routes/capture';
+// New Calendar/Reminders integration routes
+import capturesRouter from './routes/captures';
+import calendarRouter from './routes/calendar';
+import peopleRouter from './routes/people';
 
 // Validate configuration on startup
 try {
@@ -118,6 +122,11 @@ app.use('/v1/chat', chatRouter);
 app.use('/v1/summaries', summaryRouter);
 app.use('/v1/conversations/:conversation_id/summaries', summaryRouter);
 app.use('/v1/users/:user_id/summaries', summaryRouter);
+
+// Calendar & Reminders Integration (new)
+app.use('/v1/captures', capturesRouter);
+app.use('/v1/calendar', calendarRouter);
+app.use('/v1/people', peopleRouter);
 
 // Agent jobs and research tasks
 app.use('/v1/agent-jobs', createAgentJobRouter(pool, supabase));
