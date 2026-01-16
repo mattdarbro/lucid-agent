@@ -5,6 +5,9 @@ import { testConnection, closeConnections } from './db';
 import { logger } from './logger';
 import usersRouter from './routes/users';
 import conversationsRouter from './routes/conversations';
+import capturesRouter from './routes/captures';
+import calendarRouter from './routes/calendar';
+import peopleRouter from './routes/people';
 
 // Validate configuration on startup
 try {
@@ -64,6 +67,9 @@ app.get('/info', (req, res) => {
 
 app.use('/v1/users', usersRouter);
 app.use('/v1/conversations', conversationsRouter);
+app.use('/v1/captures', capturesRouter);
+app.use('/v1/calendar', calendarRouter);
+app.use('/v1/people', peopleRouter);
 
 // TODO: Chat endpoint with streaming
 // app.use('/v1/chat', chatRouter);
