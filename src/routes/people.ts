@@ -78,6 +78,43 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // ============================================================================
+// GET /v1/people/search/:user_id - Search for people by name
+// IMPORTANT: This must come before /:id to avoid route conflict
+// ============================================================================
+router.get('/search/:user_id', async (req: Request, res: Response) => {
+  try {
+    const { user_id } = req.params;
+    const { q } = req.query;
+
+    if (!q) {
+      return res.status(400).json({ error: 'q (search query) is required' });
+    }
+
+    const searchPattern = `%${q}%`;
+
+    const result = await pool.query(
+      `SELECT * FROM people
+       WHERE user_id = $1
+         AND (name ILIKE $2 OR nickname ILIKE $2 OR relationship_detail ILIKE $2)
+       ORDER BY
+         CASE WHEN LOWER(name) = LOWER($3) THEN 0 ELSE 1 END,
+         importance_score DESC
+       LIMIT 20`,
+      [user_id, searchPattern, q]
+    );
+
+    res.json({
+      query: q,
+      people: result.rows,
+      count: result.rows.length
+    });
+  } catch (error: any) {
+    logger.error('Error searching people:', error);
+    res.status(500).json({ error: 'Failed to search people' });
+  }
+});
+
+// ============================================================================
 // GET /v1/people/:user_id - Get all people for a user
 // ============================================================================
 router.get('/user/:user_id', async (req: Request, res: Response) => {
@@ -375,42 +412,6 @@ router.post('/:id/mention', async (req: Request, res: Response) => {
   } catch (error: any) {
     logger.error('Error recording mention:', error);
     res.status(500).json({ error: 'Failed to record mention' });
-  }
-});
-
-// ============================================================================
-// GET /v1/people/search/:user_id - Search for people by name
-// ============================================================================
-router.get('/search/:user_id', async (req: Request, res: Response) => {
-  try {
-    const { user_id } = req.params;
-    const { q } = req.query;
-
-    if (!q) {
-      return res.status(400).json({ error: 'q (search query) is required' });
-    }
-
-    const searchPattern = `%${q}%`;
-
-    const result = await pool.query(
-      `SELECT * FROM people
-       WHERE user_id = $1
-         AND (name ILIKE $2 OR nickname ILIKE $2 OR relationship_detail ILIKE $2)
-       ORDER BY
-         CASE WHEN LOWER(name) = LOWER($3) THEN 0 ELSE 1 END,
-         importance_score DESC
-       LIMIT 20`,
-      [user_id, searchPattern, q]
-    );
-
-    res.json({
-      query: q,
-      people: result.rows,
-      count: result.rows.length
-    });
-  } catch (error: any) {
-    logger.error('Error searching people:', error);
-    res.status(500).json({ error: 'Failed to search people' });
   }
 });
 

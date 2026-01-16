@@ -130,9 +130,12 @@ router.post('/sync', async (req: Request, res: Response) => {
             calendar_name = $7,
             attendee_names = $8,
             status = $9,
+            is_recurring = $10,
+            recurrence_rule = $11,
+            recurrence_end_date = $12,
             last_synced_at = NOW(),
             updated_at = NOW()
-          WHERE id = $10
+          WHERE id = $13
           RETURNING *`,
           [
             event.title,
@@ -144,6 +147,9 @@ router.post('/sync', async (req: Request, res: Response) => {
             event.calendar_name || null,
             event.attendee_names || null,
             event.status || 'confirmed',
+            event.is_recurring || false,
+            event.recurrence_rule || null,
+            event.recurrence_end_date || null,
             existing.rows[0].id
           ]
         );
@@ -155,10 +161,10 @@ router.post('/sync', async (req: Request, res: Response) => {
             user_id, external_id, external_calendar_id, calendar_name,
             title, description, location,
             start_time, end_time, is_all_day, timezone,
-            is_recurring, recurrence_rule,
+            is_recurring, recurrence_rule, recurrence_end_date,
             attendee_names, source, sync_status
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'ios_sync', 'synced')
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'ios_sync', 'synced')
           RETURNING *`,
           [
             user_id,
@@ -174,6 +180,7 @@ router.post('/sync', async (req: Request, res: Response) => {
             event.timezone || null,
             event.is_recurring || false,
             event.recurrence_rule || null,
+            event.recurrence_end_date || null,
             event.attendee_names || null
           ]
         );
@@ -361,6 +368,7 @@ router.patch('/events/:id', async (req: Request, res: Response) => {
     const allowedFields = [
       'title', 'description', 'location', 'start_time', 'end_time',
       'is_all_day', 'timezone', 'calendar_name', 'attendee_ids', 'attendee_names',
+      'is_recurring', 'recurrence_rule', 'recurrence_end_date',
       'status', 'lucid_prep_notes', 'lucid_follow_up'
     ];
 
