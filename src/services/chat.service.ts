@@ -10,6 +10,7 @@ import { ProfileService } from './profile.service';
 import { CostTrackingService } from './cost-tracking.service';
 import { PromptModulesService } from './prompt-modules.service';
 import { LucidToolsService, LUCID_TOOLS } from './lucid-tools.service';
+import { RecursiveContextSearchService, RecursiveSearchConfig } from './recursive-context-search.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
 import { withRetry, wrapAnthropicError } from '../utils/anthropic-errors';
 
@@ -23,6 +24,10 @@ interface ChatConfig {
   maxTokens?: number;
   forceDeepThinking?: boolean;
   deepThinkingBias?: number;
+  /** Enable recursive context search for "infinite context" */
+  enableRecursiveSearch?: boolean;
+  /** Configuration for recursive context search */
+  recursiveSearchConfig?: RecursiveSearchConfig;
 }
 
 /**
@@ -64,6 +69,7 @@ export class ChatService {
   private costTrackingService: CostTrackingService;
   private promptModulesService: PromptModulesService;
   private lucidToolsService: LucidToolsService;
+  private recursiveContextService: RecursiveContextSearchService;
 
   // Default configuration - word limits unified at service layer
   private readonly DEFAULT_CONFIG: ChatConfig = {
@@ -73,6 +79,13 @@ export class ChatService {
     maxTokens: 500,
     forceDeepThinking: false,
     deepThinkingBias: 50,
+    enableRecursiveSearch: false,
+    recursiveSearchConfig: {
+      maxDepth: 3,
+      maxChunks: 20,
+      minSimilarity: 0.4,
+      targetTokenBudget: 4000,
+    },
   };
 
   constructor(pool: Pool, supabase: SupabaseClient, anthropicApiKey?: string) {
@@ -90,6 +103,7 @@ export class ChatService {
     this.costTrackingService = new CostTrackingService(pool);
     this.promptModulesService = new PromptModulesService(pool, anthropicApiKey);
     this.lucidToolsService = new LucidToolsService(pool);
+    this.recursiveContextService = new RecursiveContextSearchService(pool, anthropicApiKey);
   }
 
   /**
@@ -189,6 +203,52 @@ export class ChatService {
         input.message
       );
 
+      // If recursive context search is enabled (via input or profile config), gather additional context
+      const useRecursiveSearch = input.enable_recursive_search ?? chatConfig.enableRecursiveSearch;
+      let recursiveContext = '';
+      if (useRecursiveSearch) {
+        try {
+          // Merge input config with profile config
+          const searchConfig: RecursiveSearchConfig = {
+            ...chatConfig.recursiveSearchConfig,
+            ...(input.recursive_search_config ? {
+              maxDepth: input.recursive_search_config.max_depth,
+              maxChunks: input.recursive_search_config.max_chunks,
+              minSimilarity: input.recursive_search_config.min_similarity,
+              searchScope: input.recursive_search_config.search_scope,
+              targetTokenBudget: input.recursive_search_config.target_token_budget,
+            } : {}),
+          };
+
+          const searchResult = await this.recursiveContextService.searchRecursively(
+            input.message,
+            input.user_id,
+            input.conversation_id,
+            searchConfig
+          );
+
+          if (searchResult.context.length > 0) {
+            recursiveContext = this.recursiveContextService.formatContextForPrompt(searchResult);
+            logger.info('Recursive context search completed', {
+              conversation_id: input.conversation_id,
+              iterations: searchResult.iterations,
+              chunksFound: searchResult.context.length,
+              totalTokens: searchResult.totalTokens,
+              sufficient: searchResult.sufficient,
+            });
+          }
+        } catch (searchError: any) {
+          logger.warn('Recursive context search failed, continuing without', {
+            error: searchError.message,
+          });
+        }
+      }
+
+      // Combine base prompt with recursive context
+      const finalPrompt = recursiveContext
+        ? `${moduleResult.prompt}\n${recursiveContext}`
+        : moduleResult.prompt;
+
       // Calculate temperature
       const temperature = input.temperature ?? chatConfig.defaultTemperature;
 
@@ -224,7 +284,7 @@ export class ChatService {
               model: modelUsed,
               max_tokens: maxTokens,
               temperature: temperature,
-              system: moduleResult.prompt,
+              system: finalPrompt,
               messages: apiMessages,
               tools: toolsWithContext,
             }),

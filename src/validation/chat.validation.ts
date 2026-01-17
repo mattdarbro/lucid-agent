@@ -41,6 +41,26 @@ export const chatCompletionSchema = z.object({
     .string()
     .max(5000)
     .optional(),
+
+  /** Enable recursive context search for "infinite context" */
+  enable_recursive_search: z
+    .boolean()
+    .optional()
+    .default(false),
+
+  /** Configuration for recursive context search */
+  recursive_search_config: z.object({
+    /** Maximum recursion depth (default: 3) */
+    max_depth: z.number().int().min(1).max(10).optional(),
+    /** Maximum context chunks to return (default: 20) */
+    max_chunks: z.number().int().min(1).max(50).optional(),
+    /** Minimum similarity threshold (default: 0.4) */
+    min_similarity: z.number().min(0).max(1).optional(),
+    /** Search scope: conversation, user, or all */
+    search_scope: z.enum(['conversation', 'user', 'all']).optional(),
+    /** Target token budget for context (default: 4000) */
+    target_token_budget: z.number().int().min(500).max(20000).optional(),
+  }).optional(),
 });
 
 export type ChatCompletionInput = z.infer<typeof chatCompletionSchema>;
