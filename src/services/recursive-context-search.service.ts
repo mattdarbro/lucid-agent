@@ -603,4 +603,130 @@ Is this context sufficient to answer the query? If not, what specific informatio
 
     return formatted;
   }
+
+  /**
+   * Auto-detect whether recursive search should be used for this message.
+   *
+   * Triggers on:
+   * 1. Historical reference patterns (e.g., "what did we discuss", "remember when")
+   * 2. Long conversations where context might be lost
+   * 3. Time-based references (e.g., "last week", "a few days ago")
+   * 4. Explicit memory/recall requests
+   *
+   * @param message - The user's message
+   * @param conversationLength - Number of messages in the conversation
+   * @param daysSinceFirstMessage - Days since conversation started (optional)
+   * @returns Whether to use recursive search and the reason why
+   */
+  shouldUseRecursiveSearch(
+    message: string,
+    conversationLength: number,
+    daysSinceFirstMessage?: number
+  ): { shouldSearch: boolean; reason: string } {
+    const lowerMessage = message.toLowerCase();
+
+    // Pattern 1: Historical reference patterns
+    const historicalPatterns = [
+      { pattern: /what did (we|i|you) (talk|discuss|say|mention)/i, reason: 'historical discussion reference' },
+      { pattern: /remember when/i, reason: 'memory recall request' },
+      { pattern: /you (mentioned|said|told me|brought up)/i, reason: 'referencing past statement' },
+      { pattern: /we (talked|discussed|spoke) about/i, reason: 'past conversation reference' },
+      { pattern: /earlier (you|we|i) (said|mentioned|discussed)/i, reason: 'earlier context reference' },
+      { pattern: /back when/i, reason: 'historical reference' },
+      { pattern: /do you recall/i, reason: 'memory recall request' },
+      { pattern: /as (we|you|i) discussed/i, reason: 'referencing past discussion' },
+      { pattern: /what was (that|the) (thing|idea|concept)/i, reason: 'recall request' },
+      { pattern: /can you remind me/i, reason: 'reminder request' },
+    ];
+
+    for (const { pattern, reason } of historicalPatterns) {
+      if (pattern.test(message)) {
+        logger.debug('Recursive search triggered by pattern', { pattern: pattern.source, reason });
+        return { shouldSearch: true, reason };
+      }
+    }
+
+    // Pattern 2: Time-based references
+    const timePatterns = [
+      { pattern: /last (week|month|time|session)/i, reason: 'time-based reference' },
+      { pattern: /(a |few |couple )?(days|weeks|months) ago/i, reason: 'time-based reference' },
+      { pattern: /the other day/i, reason: 'recent past reference' },
+      { pattern: /previously/i, reason: 'previous context reference' },
+      { pattern: /in (our )?(earlier|previous|past) (conversation|chat|discussion)/i, reason: 'past conversation reference' },
+      { pattern: /first time (we|i|you)/i, reason: 'historical reference' },
+      { pattern: /when we (first|started)/i, reason: 'origin reference' },
+    ];
+
+    for (const { pattern, reason } of timePatterns) {
+      if (pattern.test(message)) {
+        logger.debug('Recursive search triggered by time pattern', { pattern: pattern.source, reason });
+        return { shouldSearch: true, reason };
+      }
+    }
+
+    // Pattern 3: Explicit recall/search requests
+    const recallPatterns = [
+      { pattern: /search (for|through|my|our)/i, reason: 'explicit search request' },
+      { pattern: /find (what|when|where|that)/i, reason: 'explicit find request' },
+      { pattern: /look (up|back|through)/i, reason: 'lookup request' },
+      { pattern: /what do you know about/i, reason: 'knowledge query' },
+      { pattern: /have (we|i) (ever|talked|mentioned|discussed)/i, reason: 'historical query' },
+      { pattern: /tell me (again|what)/i, reason: 'recall request' },
+    ];
+
+    for (const { pattern, reason } of recallPatterns) {
+      if (pattern.test(message)) {
+        logger.debug('Recursive search triggered by recall pattern', { pattern: pattern.source, reason });
+        return { shouldSearch: true, reason };
+      }
+    }
+
+    // Pattern 4: Long conversation threshold
+    // If the conversation is very long, recent 20 messages might not have enough context
+    const LONG_CONVERSATION_THRESHOLD = 100;
+    if (conversationLength > LONG_CONVERSATION_THRESHOLD) {
+      // Only trigger if the message seems to need context (questions, references)
+      const needsContextPatterns = [
+        /\?$/, // Ends with question mark
+        /^(what|why|how|when|where|who|which|can you|could you|do you|did you|have you|will you)/i,
+        /about (that|this|it|the)/i,
+      ];
+
+      for (const pattern of needsContextPatterns) {
+        if (pattern.test(message)) {
+          logger.debug('Recursive search triggered by long conversation + question', {
+            conversationLength,
+            threshold: LONG_CONVERSATION_THRESHOLD,
+          });
+          return {
+            shouldSearch: true,
+            reason: `long conversation (${conversationLength} messages) with question`
+          };
+        }
+      }
+    }
+
+    // Pattern 5: Multi-day conversations
+    // If conversation spans multiple days, user might reference earlier days
+    if (daysSinceFirstMessage && daysSinceFirstMessage > 1) {
+      const multiDayPatterns = [
+        /yesterday/i,
+        /today/i,
+        /this morning/i,
+        /earlier today/i,
+      ];
+
+      for (const pattern of multiDayPatterns) {
+        if (pattern.test(message)) {
+          logger.debug('Recursive search triggered by multi-day reference', {
+            daysSinceFirstMessage,
+          });
+          return { shouldSearch: true, reason: 'multi-day conversation time reference' };
+        }
+      }
+    }
+
+    // Default: don't use recursive search
+    return { shouldSearch: false, reason: 'no trigger patterns detected' };
+  }
 }

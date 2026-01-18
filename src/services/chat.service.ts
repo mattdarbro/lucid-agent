@@ -203,8 +203,46 @@ export class ChatService {
         input.message
       );
 
-      // If recursive context search is enabled (via input or profile config), gather additional context
-      const useRecursiveSearch = input.enable_recursive_search ?? chatConfig.enableRecursiveSearch;
+      // Determine if recursive context search should be used
+      // Priority: explicit input > auto-detection
+      let useRecursiveSearch = false;
+      let recursiveSearchReason = '';
+
+      if (input.enable_recursive_search !== undefined) {
+        // Explicit override from API request
+        useRecursiveSearch = input.enable_recursive_search;
+        recursiveSearchReason = 'explicit API request';
+      } else {
+        // Auto-detect based on message content and conversation state
+        const conversationLength = messages.length;
+
+        // Calculate days since conversation started (if we have message history)
+        let daysSinceFirstMessage: number | undefined;
+        if (messages.length > 0) {
+          // We don't have timestamps in the API messages, so we'll skip this for now
+          // Could be enhanced by fetching conversation metadata
+          daysSinceFirstMessage = undefined;
+        }
+
+        const detection = this.recursiveContextService.shouldUseRecursiveSearch(
+          input.message,
+          conversationLength,
+          daysSinceFirstMessage
+        );
+
+        useRecursiveSearch = detection.shouldSearch;
+        recursiveSearchReason = detection.reason;
+
+        if (useRecursiveSearch) {
+          logger.info('Auto-detected need for recursive search', {
+            conversation_id: input.conversation_id,
+            reason: recursiveSearchReason,
+            conversationLength,
+          });
+        }
+      }
+
+      // Gather additional context if recursive search is triggered
       let recursiveContext = '';
       if (useRecursiveSearch) {
         try {
@@ -231,6 +269,7 @@ export class ChatService {
             recursiveContext = this.recursiveContextService.formatContextForPrompt(searchResult);
             logger.info('Recursive context search completed', {
               conversation_id: input.conversation_id,
+              trigger_reason: recursiveSearchReason,
               iterations: searchResult.iterations,
               chunksFound: searchResult.context.length,
               totalTokens: searchResult.totalTokens,
