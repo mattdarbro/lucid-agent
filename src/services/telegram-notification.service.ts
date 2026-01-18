@@ -94,7 +94,7 @@ export class TelegramNotificationService {
         }),
       });
 
-      const result: TelegramResponse = await response.json();
+      const result = await response.json() as TelegramResponse;
 
       if (!result.ok) {
         logger.error('Telegram API error', {
