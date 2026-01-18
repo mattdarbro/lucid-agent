@@ -180,7 +180,18 @@ export class BackgroundJobsService {
         };
 
       case 'afternoon_synthesis':
-        // Used for Weekly Digest on Sundays
+        // Weekly Digest - only runs on Sundays
+        const today = new Date();
+        const isSunday = today.getDay() === 0;
+
+        if (!isSunday) {
+          logger.debug('[AL] Skipping weekly digest - not Sunday', {
+            dayOfWeek: today.getDay(),
+            userId
+          });
+          return { thoughtProduced: false, libraryEntryId: null };
+        }
+
         const weeklyResult = await this.autonomousLoopService.runWeeklyDigest(userId, jobId);
         return {
           thoughtProduced: weeklyResult.thoughtProduced,
