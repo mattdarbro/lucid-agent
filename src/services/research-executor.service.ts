@@ -7,6 +7,7 @@ import { WebSearchService } from './web-search.service';
 import { FactService } from './fact.service';
 import { VectorService } from './vector.service';
 import { AutonomousThoughtService } from './autonomous-thought.service';
+import { TelegramNotificationService } from './telegram-notification.service';
 
 /**
  * ResearchExecutorService
@@ -23,6 +24,7 @@ export class ResearchExecutorService {
   private webSearchService: WebSearchService;
   private factService: FactService;
   private autonomousThoughtService: AutonomousThoughtService;
+  private telegramService: TelegramNotificationService;
   private anthropic: Anthropic;
   private isProcessing: boolean = false;
 
@@ -36,6 +38,7 @@ export class ResearchExecutorService {
     const vectorService = new VectorService();
     this.factService = new FactService(pool, vectorService);
     this.autonomousThoughtService = new AutonomousThoughtService(pool, supabase);
+    this.telegramService = new TelegramNotificationService();
 
     this.anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
@@ -234,6 +237,20 @@ export class ResearchExecutorService {
         factsFailed,
         thoughtCreated: true,
       });
+
+      // Send Telegram notification if enabled
+      if (this.telegramService.isEnabled()) {
+        try {
+          await this.telegramService.sendResearchNotification(
+            query,
+            analysis.summary
+          );
+          logger.info('Sent Telegram notification for completed research', { taskId, query });
+        } catch (notifyError) {
+          logger.warn('Failed to send Telegram notification', { taskId, error: notifyError });
+          // Don't fail the task if notification fails
+        }
+      }
     } catch (error: any) {
       logger.error('Research task execution failed', {
         taskId,

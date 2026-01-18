@@ -58,6 +58,22 @@ export const config = {
     webResearch: process.env.ENABLE_WEB_RESEARCH === 'true',
     dreams: process.env.ENABLE_DREAMS === 'true',
   },
+
+  // Telegram Notifications
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    chatId: process.env.TELEGRAM_CHAT_ID || '',
+    enabled: !!process.env.TELEGRAM_BOT_TOKEN && !!process.env.TELEGRAM_CHAT_ID,
+  },
+
+  // APNs (Apple Push Notifications) - Optional
+  apns: {
+    keyId: process.env.APNS_KEY_ID || '',
+    teamId: process.env.APNS_TEAM_ID || '',
+    keyPath: process.env.APNS_KEY_PATH || '',
+    bundleId: process.env.APNS_BUNDLE_ID || '',
+    enabled: !!process.env.APNS_KEY_ID && !!process.env.APNS_TEAM_ID,
+  },
 } as const;
 
 // Validation

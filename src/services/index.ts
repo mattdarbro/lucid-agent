@@ -31,6 +31,8 @@ import { ResearchQueueService } from './research-queue.service';
 import { LivingDocumentService } from './living-document.service';
 import { ActionsService } from './actions.service';
 import { CaptureService } from './capture.service';
+import { PushNotificationService } from './push-notification.service';
+import { TelegramNotificationService } from './telegram-notification.service';
 import { logger } from '../logger';
 
 // ============================================================================
@@ -65,6 +67,10 @@ export const livingDocumentService = new LivingDocumentService(pool);
 export const actionsService = new ActionsService(pool);
 export const captureService = new CaptureService(pool);
 
+// Notification services
+export const pushNotificationService = new PushNotificationService(pool);
+export const telegramNotificationService = new TelegramNotificationService();
+
 logger.info('Service container initialized successfully');
 
 /**
@@ -92,6 +98,9 @@ export const services = {
   // Capture system
   actions: actionsService,
   capture: captureService,
+  // Notifications
+  pushNotification: pushNotificationService,
+  telegram: telegramNotificationService,
 };
 
 export default services;

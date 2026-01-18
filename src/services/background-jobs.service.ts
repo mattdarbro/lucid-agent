@@ -8,6 +8,7 @@ import { VectorService } from './vector.service';
 import { ProfileService } from './profile.service';
 import { AgentJobService } from './agent-job.service';
 import { AutonomousLoopService } from './autonomous-loop.service';
+import { ResearchExecutorService } from './research-executor.service';
 import { JobType } from '../validation/agent-job.validation';
 
 /**
@@ -29,9 +30,11 @@ export class BackgroundJobsService {
   private profileService: ProfileService;
   private agentJobService: AgentJobService;
   private autonomousLoopService: AutonomousLoopService;
+  private researchExecutorService: ResearchExecutorService;
   private factExtractionJob: cron.ScheduledTask | null = null;
   private autonomousLoopJob: cron.ScheduledTask | null = null;
   private dailyJobScheduler: cron.ScheduledTask | null = null;
+  private researchExecutorJob: cron.ScheduledTask | null = null;
   private isRunning: boolean = false;
 
   constructor(pool: Pool, supabase: SupabaseClient) {
@@ -43,6 +46,7 @@ export class BackgroundJobsService {
     this.profileService = new ProfileService(pool);
     this.agentJobService = new AgentJobService(pool, supabase);
     this.autonomousLoopService = new AutonomousLoopService(pool);
+    this.researchExecutorService = new ResearchExecutorService(pool, supabase);
   }
 
   /**
@@ -57,6 +61,7 @@ export class BackgroundJobsService {
     this.startFactExtractionJob();
     this.startAutonomousLoopJob();
     this.startDailyJobScheduler();
+    this.startResearchExecutorJob();
     this.isRunning = true;
     logger.info('[BACKGROUND] Background jobs started');
   }
@@ -77,8 +82,66 @@ export class BackgroundJobsService {
       this.dailyJobScheduler.stop();
       this.dailyJobScheduler = null;
     }
+    if (this.researchExecutorJob) {
+      this.researchExecutorJob.stop();
+      this.researchExecutorJob = null;
+    }
     this.isRunning = false;
     logger.info('[BACKGROUND] Background jobs stopped');
+  }
+
+  /**
+   * Start the research executor job
+   * Processes pending research tasks every 2 minutes
+   * This handles user-submitted research queries from the iOS app
+   */
+  private startResearchExecutorJob(): void {
+    // Check every 2 minutes for pending research tasks
+    this.researchExecutorJob = cron.schedule('*/2 * * * *', async () => {
+      await this.runResearchExecutor();
+    });
+
+    logger.info('[BACKGROUND] Research executor job scheduled (every 2 minutes)');
+
+    // Also run on startup after a delay to process any stuck tasks
+    setTimeout(() => {
+      this.runResearchExecutor().catch((err) => {
+        logger.error('[BACKGROUND] Initial research executor run failed:', err);
+      });
+    }, 30000); // 30 second delay to let server stabilize
+  }
+
+  /**
+   * Process pending research tasks
+   */
+  private async runResearchExecutor(): Promise<void> {
+    try {
+      // Check if already processing
+      if (this.researchExecutorService.isCurrentlyProcessing()) {
+        logger.debug('[RESEARCH] Research executor already processing, skipping');
+        return;
+      }
+
+      // Check availability
+      const status = this.researchExecutorService.getAvailabilityStatus();
+      if (!status.available) {
+        logger.debug('[RESEARCH] Research executor not available', { reason: status.reason });
+        return;
+      }
+
+      // Process up to 3 pending tasks
+      const result = await this.researchExecutorService.processPendingTasks(3);
+
+      if (result.processed > 0) {
+        logger.info('[RESEARCH] Processed research tasks', {
+          processed: result.processed,
+          successful: result.successful,
+          failed: result.failed,
+        });
+      }
+    } catch (error: any) {
+      logger.error('[RESEARCH] Research executor job failed', { error: error.message });
+    }
   }
 
   /**
@@ -364,6 +427,19 @@ export class BackgroundJobsService {
       libraryEntryId: result.libraryEntryId,
       title: result.title,
     };
+  }
+
+  /**
+   * Manually trigger research task processing (useful for testing)
+   * Processes any pending research tasks immediately
+   */
+  async triggerResearchTaskProcessing(maxTasks: number = 3): Promise<{
+    processed: number;
+    successful: number;
+    failed: number;
+  }> {
+    logger.info('[RESEARCH] Manual trigger: research task processing', { maxTasks });
+    return await this.researchExecutorService.processPendingTasks(maxTasks);
   }
 
   /**

@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { logger } from '../logger';
+import { TelegramNotificationService } from './telegram-notification.service';
 
 /**
  * Push notification payload
@@ -14,11 +15,17 @@ interface PushNotification {
  * PushNotificationService
  *
  * Handles push notifications for Lucid.
- * Currently a placeholder that logs notifications - integrate with actual
- * push service (Expo, APNs, FCM) as needed.
+ * Supports multiple channels:
+ * - Telegram (enabled via TELEGRAM_BOT_TOKEN) - recommended for proactive notifications
+ * - APNs (Apple Push) - requires iOS app and certificates
+ * - FCM (Firebase) - for cross-platform
  */
 export class PushNotificationService {
-  constructor(private pool: Pool) {}
+  private telegramService: TelegramNotificationService;
+
+  constructor(private pool: Pool) {
+    this.telegramService = new TelegramNotificationService();
+  }
 
   /**
    * Register or update a user's push token
@@ -76,40 +83,62 @@ export class PushNotificationService {
   /**
    * Send a push notification to a user
    *
-   * Currently logs the notification - integrate with actual push service as needed.
-   * Options for integration:
-   * - Expo Push (for Expo apps): https://docs.expo.dev/push-notifications/sending-notifications/
-   * - APNs (Apple): Direct integration with Apple Push Notification service
-   * - Firebase Cloud Messaging (FCM): For cross-platform
+   * Attempts to send via multiple channels:
+   * 1. Telegram (if configured) - works without app running
+   * 2. APNs (if push token registered) - requires iOS app
    */
   async sendNotification(userId: string, notification: PushNotification): Promise<boolean> {
-    try {
-      const pushToken = await this.getPushToken(userId);
+    let sent = false;
 
-      if (!pushToken) {
-        logger.debug('No push token for user, skipping notification', { userId });
-        return false;
+    try {
+      // Try Telegram first (most reliable for proactive notifications)
+      if (this.telegramService.isEnabled()) {
+        const telegramSent = await this.telegramService.sendNotification(notification);
+        if (telegramSent) {
+          logger.info('Notification sent via Telegram', {
+            userId,
+            title: notification.title,
+          });
+          sent = true;
+        }
       }
 
-      // Log the notification (placeholder for actual implementation)
-      logger.info('Would send push notification', {
-        userId,
-        pushToken: pushToken.substring(0, 20) + '...',
-        notification,
-      });
+      // Also try APNs if push token exists
+      const pushToken = await this.getPushToken(userId);
+      if (pushToken) {
+        // Log for now - APNs implementation can be added later
+        logger.info('Would send APNs notification', {
+          userId,
+          pushToken: pushToken.substring(0, 20) + '...',
+          notification,
+        });
 
-      // TODO: Implement actual push notification sending
-      // Example with Expo:
-      // const expo = new Expo();
-      // await expo.sendPushNotificationsAsync([{
-      //   to: pushToken,
-      //   sound: 'default',
-      //   title: notification.title,
-      //   body: notification.body,
-      //   data: notification.data || {},
-      // }]);
+        // TODO: Implement actual APNs sending
+        // Example with @parse/node-apn:
+        // const apnProvider = new apn.Provider({
+        //   token: {
+        //     key: process.env.APNS_KEY_PATH,
+        //     keyId: process.env.APNS_KEY_ID,
+        //     teamId: process.env.APNS_TEAM_ID,
+        //   },
+        //   production: process.env.NODE_ENV === 'production',
+        // });
+        // const apnNotification = new apn.Notification({
+        //   alert: { title: notification.title, body: notification.body },
+        //   topic: process.env.APNS_BUNDLE_ID,
+        //   payload: notification.data,
+        // });
+        // await apnProvider.send(apnNotification, pushToken);
 
-      return true;
+        // Consider this sent even if just logged (for now)
+        sent = true;
+      }
+
+      if (!sent) {
+        logger.debug('No notification channels available for user', { userId });
+      }
+
+      return sent;
     } catch (error: any) {
       logger.error('Failed to send push notification:', {
         userId,
@@ -117,6 +146,13 @@ export class PushNotificationService {
       });
       return false;
     }
+  }
+
+  /**
+   * Get the Telegram service for direct access
+   */
+  getTelegramService(): TelegramNotificationService {
+    return this.telegramService;
   }
 
   /**
