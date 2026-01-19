@@ -5,6 +5,7 @@ import { VectorService } from './vector.service';
 import { MessageService } from './message.service';
 import { ActionsService } from './actions.service';
 import { WebSearchService, WebSearchResult } from './web-search.service';
+import { TelegramNotificationService } from './telegram-notification.service';
 import { LibraryEntryType, Action } from '../types/database';
 
 /**
@@ -44,6 +45,7 @@ export class AutonomousLoopService {
   private messageService: MessageService;
   private actionsService: ActionsService;
   private webSearchService: WebSearchService;
+  private telegramService: TelegramNotificationService;
   private readonly model = 'claude-sonnet-4-20250514';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
@@ -55,6 +57,7 @@ export class AutonomousLoopService {
     this.messageService = new MessageService(pool, this.vectorService);
     this.actionsService = new ActionsService(pool);
     this.webSearchService = new WebSearchService();
+    this.telegramService = new TelegramNotificationService();
   }
 
   /**
@@ -230,6 +233,12 @@ TITLE: [Your title]
         title,
       });
 
+      // Send Telegram notification
+      if (this.telegramService.isEnabled()) {
+        const text = `🌙 *Evening Reflection*\n\n*${title}*\n\n${content.slice(0, 500)}${content.length > 500 ? '...' : ''}`;
+        await this.telegramService.sendMessage(text);
+      }
+
       return result;
     } catch (error: any) {
       logger.error('[AL] Evening synthesis loop failed', {
@@ -368,6 +377,11 @@ Write the briefing now (~200 words):`;
         openActions: openActions.length,
         ideas: yesterdaysIdeas.length,
       });
+
+      // Send Telegram notification
+      if (this.telegramService.isEnabled()) {
+        await this.telegramService.sendBriefingNotification(briefingContent);
+      }
 
       return result;
     } catch (error: any) {
@@ -607,6 +621,12 @@ Write the weekly digest now (~300-400 words):`;
         completedActions: completedActions.length,
         ideas: weekIdeas.length,
       });
+
+      // Send Telegram notification
+      if (this.telegramService.isEnabled()) {
+        const text = `📅 *Weekly Digest*\n\n${digestContent.slice(0, 600)}${digestContent.length > 600 ? '...' : ''}`;
+        await this.telegramService.sendMessage(text);
+      }
 
       return result;
     } catch (error: any) {
@@ -918,6 +938,11 @@ Write the research summary now:`;
         title,
         topicsResearched: searchResults.length,
       });
+
+      // Send Telegram notification
+      if (this.telegramService.isEnabled()) {
+        await this.telegramService.sendResearchNotification(title, synthesisContent);
+      }
 
       return result;
     } catch (error: any) {
