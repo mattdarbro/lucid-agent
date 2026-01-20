@@ -257,7 +257,7 @@ export interface Capture {
   // Content
   content: string;
   // Source
-  source: 'app' | 'voice' | 'share_extension' | 'ios_import';
+  source: 'app' | 'voice' | 'share_extension';
   source_metadata: Record<string, any>;
   // Status
   status: 'inbox' | 'processing' | 'processed' | 'archived' | 'deleted';
