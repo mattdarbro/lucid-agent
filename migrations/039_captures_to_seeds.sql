@@ -10,6 +10,7 @@
 -- First drop views that depend on captures
 DROP VIEW IF EXISTS active_captures;
 DROP VIEW IF EXISTS upcoming_deadlines;
+DROP VIEW IF EXISTS important_people;
 
 -- Drop indexes (they'll be recreated with new names)
 DROP INDEX IF EXISTS idx_captures_user;
@@ -101,6 +102,21 @@ FROM seeds s
 WHERE s.status IN ('held', 'growing')
 ORDER BY
   s.planted_at DESC;
+
+-- ============================================================================
+-- 6. RECREATE IMPORTANT_PEOPLE VIEW (without capture/seed dependency)
+-- ============================================================================
+
+-- Recreate without the captures join (seeds don't have person relationships)
+CREATE VIEW important_people AS
+SELECT
+  p.*,
+  0 AS open_seeds_count,  -- Seeds no longer linked to people
+  COUNT(DISTINCT ce.id) AS upcoming_events_count
+FROM people p
+LEFT JOIN calendar_events ce ON p.id = ANY(ce.attendee_ids) AND ce.start_time > NOW()
+GROUP BY p.id
+ORDER BY p.importance_score DESC, p.last_mentioned_at DESC;
 
 -- ============================================================================
 -- End of Migration 039
