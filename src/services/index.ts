@@ -29,8 +29,7 @@ import { LucidStateService } from './lucid-state.service';
 import { PromptModulesService } from './prompt-modules.service';
 import { ResearchQueueService } from './research-queue.service';
 import { LivingDocumentService } from './living-document.service';
-import { ActionsService } from './actions.service';
-import { CaptureService } from './capture.service';
+import { SeedService } from './seed.service';
 import { PushNotificationService } from './push-notification.service';
 import { TelegramNotificationService } from './telegram-notification.service';
 import { logger } from '../logger';
@@ -63,9 +62,8 @@ export const promptModulesService = new PromptModulesService(pool);
 export const researchQueueService = new ResearchQueueService(pool);
 export const livingDocumentService = new LivingDocumentService(pool);
 
-// Capture system services
-export const actionsService = new ActionsService(pool);
-export const captureService = new CaptureService(pool);
+// Seed system services
+export const seedService = new SeedService(pool);
 
 // Notification services
 export const pushNotificationService = new PushNotificationService(pool);
@@ -95,9 +93,8 @@ export const services = {
   promptModules: promptModulesService,
   researchQueue: researchQueueService,
   livingDocument: livingDocumentService,
-  // Capture system
-  actions: actionsService,
-  capture: captureService,
+  // Seed system
+  seed: seedService,
   // Notifications
   pushNotification: pushNotificationService,
   telegram: telegramNotificationService,

@@ -30,10 +30,8 @@ import { createStateCheckRouter } from './routes/state-check';
 import researchQueueRouter from './routes/research-queue';
 import winsRouter from './routes/wins';
 import possibilitiesRouter from './routes/possibilities';
-import { createActionsRouter } from './routes/actions';
-import { createCaptureRouter } from './routes/capture';
-// New Calendar/Reminders integration routes
-import capturesRouter from './routes/captures';
+import { createSeedsRouter } from './routes/seeds';
+// Calendar integration routes
 import calendarRouter from './routes/calendar';
 import peopleRouter from './routes/people';
 
@@ -123,8 +121,10 @@ app.use('/v1/summaries', summaryRouter);
 app.use('/v1/conversations/:conversation_id/summaries', summaryRouter);
 app.use('/v1/users/:user_id/summaries', summaryRouter);
 
-// Calendar & Reminders Integration (new)
-app.use('/v1/captures', capturesRouter);
+// Seeds (simplified capture system)
+app.use('/v1/seeds', createSeedsRouter(pool));
+
+// Calendar integration
 app.use('/v1/calendar', calendarRouter);
 app.use('/v1/people', peopleRouter);
 
@@ -178,10 +178,6 @@ app.use('/v1/wins', winsRouter);
 
 // Possibilities (sigma-based alternative exploration)
 app.use('/v1/possibilities', possibilitiesRouter);
-
-// Capture System (Phase 1-2 of simplified design)
-app.use('/v1/actions', createActionsRouter(pool));
-app.use('/v1/capture', createCaptureRouter(pool));
 
 // TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);

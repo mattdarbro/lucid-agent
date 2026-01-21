@@ -219,7 +219,7 @@ export interface ContextAdaptation {
 }
 
 // ============================================================================
-// CAPTURE, CALENDAR, AND PEOPLE ENTITIES
+// SEEDS, CALENDAR, AND PEOPLE ENTITIES
 // ============================================================================
 
 export interface Person {
@@ -251,46 +251,36 @@ export interface Person {
   updated_at: Date;
 }
 
-export interface Capture {
+/**
+ * Seed - A simplified capture that grows over time
+ * No classification logic - just stores what the user plants
+ */
+export type SeedStatus = 'held' | 'growing' | 'grown' | 'released';
+export type SeedSource = 'app' | 'voice' | 'share';
+
+export interface Seed {
   id: string;
   user_id: string;
   // Content
   content: string;
   // Source
-  source: 'app' | 'voice' | 'share_extension';
+  source: SeedSource;
   source_metadata: Record<string, any>;
   // Status
-  status: 'inbox' | 'processing' | 'processed' | 'archived' | 'deleted';
-  // Lucid's interpretation
-  interpreted_type: 'task' | 'idea' | 'event' | 'reminder' | 'note' | 'person_mention' | null;
-  interpreted_title: string | null;
-  interpreted_details: string | null;
-  // Scheduling
-  has_deadline: boolean;
-  deadline_at: Date | null;
-  preferred_time: 'morning' | 'afternoon' | 'evening' | 'weekend' | 'anytime' | null;
-  estimated_duration_minutes: number | null;
-  // Priority & Energy
-  priority: number; // 1-5
-  energy_required: 'high' | 'medium' | 'low' | null;
-  // Recurrence
-  is_recurring: boolean;
-  recurrence_rule: string | null;
-  // Links
-  scheduled_event_id: string | null;
-  related_person_id: string | null;
-  related_capture_ids: string[] | null;
-  // Completion
-  is_completed: boolean;
-  completed_at: Date | null;
-  // Context
-  context_notes: string | null;
+  status: SeedStatus;
+  // Context when planted
+  planted_context: string | null;
+  // Surfacing tracking
+  last_surfaced_at: Date | null;
+  surface_count: number;
+  // Growth tracking
+  grown_into_library_id: string | null;
+  released_at: Date | null;
   // Vector
   embedding: number[] | null;
   // Timestamps
-  created_at: Date;
+  planted_at: Date;
   updated_at: Date;
-  processed_at: Date | null;
 }
 
 export interface CalendarEvent {
@@ -337,37 +327,20 @@ export interface PersonFact {
   created_at: Date;
 }
 
-export interface CaptureProcessingLog {
-  id: string;
-  capture_id: string;
-  action: 'classified' | 'scheduled' | 'linked_person' | 'set_priority' | 'completed';
-  action_details: Record<string, any> | null;
-  reasoning: string | null;
-  confidence: number | null;
-  created_at: Date;
-}
-
 // ============================================================================
-// CAPTURE, CALENDAR, AND PEOPLE VIEWS
+// SEEDS, CALENDAR, AND PEOPLE VIEWS
 // ============================================================================
 
-export interface ActiveCapture extends Capture {
-  related_person_name: string | null;
-  scheduled_event_title: string | null;
-  scheduled_start_time: Date | null;
+export interface ActiveSeed extends Seed {
+  // Active seeds view - seeds that are held or growing
 }
 
 export interface TodaysScheduleEvent extends CalendarEvent {
   attendee_display_names: string[] | null;
 }
 
-export interface UpcomingDeadline extends Capture {
-  related_person_name: string | null;
-  hours_until_deadline: number;
-}
-
 export interface ImportantPerson extends Person {
-  open_captures_count: number;
+  open_seeds_count: number;
   upcoming_events_count: number;
 }
 
@@ -570,7 +543,7 @@ export interface Orbit {
 }
 
 // ============================================================================
-// CAPTURE SYSTEM
+// ACTIONS SYSTEM
 // ============================================================================
 
 export type ActionStatus = 'open' | 'done' | 'cancelled';
@@ -592,15 +565,6 @@ export interface Action {
   created_at: Date;
   completed_at: Date | null;
   updated_at: Date;
-}
-
-export type CaptureCategory = 'ACTION' | 'IDEA' | 'FACT' | 'PERSON';
-
-export interface CaptureClassification {
-  category: CaptureCategory;
-  summary: string;
-  person_name: string | null;
-  confidence: number;
 }
 
 // ============================================================================
