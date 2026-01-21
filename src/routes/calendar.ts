@@ -74,10 +74,10 @@ router.post('/events', async (req: Request, res: Response) => {
 
     const event = result.rows[0];
 
-    // If this was scheduled from a capture, link them
+    // If this was scheduled from a seed, link them
     if (source_capture_id) {
       await pool.query(
-        `UPDATE captures SET scheduled_event_id = $1, updated_at = NOW() WHERE id = $2`,
+        `UPDATE seeds SET scheduled_event_id = $1, updated_at = NOW() WHERE id = $2`,
         [event.id, source_capture_id]
       );
     }
@@ -556,37 +556,38 @@ router.get('/free-slots/:user_id', async (req: Request, res: Response) => {
 });
 
 // ============================================================================
-// POST /v1/calendar/schedule-capture - Schedule a capture as a calendar event
+// POST /v1/calendar/schedule-seed - Schedule a seed as a calendar event
+// Note: This is legacy functionality - seeds are for contemplation, not scheduling
 // ============================================================================
-router.post('/schedule-capture', async (req: Request, res: Response) => {
+router.post('/schedule-seed', async (req: Request, res: Response) => {
   try {
     const {
-      capture_id,
+      seed_id,
       start_time,
       end_time,
       calendar_name = 'Lucid',
       title_override
     } = req.body;
 
-    if (!capture_id || !start_time || !end_time) {
+    if (!seed_id || !start_time || !end_time) {
       return res.status(400).json({
-        error: 'capture_id, start_time, and end_time are required'
+        error: 'seed_id, start_time, and end_time are required'
       });
     }
 
-    // Get the capture
-    const captureResult = await pool.query(
-      `SELECT * FROM captures WHERE id = $1`,
-      [capture_id]
+    // Get the seed
+    const seedResult = await pool.query(
+      `SELECT * FROM seeds WHERE id = $1`,
+      [seed_id]
     );
 
-    if (captureResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Capture not found' });
+    if (seedResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Seed not found' });
     }
 
-    const capture = captureResult.rows[0];
+    const seed = seedResult.rows[0];
 
-    // Create calendar event from capture
+    // Create calendar event from seed
     const eventResult = await pool.query(
       `INSERT INTO calendar_events (
         user_id, title, description,
@@ -596,36 +597,36 @@ router.post('/schedule-capture', async (req: Request, res: Response) => {
       VALUES ($1, $2, $3, $4, $5, $6, 'lucid_scheduled', $7, 'pending_push')
       RETURNING *`,
       [
-        capture.user_id,
-        title_override || capture.interpreted_title || capture.content.substring(0, 100),
-        capture.interpreted_details || capture.content,
+        seed.user_id,
+        title_override || seed.content.substring(0, 100),
+        seed.content,
         start_time,
         end_time,
         calendar_name,
-        capture_id
+        seed_id
       ]
     );
 
     const event = eventResult.rows[0];
 
-    // Link capture to event
+    // Link seed to event
     await pool.query(
-      `UPDATE captures
-       SET scheduled_event_id = $1, status = 'processed', processed_at = NOW(), updated_at = NOW()
+      `UPDATE seeds
+       SET scheduled_event_id = $1, status = 'growing', updated_at = NOW()
        WHERE id = $2`,
-      [event.id, capture_id]
+      [event.id, seed_id]
     );
 
-    logger.info(`Scheduled capture ${capture_id} as event ${event.id}`);
+    logger.info(`Scheduled seed ${seed_id} as event ${event.id}`);
 
     res.status(201).json({
       event,
-      capture_id,
+      seed_id,
       needs_ios_sync: true
     });
   } catch (error: any) {
-    logger.error('Error scheduling capture:', error);
-    res.status(500).json({ error: 'Failed to schedule capture' });
+    logger.error('Error scheduling seed:', error);
+    res.status(500).json({ error: 'Failed to schedule seed' });
   }
 });
 

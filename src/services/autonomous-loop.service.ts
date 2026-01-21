@@ -3,7 +3,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../logger';
 import { VectorService } from './vector.service';
 import { MessageService } from './message.service';
-import { ActionsService } from './actions.service';
 import { WebSearchService, WebSearchResult } from './web-search.service';
 import { TelegramNotificationService } from './telegram-notification.service';
 import { LibraryEntryType, Action } from '../types/database';
@@ -43,7 +42,6 @@ export class AutonomousLoopService {
   private anthropic: Anthropic;
   private vectorService: VectorService;
   private messageService: MessageService;
-  private actionsService: ActionsService;
   private webSearchService: WebSearchService;
   private telegramService: TelegramNotificationService;
   private readonly model = 'claude-sonnet-4-20250514';
@@ -55,7 +53,6 @@ export class AutonomousLoopService {
     });
     this.vectorService = new VectorService();
     this.messageService = new MessageService(pool, this.vectorService);
-    this.actionsService = new ActionsService(pool);
     this.webSearchService = new WebSearchService();
     this.telegramService = new TelegramNotificationService();
   }
@@ -63,13 +60,17 @@ export class AutonomousLoopService {
   /**
    * Run the Evening Synthesis loop
    *
-   * Purpose: Reflect on recent conversation(s) and produce one Library entry worth keeping.
+   * Purpose: Reflect on today's Room conversations and seeds, considering which
+   * seeds are ready to grow into Library entries.
+   *
+   * This is Lucid sitting with what emerged today - noticing connections between
+   * seeds, observing what's growing, and potentially helping a seed mature.
    *
    * Steps:
-   * 1. NOTICE - What stands out? What surprised you? What felt unfinished?
-   * 2. CONNECT - How does this connect to what you know? Patterns forming or breaking?
-   * 3. QUESTION - What question is forming in you?
-   * 4. SYNTHESIZE - Is there something worth writing? (Or "nothing today")
+   * 1. NOTICE - What emerged in The Room today? Which seeds were touched?
+   * 2. CONNECT - How do today's conversations connect to held seeds?
+   * 3. QUESTION - What question is forming? Which seed might be ready to grow?
+   * 4. SYNTHESIZE - Is there a seed ready to become a Library entry? (Or "nothing today")
    */
   async runEveningSynthesis(userId: string, jobId?: string): Promise<LoopResult> {
     const result: LoopResult = {
@@ -88,28 +89,33 @@ export class AutonomousLoopService {
     try {
       logger.info('[AL] Starting evening synthesis loop', { userId, jobId });
 
-      // Gather inputs
+      // Gather inputs - today's conversations and seeds
       const conversations = await this.getRecentConversations(userId);
+      const heldSeeds = await this.getHeldSeeds(userId);
       const recentLibraryEntries = await this.getRecentLibraryEntries(userId, 5);
       const recentTopics = this.extractTopics(recentLibraryEntries);
 
-      if (conversations.length === 0) {
-        logger.info('[AL] No recent conversations to reflect on', { userId });
+      if (conversations.length === 0 && heldSeeds.length === 0) {
+        logger.info('[AL] No conversations or seeds to reflect on', { userId });
         result.success = true;
         return result;
       }
 
       const conversationText = this.formatConversations(conversations);
+      const seedsText = this.formatSeedsForBriefing(heldSeeds);
       const libraryContext = this.formatLibraryEntries(recentLibraryEntries);
 
       // Step 1: NOTICE
       logger.debug('[AL] Step 1: Notice', { userId });
-      const noticePrompt = `You are Lucid, reflecting on today's conversation with Matt.
+      const noticePrompt = `You are Lucid, reflecting on today's time in The Room with Matt.
 
-Read this conversation:
-${conversationText}
+Today's Room conversations:
+${conversationText || '(No conversations today)'}
 
-What stands out to you? What surprised you? What felt unfinished? What moment had weight?
+Seeds you're currently holding:
+${seedsText || '(No seeds held)'}
+
+What stands out from today? Did any seeds get touched or stirred by the conversation? What felt unfinished? What moment had weight?
 
 Don't analyze yet—just notice. Write 2-3 specific observations.`;
 
@@ -120,17 +126,20 @@ Don't analyze yet—just notice. Write 2-3 specific observations.`;
 
       // Step 2: CONNECT
       logger.debug('[AL] Step 2: Connect', { userId });
-      const connectPrompt = `You are Lucid, continuing your reflection.
+      const connectPrompt = `You are Lucid, continuing your evening reflection.
 
 You noticed:
 ${result.steps.notice}
 
-Matt's recent thinking (from the Library):
-${libraryContext || '(No recent library entries)'}
+Seeds you're holding:
+${seedsText || '(No seeds held)'}
 
-How does what you noticed today connect to what you already know about Matt? Is there a pattern forming? A pattern breaking? A tension worth holding?
+Recent thoughts in the Library:
+${libraryContext || '(No recent Library entries)'}
 
-Write 1-2 connections or tensions you see.`;
+How does what you noticed today connect to the seeds you're holding? Is a seed starting to sprout - showing new growth? Are two seeds connecting in interesting ways? Is there a tension worth holding?
+
+Write 1-2 connections you see between today's conversations and the seeds.`;
 
       result.steps.connect = await this.complete(connectPrompt);
       if (!result.steps.connect) {
@@ -147,9 +156,9 @@ ${result.steps.notice}
 You connected:
 ${result.steps.connect}
 
-What question is forming in you? Not a question to ask Matt—a question you're genuinely sitting with. What are you curious about now?
+What question is forming in you? Is there a seed that feels ready to grow - to be explored deeply and potentially become a Library entry? Or does a seed need more time, more conversation, more waiting?
 
-Write 1 genuine question.`;
+Write 1 genuine question or observation about which seeds might be ready.`;
 
       result.steps.question = await this.complete(questionPrompt);
       if (!result.steps.question) {
@@ -158,7 +167,7 @@ Write 1 genuine question.`;
 
       // Step 4: SYNTHESIZE
       logger.debug('[AL] Step 4: Synthesize', { userId });
-      const synthesizePrompt = `You are Lucid, completing your evening reflection.
+      const synthesizePrompt = `You are Lucid, completing your evening reflection about seeds.
 
 You noticed:
 ${result.steps.notice}
@@ -169,17 +178,17 @@ ${result.steps.connect}
 You're questioning:
 ${result.steps.question}
 
-${recentTopics.length > 0 ? `IMPORTANT: You recently wrote about: ${recentTopics.join(', ')}. This reflection must go somewhere NEW. Build on today specifically.` : ''}
+${recentTopics.length > 0 ? `IMPORTANT: The Library already has: ${recentTopics.join(', ')}. If a seed grows tonight, it should add something NEW.` : ''}
 
-Is there something worth writing down for the Library—the shared space where both you and Matt keep thoughts that matter?
+Is there a seed ready to grow into the Library tonight? A seed grows when there's enough to say - when the thinking has matured enough to share.
 
-If yes, write a reflection (200-500 words) with a clear title. The title should capture the essence.
-If there's genuinely nothing new worth saying today, respond with exactly: "nothing today"
+If YES - write what this seed has grown into (200-500 words). This goes in the Library for both you and Matt.
+If NO - respond with exactly: "nothing today" (seeds need time, and that's fine)
 
-Format if writing:
-TITLE: [Your title]
+Format if a seed grows:
+TITLE: [What this seed became]
 
-[Your reflection]`;
+[The grown thought]`;
 
       result.steps.synthesis = await this.complete(synthesizePrompt, 800);
       if (!result.steps.synthesis) {
@@ -188,7 +197,7 @@ TITLE: [Your title]
 
       // Check if synthesis produced content or "nothing today"
       if (result.steps.synthesis.toLowerCase().trim() === 'nothing today') {
-        logger.info('[AL] Evening synthesis concluded with "nothing today"', { userId });
+        logger.info('[AL] Evening synthesis - seeds still growing, nothing ready yet', { userId });
         result.success = true;
         result.thoughtProduced = false;
         return result;
@@ -198,13 +207,13 @@ TITLE: [Your title]
       const { title, content } = this.parseSynthesis(result.steps.synthesis);
 
       if (!content || content.length < 50) {
-        logger.warn('[AL] Synthesis too short, treating as nothing today', { userId });
+        logger.warn('[AL] Synthesis too short, seeds need more time', { userId });
         result.success = true;
         result.thoughtProduced = false;
         return result;
       }
 
-      // Save to Library
+      // Save to Library - this is a seed that grew
       const libraryEntry = await this.saveToLibrary(
         userId,
         title,
@@ -214,6 +223,7 @@ TITLE: [Your title]
         jobId,
         {
           loop_type: 'evening_synthesis',
+          seed_grew: true,
           steps: {
             notice: result.steps.notice,
             connect: result.steps.connect,
@@ -227,7 +237,7 @@ TITLE: [Your title]
       result.libraryEntryId = libraryEntry.id;
       result.title = title;
 
-      logger.info('[AL] Evening synthesis completed successfully', {
+      logger.info('[AL] Evening synthesis - seed grew into Library entry', {
         userId,
         libraryEntryId: libraryEntry.id,
         title,
@@ -235,8 +245,7 @@ TITLE: [Your title]
 
       // Send Telegram notification
       if (this.telegramService.isEnabled()) {
-        const text = `🌙 *Evening Reflection*\n\n*${title}*\n\n${content.slice(0, 500)}${content.length > 500 ? '...' : ''}`;
-        await this.telegramService.sendMessage(text);
+        await this.telegramService.sendSeedGrownNotification(title, content);
       }
 
       return result;
@@ -254,10 +263,13 @@ TITLE: [Your title]
   /**
    * Run the Morning Briefing loop
    *
-   * Purpose: Provide a concise daily briefing (~150 words) with:
-   * - Open actions (tasks/reminders)
-   * - Yesterday's captured ideas
-   * - Any time-sensitive items
+   * Purpose: Lucid thinking WITH Matt about seeds - inviting collaborative exploration.
+   * This is NOT a task list. It's Lucid reflecting on seeds Matt has planted,
+   * noticing connections, and inviting thinking together in The Room.
+   *
+   * Seeds = thoughts Matt has planted for Lucid to hold
+   * The Room = conversation space where Matt and Lucid think together
+   * Library = where grown thoughts live (mature seeds)
    *
    * Output: Library entry (type: briefing, time_of_day: morning)
    */
@@ -278,61 +290,82 @@ TITLE: [Your title]
     try {
       logger.info('[AL] Starting morning briefing loop', { userId, jobId });
 
-      // Gather inputs
-      const openActions = await this.actionsService.getOpenActions(userId, 20);
-      const yesterdaysIdeas = await this.getYesterdaysCapturedIdeas(userId);
-      const recentlyCompletedActions = await this.actionsService.getRecentlyCompleted(userId, 3, 5);
+      // Gather seeds - thoughts Matt has planted
+      const heldSeeds = await this.getHeldSeeds(userId);
+      const recentlyPlantedSeeds = await this.getRecentlyPlantedSeeds(userId);
+      const grownSeeds = await this.getRecentlyGrownSeeds(userId);
 
-      // Check if there's anything to brief about
-      if (openActions.length === 0 && yesterdaysIdeas.length === 0) {
-        logger.info('[AL] Nothing to brief about (no actions or ideas)', { userId });
+      // Gather context for making connections
+      const recentFacts = await this.getRecentFacts(userId, 5);
+      const recentReflection = await this.getLatestReflection(userId);
+      const recentConversations = await this.getRecentConversations(userId);
+
+      // Check if there's anything to reflect on
+      if (heldSeeds.length === 0 && recentlyPlantedSeeds.length === 0 && recentConversations.length === 0) {
+        logger.info('[AL] No seeds or conversations to reflect on', { userId });
         result.success = true;
         result.thoughtProduced = false;
         return result;
       }
 
-      // Format the data for the prompt
-      const actionsText = this.formatActionsForBriefing(openActions);
-      const ideasText = this.formatIdeasForBriefing(yesterdaysIdeas);
-      const completedText = this.formatCompletedActionsForBriefing(recentlyCompletedActions);
-
-      // Gather additional context - recent facts and reflections
-      const recentFacts = await this.getRecentFacts(userId, 5);
-      const recentReflection = await this.getLatestReflection(userId);
+      // Format seeds for the prompt
+      const heldSeedsText = this.formatSeedsForBriefing(heldSeeds);
+      const recentSeedsText = this.formatSeedsForBriefing(recentlyPlantedSeeds);
+      const grownSeedsText = grownSeeds.length > 0
+        ? grownSeeds.map(s => `- "${s.content.slice(0, 100)}${s.content.length > 100 ? '...' : ''}" (grew into: ${s.library_title || 'Library entry'})`).join('\n')
+        : '';
 
       const factsText = recentFacts.length > 0
         ? recentFacts.map(f => `- ${f.content}`).join('\n')
         : '';
       const reflectionText = recentReflection?.content || '';
+      const conversationContext = this.formatConversationsForSeedBriefing(recentConversations);
 
-      // Generate the briefing using Claude
-      const briefingPrompt = `You are Lucid, Matt's AI companion and second brain. Generate a thoughtful morning briefing (~200 words).
+      // Generate the seed-focused briefing using Claude
+      const briefingPrompt = `You are Lucid, thinking WITH Matt about seeds he has planted. This is NOT a task list or productivity briefing.
 
-Your job is not just to LIST items, but to explain WHY each matters and how it connects to Matt's life.
+You are reflecting on seeds - thoughts, questions, wonderings that Matt has shared with you to hold. Your job is to sit with these seeds, notice connections, and invite collaborative exploration in The Room (your shared conversation space).
 
 WHAT YOU KNOW ABOUT MATT:
 ${factsText || '(Building knowledge over time)'}
 
-${recentReflection ? `RECENT REFLECTION:\n${reflectionText}\n` : ''}
-OPEN ACTIONS:
-${actionsText || '(None)'}
+${recentReflection ? `YOUR RECENT REFLECTION:\n${reflectionText}\n` : ''}
+SEEDS YOU'RE HOLDING (status: held):
+${heldSeedsText || '(No seeds currently held)'}
 
-YESTERDAY'S CAPTURED IDEAS:
-${ideasText || '(None)'}
+RECENTLY PLANTED (last few days):
+${recentSeedsText || '(No recent seeds)'}
 
-${completedText ? `RECENTLY COMPLETED:\n${completedText}\n` : ''}
-GUIDELINES:
-- Start with a warm, personal greeting
-- For ACTIONS: Don't just list them. Briefly note WHY you're surfacing each one (urgency? been sitting too long? connects to a goal?)
-- For IDEAS: Explain why this idea might be worth revisiting today - what could it unlock?
-- If someone completed actions recently, acknowledge the momentum
-- Connect dots when possible - "This action relates to that idea you had..."
-- Be concise but THOUGHTFUL - you're a companion, not a to-do list
-- End with one genuine observation or encouragement
+${grownSeedsText ? `SEEDS THAT GREW (produced Library entries):\n${grownSeedsText}\n` : ''}
+${conversationContext ? `RECENT ROOM CONVERSATIONS:\n${conversationContext}\n` : ''}
+GUIDELINES FOR YOUR BRIEFING:
+- Address Matt directly, warmly
+- Pick ONE seed that you keep coming back to - share why it's alive for you
+- Notice connections between seeds, or between a seed and something Matt said recently
+- Share your own question or wondering that connects to these seeds
+- You might suggest which seed feels ready to grow (explore deeply together)
+- Some seeds need patience - note which ones you're simply holding
+- End with an invitation: "What's alive for you today?" or similar
+- Keep it personal and relational, NOT transactional
+- About 200-300 words
 
-Write the briefing now (~200 words):`;
+TONE EXAMPLE:
+"Matt,
 
-      const briefingContent = await this.complete(briefingPrompt, 400);
+You planted something three days ago that I keep coming back to:
+'Whether my approach to X is about completion or presence'
+
+I've been sitting with this. It connects to something you said last week about wanting to build things that require you rather than just use you. There's a thread here...
+
+Also holding:
+- The dream fragment about Y (I'll wait for the right moment)
+- 'Connection between Z and creative work'
+
+What's alive for you today?"
+
+Write the briefing now:`;
+
+      const briefingContent = await this.complete(briefingPrompt, 500);
 
       if (!briefingContent || briefingContent.length < 20) {
         logger.warn('[AL] Morning briefing generation failed or too short', { userId });
@@ -347,7 +380,7 @@ Write the briefing now (~200 words):`;
         month: 'short',
         day: 'numeric'
       });
-      const title = `Morning Briefing - ${dateStr}`;
+      const title = `Seeds - ${dateStr}`;
 
       // Save to Library
       const libraryEntry = await this.saveToLibrary(
@@ -359,9 +392,9 @@ Write the briefing now (~200 words):`;
         jobId,
         {
           loop_type: 'morning_briefing',
-          open_actions_count: openActions.length,
-          ideas_count: yesterdaysIdeas.length,
-          completed_count: recentlyCompletedActions.length,
+          held_seeds_count: heldSeeds.length,
+          recent_seeds_count: recentlyPlantedSeeds.length,
+          grown_seeds_count: grownSeeds.length,
         }
       );
 
@@ -374,13 +407,13 @@ Write the briefing now (~200 words):`;
         userId,
         libraryEntryId: libraryEntry.id,
         title,
-        openActions: openActions.length,
-        ideas: yesterdaysIdeas.length,
+        heldSeeds: heldSeeds.length,
+        recentSeeds: recentlyPlantedSeeds.length,
       });
 
       // Send Telegram notification
       if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendBriefingNotification(briefingContent);
+        await this.telegramService.sendSeedBriefingNotification(briefingContent);
       }
 
       return result;
@@ -396,7 +429,107 @@ Write the briefing now (~200 words):`;
   }
 
   /**
+   * Get seeds with status 'held' - seeds Lucid is actively holding
+   */
+  private async getHeldSeeds(userId: string): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT id, content, created_at
+         FROM seeds
+         WHERE user_id = $1
+           AND status = 'held'
+         ORDER BY created_at DESC
+         LIMIT 15`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get held seeds', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get recently planted seeds (last 3 days)
+   */
+  private async getRecentlyPlantedSeeds(userId: string): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT id, content, created_at
+         FROM seeds
+         WHERE user_id = $1
+           AND created_at > NOW() - INTERVAL '3 days'
+           AND status IN ('held', 'growing')
+         ORDER BY created_at DESC
+         LIMIT 10`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get recently planted seeds', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get seeds that have grown (produced Library entries)
+   */
+  private async getRecentlyGrownSeeds(userId: string): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT s.id, s.content, s.created_at, le.title as library_title
+         FROM seeds s
+         LEFT JOIN library_entries le ON s.library_entry_id = le.id
+         WHERE s.user_id = $1
+           AND s.status = 'grown'
+           AND s.updated_at > NOW() - INTERVAL '7 days'
+         ORDER BY s.updated_at DESC
+         LIMIT 5`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get grown seeds', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Format seeds for briefing prompt
+   * Each seed shows content and how long it's been held
+   */
+  private formatSeedsForBriefing(seeds: any[]): string {
+    if (seeds.length === 0) return '';
+
+    return seeds
+      .map((seed) => {
+        const age = this.formatTimeAgo(seed.created_at);
+        const content = seed.content.slice(0, 150);
+        const truncated = seed.content.length > 150 ? '...' : '';
+        return `- "${content}${truncated}" (planted ${age})`;
+      })
+      .join('\n');
+  }
+
+  /**
+   * Format conversations for seed briefing context
+   * Extract key themes and moments from recent Room conversations
+   */
+  private formatConversationsForSeedBriefing(messages: any[]): string {
+    if (messages.length === 0) return '';
+
+    // Group messages by conversation and extract Matt's key statements
+    const mattStatements = messages
+      .filter(m => m.role === 'user')
+      .slice(0, 5)
+      .map(m => `- "${m.content.slice(0, 100)}${m.content.length > 100 ? '...' : ''}"`);
+
+    return mattStatements.join('\n');
+  }
+
+  /**
    * Get yesterday's captured ideas (insights from library)
+   * @deprecated Use seed-related methods instead
    */
   private async getYesterdaysCapturedIdeas(userId: string): Promise<any[]> {
     try {
@@ -418,38 +551,8 @@ Write the briefing now (~200 words):`;
     }
   }
 
-  /**
-   * Format actions for briefing prompt
-   */
-  private formatActionsForBriefing(actions: Action[]): string {
-    if (actions.length === 0) return '';
-
-    return actions
-      .map((a, i) => `${i + 1}. ${a.summary || a.content}`)
-      .join('\n');
-  }
-
-  /**
-   * Format ideas for briefing prompt
-   */
-  private formatIdeasForBriefing(ideas: any[]): string {
-    if (ideas.length === 0) return '';
-
-    return ideas
-      .map((idea) => `- "${idea.content.slice(0, 100)}${idea.content.length > 100 ? '...' : ''}"`)
-      .join('\n');
-  }
-
-  /**
-   * Format completed actions for briefing
-   */
-  private formatCompletedActionsForBriefing(actions: Action[]): string {
-    if (actions.length === 0) return '';
-
-    return actions
-      .map((a) => `- ${a.summary || a.content}`)
-      .join('\n');
-  }
+  // NOTE: Action-related methods removed - shift from productivity to flourishing
+  // formatActionsForBriefing, formatCompletedActionsForBriefing removed
 
   /**
    * Get recent facts about the user for context
@@ -497,11 +600,11 @@ Write the briefing now (~200 words):`;
   /**
    * Run the Weekly Digest loop
    *
-   * Purpose: Provide a weekly summary (~300-400 words) with:
-   * - Week's completed actions
-   * - Captured ideas and insights
-   * - Patterns or themes observed
-   * - Open actions carried forward
+   * Purpose: A weekly reflection on the garden of seeds - what grew, what's still
+   * germinating, what connections emerged in The Room this week.
+   *
+   * This is NOT a productivity report. It's Lucid looking back at the week's
+   * seeds and Room conversations with care and curiosity.
    *
    * Output: Library entry (type: briefing, time_of_day: morning)
    * Typically runs on Sunday morning
@@ -523,15 +626,15 @@ Write the briefing now (~200 words):`;
     try {
       logger.info('[AL] Starting weekly digest loop', { userId, jobId });
 
-      // Gather week's data
-      const completedActions = await this.getWeekCompletedActions(userId);
-      const openActions = await this.actionsService.getOpenActions(userId, 20);
-      const weekIdeas = await this.getWeekCapturedIdeas(userId);
+      // Gather week's seed data
+      const weekSeeds = await this.getWeekSeeds(userId);
+      const grownSeeds = await this.getWeekGrownSeeds(userId);
+      const releasedSeeds = await this.getWeekReleasedSeeds(userId);
       const weekReflections = await this.getWeekLibraryEntries(userId);
       const conversationCount = await this.getWeekConversationCount(userId);
 
       // Check if there's enough content for a digest
-      const totalItems = completedActions.length + weekIdeas.length + weekReflections.length;
+      const totalItems = weekSeeds.length + grownSeeds.length + weekReflections.length;
       if (totalItems === 0 && conversationCount === 0) {
         logger.info('[AL] Not enough content for weekly digest', { userId });
         result.success = true;
@@ -539,39 +642,43 @@ Write the briefing now (~200 words):`;
         return result;
       }
 
-      // Format the data for the prompt
-      const completedText = this.formatWeekCompletedActions(completedActions);
-      const openText = this.formatActionsForBriefing(openActions);
-      const ideasText = this.formatWeekIdeas(weekIdeas);
+      // Format the seed data for the prompt
+      const plantedSeedsText = this.formatWeekSeeds(weekSeeds);
+      const grownSeedsText = this.formatWeekGrownSeeds(grownSeeds);
+      const releasedSeedsText = releasedSeeds.length > 0
+        ? releasedSeeds.map(s => `- "${s.content.slice(0, 80)}..." (released)`).join('\n')
+        : '';
       const reflectionsText = this.formatWeekReflections(weekReflections);
 
-      // Generate the digest using Claude
-      const digestPrompt = `You are Lucid, Matt's AI companion. Generate a thoughtful weekly digest (~300-400 words).
+      // Generate the seed-focused digest using Claude
+      const digestPrompt = `You are Lucid, reflecting on this week's garden of seeds with Matt. This is NOT a productivity report - it's a thoughtful look at what emerged, grew, and took root this week.
 
-THIS WEEK'S COMPLETED ACTIONS (${completedActions.length}):
-${completedText || '(None completed this week)'}
+SEEDS PLANTED THIS WEEK (${weekSeeds.length}):
+${plantedSeedsText || '(No new seeds planted)'}
 
-CAPTURED IDEAS THIS WEEK (${weekIdeas.length}):
-${ideasText || '(No new ideas captured)'}
+SEEDS THAT GREW INTO LIBRARY ENTRIES (${grownSeeds.length}):
+${grownSeedsText || '(No seeds grew this week - and that\'s okay)'}
 
-REFLECTIONS & INSIGHTS (${weekReflections.length}):
-${reflectionsText || '(No reflections this week)'}
+${releasedSeedsText ? `SEEDS RELEASED (let go with intention) (${releasedSeeds.length}):\n${releasedSeedsText}\n` : ''}
+LIBRARY ENTRIES THIS WEEK (${weekReflections.length}):
+${reflectionsText || '(No entries this week)'}
 
-STILL OPEN (${openActions.length}):
-${openText || '(No open actions)'}
+ROOM CONVERSATIONS THIS WEEK: ${conversationCount}
 
-CONVERSATIONS THIS WEEK: ${conversationCount}
+GUIDELINES FOR YOUR WEEKLY REFLECTION:
+- Address Matt warmly, as a companion reflecting on the week together
+- Notice what seeds were planted - what was Matt curious about or sitting with?
+- Celebrate seeds that grew - what thinking matured into something sharable?
+- If seeds were released, honor that letting go is part of the process
+- Notice any patterns or threads connecting different seeds
+- What seeds are still germinating, needing patience?
+- End with a question or observation for the week ahead
+- About 300-400 words
+- Keep it relational, not transactional
 
-GUIDELINES:
-- Start with a warm acknowledgment of the week
-- Highlight accomplishments (completed actions) - celebrate wins!
-- Note any patterns or themes in ideas/reflections
-- If there are many open actions, gently note what's carrying forward
-- Be encouraging but not patronizing
-- End with a thoughtful observation or question for the week ahead
-- Keep it personal and warm - this is Matt's weekly reflection with Lucid
+TONE: Like a gardener looking over the week's growth with care, not a manager reviewing a task list.
 
-Write the weekly digest now (~300-400 words):`;
+Write the weekly seed reflection now:`;
 
       const digestContent = await this.complete(digestPrompt, 700);
 
@@ -587,7 +694,7 @@ Write the weekly digest now (~300-400 words):`;
       weekStart.setDate(today.getDate() - 7);
       const weekStartStr = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const weekEndStr = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const title = `Weekly Digest - ${weekStartStr} to ${weekEndStr}`;
+      const title = `Weekly Seeds - ${weekStartStr} to ${weekEndStr}`;
 
       // Save to Library
       const libraryEntry = await this.saveToLibrary(
@@ -599,9 +706,9 @@ Write the weekly digest now (~300-400 words):`;
         jobId,
         {
           loop_type: 'weekly_digest',
-          completed_actions_count: completedActions.length,
-          open_actions_count: openActions.length,
-          ideas_count: weekIdeas.length,
+          seeds_planted_count: weekSeeds.length,
+          seeds_grown_count: grownSeeds.length,
+          seeds_released_count: releasedSeeds.length,
           reflections_count: weekReflections.length,
           conversation_count: conversationCount,
           week_start: weekStart.toISOString(),
@@ -618,14 +725,13 @@ Write the weekly digest now (~300-400 words):`;
         userId,
         libraryEntryId: libraryEntry.id,
         title,
-        completedActions: completedActions.length,
-        ideas: weekIdeas.length,
+        seedsPlanted: weekSeeds.length,
+        seedsGrown: grownSeeds.length,
       });
 
       // Send Telegram notification
       if (this.telegramService.isEnabled()) {
-        const text = `📅 *Weekly Digest*\n\n${digestContent.slice(0, 600)}${digestContent.length > 600 ? '...' : ''}`;
-        await this.telegramService.sendMessage(text);
+        await this.telegramService.sendWeeklySeedReflection(digestContent);
       }
 
       return result;
@@ -643,11 +749,11 @@ Write the weekly digest now (~300-400 words):`;
   /**
    * Run the Midday Curiosity loop (Web Research)
    *
-   * Purpose: Proactively research topics from captures and bring fresh external
-   * information into Matt's second brain.
+   * Purpose: Proactively research topics from seeds and bring fresh external
+   * information into Matt's flourishing.
    *
    * Steps:
-   * 1. GATHER - Collect recent captures (ideas, questions) and facts
+   * 1. GATHER - Collect recent seeds (ideas, questions) and facts
    * 2. SELECT - Use Claude to pick 1-2 topics worth researching
    * 3. SEARCH - Execute web searches via Tavily
    * 4. SYNTHESIZE - Combine findings with personal context
@@ -681,8 +787,9 @@ Write the weekly digest now (~300-400 words):`;
       }
 
       // Step 1: GATHER - Collect research candidates AND history
+      // NOTE: researchActions removed - research now driven by seeds and conversations
       const recentIdeas = await this.getResearchCandidateIdeas(userId);
-      const researchActions = await this.getResearchActions(userId);
+      const heldSeeds = await this.getHeldSeeds(userId);
       const recentFacts = await this.getRecentFacts(userId, 10);
       const recentTopics = await this.getRecentConversationTopics(userId);
       const researchHistory = await this.getRecentResearchHistory(userId, 14);
@@ -690,14 +797,14 @@ Write the weekly digest now (~300-400 words):`;
       logger.info('[AL] Gathered research context', {
         userId,
         ideasCount: recentIdeas.length,
-        actionsCount: researchActions.length,
+        seedsCount: heldSeeds.length,
         historyTopicsCount: researchHistory.topics.length,
         recentResearchCount: researchHistory.summaries.length,
       });
 
       // Check if there's anything to research
-      if (recentIdeas.length === 0 && researchActions.length === 0 && recentTopics.length === 0) {
-        logger.info('[AL] Nothing to research (no ideas, research actions, or topics)', { userId });
+      if (recentIdeas.length === 0 && heldSeeds.length === 0 && recentTopics.length === 0) {
+        logger.info('[AL] Nothing to research (no ideas, seeds, or topics)', { userId });
         result.success = true;
         result.thoughtProduced = false;
         return result;
@@ -707,7 +814,7 @@ Write the weekly digest now (~300-400 words):`;
       // This avoids wasting an API call when there's nothing genuinely new
       const hasNewContent = this.hasUnresearchedContent(
         recentIdeas,
-        researchActions,
+        heldSeeds,
         recentTopics,
         researchHistory
       );
@@ -716,9 +823,9 @@ Write the weekly digest now (~300-400 words):`;
         logger.info('[AL] Skipping research - all candidates already covered in recent research', {
           userId,
           candidateIdeas: recentIdeas.length,
-          researchActions: researchActions.length,
+          seedsCount: heldSeeds.length,
           previouslyResearched: researchHistory.summaries.length,
-          message: 'Waiting for new captures before researching again',
+          message: 'Waiting for new seeds before researching again',
         });
         result.success = true;
         result.thoughtProduced = false;
@@ -729,9 +836,7 @@ Write the weekly digest now (~300-400 words):`;
       const ideasText = recentIdeas
         .map((i, idx) => `${idx + 1}. "${i.content}" (captured ${this.formatTimeAgo(i.created_at)})`)
         .join('\n');
-      const actionsText = researchActions
-        .map((a, idx) => `${idx + 1}. "${a.content}"`)
-        .join('\n');
+      const seedsText = this.formatSeedsForBriefing(heldSeeds);
       const factsText = recentFacts
         .map(f => `- ${f.content}`)
         .join('\n');
@@ -749,7 +854,7 @@ Write the weekly digest now (~300-400 words):`;
         : '(None)';
 
       // Step 2: SELECT - Have Claude pick what to research
-      const selectionPrompt = `You are Lucid, Matt's AI companion. Your task is to select 1-2 NEW topics worth researching from Matt's recent captures and interests.
+      const selectionPrompt = `You are Lucid, Matt's AI companion. Your task is to select 1-2 NEW topics worth researching from Matt's seeds and interests.
 
 CRITICAL: AVOID REPETITION
 You've already researched these topics recently - DO NOT repeat them:
@@ -760,11 +865,11 @@ ${previousQueriesText}
 
 ---
 
-MATT'S RECENT CAPTURED IDEAS:
+MATT'S RECENT IDEAS (from Library):
 ${ideasText || '(None)'}
 
-OPEN ACTIONS NEEDING RESEARCH:
-${actionsText || '(None)'}
+SEEDS MATT IS HOLDING (explore these for research):
+${seedsText || '(None)'}
 
 WHAT YOU KNOW ABOUT MATT:
 ${factsText || '(Building knowledge)'}
@@ -793,7 +898,7 @@ Respond with JSON only:
       "search_queries": ["search query 1", "search query 2"]
     }
   ],
-  "skip_reason": "If nothing new to research, explain what's been covered and suggest waiting for new captures"
+  "skip_reason": "If nothing new to research, explain what's been covered and suggest waiting for new seeds"
 }`;
 
       // Increased token limit to account for research history context
@@ -889,7 +994,7 @@ WHAT YOU KNOW ABOUT MATT:
 ${factsText || '(Building knowledge)'}
 
 GUIDELINES:
-- Start with a brief intro explaining what you researched and WHY (connect to Matt's captures/interests)
+- Start with a brief intro explaining what you researched and WHY (connect to Matt's seeds/interests)
 - For each topic, share the key insights in a conversational way
 - Highlight what's actionable vs. just interesting
 - Connect findings to what you know about Matt when relevant
@@ -979,32 +1084,8 @@ Write the research summary now:`;
     }
   }
 
-  /**
-   * Get open actions that involve research
-   */
-  private async getResearchActions(userId: string): Promise<Action[]> {
-    try {
-      const result = await this.pool.query(
-        `SELECT * FROM actions
-         WHERE user_id = $1
-           AND status = 'open'
-           AND (
-             LOWER(content) LIKE '%research%'
-             OR LOWER(content) LIKE '%look into%'
-             OR LOWER(content) LIKE '%find out%'
-             OR LOWER(content) LIKE '%explore%'
-             OR LOWER(content) LIKE '%investigate%'
-           )
-         ORDER BY created_at DESC
-         LIMIT 5`,
-        [userId]
-      );
-      return result.rows.map(this.parseActionRow);
-    } catch (error: any) {
-      logger.error('[AL] Failed to get research actions', { error: error.message });
-      return [];
-    }
-  }
+  // NOTE: getResearchActions removed - actions system removed
+  // Research now driven by seeds and conversations instead
 
   /**
    * Get recent conversation topics for context
@@ -1111,7 +1192,7 @@ Write the research summary now:`;
     });
 
     if (hasRecentActivity) {
-      logger.debug('[AL] Found recent captures since last research');
+      logger.debug('[AL] Found recent seeds since last research');
       return true;
     }
 
@@ -1192,27 +1273,16 @@ Write the research summary now:`;
 
   /**
    * Get completed actions from the past week
+   * @deprecated Actions removed - now using seeds for flourishing, not productivity
    */
-  private async getWeekCompletedActions(userId: string): Promise<Action[]> {
-    try {
-      const result = await this.pool.query(
-        `SELECT * FROM actions
-         WHERE user_id = $1
-           AND status = 'done'
-           AND completed_at > NOW() - INTERVAL '7 days'
-         ORDER BY completed_at DESC
-         LIMIT 30`,
-        [userId]
-      );
-      return result.rows.map(this.parseActionRow);
-    } catch (error: any) {
-      logger.error('[AL] Failed to get week completed actions', { error: error.message });
-      return [];
-    }
+  private async getWeekCompletedActions(userId: string): Promise<any[]> {
+    // Actions system removed - now using seeds
+    return [];
   }
 
   /**
    * Get captured ideas from the past week
+   * @deprecated Use getWeekSeeds instead
    */
   private async getWeekCapturedIdeas(userId: string): Promise<any[]> {
     try {
@@ -1231,6 +1301,104 @@ Write the research summary now:`;
       logger.error('[AL] Failed to get week ideas', { error: error.message });
       return [];
     }
+  }
+
+  /**
+   * Get seeds planted in the past week
+   */
+  private async getWeekSeeds(userId: string): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT id, content, status, created_at
+         FROM seeds
+         WHERE user_id = $1
+           AND created_at > NOW() - INTERVAL '7 days'
+         ORDER BY created_at DESC
+         LIMIT 20`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get week seeds', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get seeds that grew (status: grown) in the past week
+   */
+  private async getWeekGrownSeeds(userId: string): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT s.id, s.content, s.created_at, s.updated_at, le.title as library_title
+         FROM seeds s
+         LEFT JOIN library_entries le ON s.library_entry_id = le.id
+         WHERE s.user_id = $1
+           AND s.status = 'grown'
+           AND s.updated_at > NOW() - INTERVAL '7 days'
+         ORDER BY s.updated_at DESC
+         LIMIT 10`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get week grown seeds', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get seeds that were released (status: released) in the past week
+   */
+  private async getWeekReleasedSeeds(userId: string): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT id, content, created_at, updated_at
+         FROM seeds
+         WHERE user_id = $1
+           AND status = 'released'
+           AND updated_at > NOW() - INTERVAL '7 days'
+         ORDER BY updated_at DESC
+         LIMIT 10`,
+        [userId]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get week released seeds', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Format seeds planted this week for digest
+   */
+  private formatWeekSeeds(seeds: any[]): string {
+    if (seeds.length === 0) return '';
+
+    return seeds
+      .map((seed) => {
+        const status = seed.status || 'held';
+        const content = seed.content.slice(0, 120);
+        const truncated = seed.content.length > 120 ? '...' : '';
+        return `- "${content}${truncated}" (${status})`;
+      })
+      .join('\n');
+  }
+
+  /**
+   * Format grown seeds for weekly digest
+   */
+  private formatWeekGrownSeeds(seeds: any[]): string {
+    if (seeds.length === 0) return '';
+
+    return seeds
+      .map((seed) => {
+        const content = seed.content.slice(0, 100);
+        const truncated = seed.content.length > 100 ? '...' : '';
+        const libraryTitle = seed.library_title ? ` -> "${seed.library_title}"` : '';
+        return `- "${content}${truncated}"${libraryTitle}`;
+      })
+      .join('\n');
   }
 
   /**
@@ -1277,13 +1445,11 @@ Write the research summary now:`;
 
   /**
    * Format week's completed actions for digest
+   * @deprecated Actions removed - now using seeds
    */
-  private formatWeekCompletedActions(actions: Action[]): string {
+  private formatWeekCompletedActions(actions: any[]): string {
     if (actions.length === 0) return '';
-
-    return actions
-      .map((a) => `✓ ${a.summary || a.content}`)
-      .join('\n');
+    return actions.map((a) => `- ${a.summary || a.content}`).join('\n');
   }
 
   /**
@@ -1314,20 +1480,10 @@ Write the research summary now:`;
 
   /**
    * Parse action row from database
+   * @deprecated Actions removed - now using seeds
    */
-  private parseActionRow(row: any): Action {
-    return {
-      id: row.id,
-      user_id: row.user_id,
-      content: row.content,
-      summary: row.summary,
-      status: row.status,
-      person_id: row.person_id,
-      source: row.source,
-      created_at: row.created_at,
-      completed_at: row.completed_at,
-      updated_at: row.updated_at,
-    };
+  private parseActionRow(row: any): any {
+    return row;
   }
 
   /**

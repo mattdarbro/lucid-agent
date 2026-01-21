@@ -4,7 +4,7 @@ import { logger } from '../logger';
 
 /**
  * Tool definitions for Claude to use during chat
- * These allow Lucid to query calendar events, captures/reminders, and more
+ * These allow Lucid to query calendar events, seeds, and more
  */
 export const LUCID_TOOLS: Anthropic.Tool[] = [
   {
@@ -91,60 +91,8 @@ export const LUCID_TOOLS: Anthropic.Tool[] = [
       required: ['user_id'],
     },
   },
-  {
-    name: 'get_reminders',
-    description: "Get the user's active reminders/captures (tasks, to-dos). Use this when the user asks about their tasks, reminders, to-do list, or what they need to do.",
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        user_id: {
-          type: 'string',
-          description: 'The user ID to get reminders for',
-        },
-        include_completed: {
-          type: 'boolean',
-          description: 'Whether to include completed items (default: false)',
-        },
-      },
-      required: ['user_id'],
-    },
-  },
-  {
-    name: 'get_upcoming_deadlines',
-    description: "Get the user's upcoming deadlines from their captures/reminders. Use this when the user asks about deadlines, due dates, or time-sensitive tasks.",
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        user_id: {
-          type: 'string',
-          description: 'The user ID to get deadlines for',
-        },
-        days: {
-          type: 'number',
-          description: 'Number of days ahead to look (default: 7)',
-        },
-      },
-      required: ['user_id'],
-    },
-  },
-  {
-    name: 'search_reminders',
-    description: "Search the user's reminders/captures by keyword. Use this when the user asks about specific tasks or reminders.",
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        user_id: {
-          type: 'string',
-          description: 'The user ID to search for',
-        },
-        query: {
-          type: 'string',
-          description: 'Search query (matches content, title, or details)',
-        },
-      },
-      required: ['user_id', 'query'],
-    },
-  },
+  // NOTE: get_reminders, get_upcoming_deadlines, search_reminders removed
+  // These will be replaced with seed-based tools in a future update
 ];
 
 /**
@@ -189,20 +137,8 @@ export class LucidToolsService {
             toolInput.min_duration_minutes || 30
           );
 
-        case 'get_reminders':
-          return await this.getReminders(
-            toolInput.user_id,
-            toolInput.include_completed || false
-          );
-
-        case 'get_upcoming_deadlines':
-          return await this.getUpcomingDeadlines(
-            toolInput.user_id,
-            toolInput.days || 7
-          );
-
-        case 'search_reminders':
-          return await this.searchReminders(toolInput.user_id, toolInput.query);
+        // NOTE: get_reminders, get_upcoming_deadlines, search_reminders removed
+        // These will be replaced with seed-based tools in a future update
 
         default:
           return JSON.stringify({ error: `Unknown tool: ${toolName}` });
@@ -426,121 +362,8 @@ export class LucidToolsService {
     });
   }
 
-  /**
-   * Get active reminders/captures
-   */
-  private async getReminders(userId: string, includeCompleted: boolean): Promise<string> {
-    let query = `
-      SELECT
-        content, interpreted_title, interpreted_details, interpreted_type,
-        has_deadline, deadline_at, priority, is_completed, created_at
-       FROM captures
-       WHERE user_id = $1
-         AND status IN ('inbox', 'processed')
-    `;
-
-    if (!includeCompleted) {
-      query += ` AND (is_completed = false OR is_completed IS NULL)`;
-    }
-
-    query += `
-       ORDER BY
-         has_deadline DESC,
-         deadline_at ASC NULLS LAST,
-         priority ASC,
-         created_at DESC
-       LIMIT 50
-    `;
-
-    const result = await this.pool.query(query, [userId]);
-
-    if (result.rows.length === 0) {
-      return JSON.stringify({
-        message: 'No active reminders or tasks found.',
-        reminders: [],
-        count: 0,
-      });
-    }
-
-    return JSON.stringify({
-      message: `Found ${result.rows.length} reminder(s)/task(s).`,
-      reminders: result.rows.map(this.formatReminder),
-      count: result.rows.length,
-    });
-  }
-
-  /**
-   * Get upcoming deadlines
-   */
-  private async getUpcomingDeadlines(userId: string, days: number): Promise<string> {
-    const result = await this.pool.query(
-      `SELECT
-        content, interpreted_title, interpreted_details,
-        deadline_at, priority, created_at
-       FROM captures
-       WHERE user_id = $1
-         AND has_deadline = true
-         AND deadline_at > NOW()
-         AND deadline_at < NOW() + INTERVAL '1 day' * $2
-         AND (is_completed = false OR is_completed IS NULL)
-         AND status IN ('inbox', 'processed')
-       ORDER BY deadline_at ASC
-       LIMIT 20`,
-      [userId, days]
-    );
-
-    if (result.rows.length === 0) {
-      return JSON.stringify({
-        message: `No deadlines in the next ${days} days.`,
-        deadlines: [],
-        count: 0,
-      });
-    }
-
-    return JSON.stringify({
-      message: `Found ${result.rows.length} upcoming deadline(s).`,
-      deadlines: result.rows.map(this.formatReminder),
-      count: result.rows.length,
-    });
-  }
-
-  /**
-   * Search reminders/captures
-   */
-  private async searchReminders(userId: string, query: string): Promise<string> {
-    const searchPattern = `%${query.toLowerCase()}%`;
-
-    const result = await this.pool.query(
-      `SELECT
-        content, interpreted_title, interpreted_details, interpreted_type,
-        has_deadline, deadline_at, priority, is_completed, created_at
-       FROM captures
-       WHERE user_id = $1
-         AND status IN ('inbox', 'processed')
-         AND (
-           LOWER(content) LIKE $2 OR
-           LOWER(interpreted_title) LIKE $2 OR
-           LOWER(interpreted_details) LIKE $2
-         )
-       ORDER BY created_at DESC
-       LIMIT 20`,
-      [userId, searchPattern]
-    );
-
-    if (result.rows.length === 0) {
-      return JSON.stringify({
-        message: `No reminders found matching "${query}".`,
-        reminders: [],
-        count: 0,
-      });
-    }
-
-    return JSON.stringify({
-      message: `Found ${result.rows.length} reminder(s) matching "${query}".`,
-      reminders: result.rows.map(this.formatReminder),
-      count: result.rows.length,
-    });
-  }
+  // NOTE: getReminders, getUpcomingDeadlines, searchReminders methods removed
+  // These will be replaced with seed-based tools in a future update
 
   /**
    * Format a calendar event for display
@@ -558,19 +381,5 @@ export class LucidToolsService {
     };
   }
 
-  /**
-   * Format a reminder/capture for display
-   */
-  private formatReminder(capture: any): Record<string, any> {
-    return {
-      title: capture.interpreted_title || capture.content,
-      details: capture.interpreted_details || null,
-      type: capture.interpreted_type || 'task',
-      has_deadline: capture.has_deadline,
-      deadline: capture.deadline_at || null,
-      priority: capture.priority,
-      completed: capture.is_completed || false,
-      created: capture.created_at,
-    };
-  }
+  // NOTE: formatReminder method removed - will be replaced with seed-based formatting
 }

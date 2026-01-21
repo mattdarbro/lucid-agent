@@ -189,9 +189,50 @@ export class TelegramNotificationService {
 
   /**
    * Send a morning briefing notification
+   * @deprecated Use sendSeedBriefingNotification instead
    */
   async sendBriefingNotification(summary: string): Promise<boolean> {
     const text = `☀️ *Morning Briefing*\n\n${summary}`;
+    return this.sendMessage(text);
+  }
+
+  /**
+   * Send a seed-focused morning briefing notification
+   * This is Lucid sharing seeds he's holding and inviting exploration
+   */
+  async sendSeedBriefingNotification(content: string): Promise<boolean> {
+    // Truncate if too long for Telegram
+    const truncatedContent = content.length > 3500
+      ? content.substring(0, 3497) + '...'
+      : content;
+    const text = `🌱 *Seeds*\n\n${truncatedContent}`;
+    return this.sendMessage(text);
+  }
+
+  /**
+   * Send notification when a seed grows into a Library entry
+   */
+  async sendSeedGrownNotification(
+    title: string,
+    content: string
+  ): Promise<boolean> {
+    // Truncate content for Telegram
+    const truncatedContent = content.length > 500
+      ? content.substring(0, 497) + '...'
+      : content;
+    const text = `🌳 *A seed grew*\n\n*${title}*\n\n${truncatedContent}`;
+    return this.sendMessage(text);
+  }
+
+  /**
+   * Send weekly seed reflection notification
+   */
+  async sendWeeklySeedReflection(content: string): Promise<boolean> {
+    // Truncate if too long for Telegram
+    const truncatedContent = content.length > 3500
+      ? content.substring(0, 3497) + '...'
+      : content;
+    const text = `🌿 *Weekly Seeds*\n\n${truncatedContent}`;
     return this.sendMessage(text);
   }
 

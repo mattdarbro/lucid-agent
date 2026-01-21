@@ -593,7 +593,7 @@ router.post(
  * POST /v1/sync/web-research
  *
  * Manually trigger the web research autonomous loop for a user.
- * This proactively researches topics from user's captures and interests.
+ * This proactively researches topics from user's seeds and interests.
  * Typically runs at noon automatically (midday_curiosity job).
  *
  * Request body:
