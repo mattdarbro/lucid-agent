@@ -124,10 +124,10 @@ router.get('/user/:user_id', async (req: Request, res: Response) => {
 
     let query = `
       SELECT p.*,
-             COUNT(DISTINCT c.id) FILTER (WHERE NOT c.is_completed) AS open_captures_count,
+             COUNT(DISTINCT s.id) FILTER (WHERE s.status = 'held') AS open_seeds_count,
              COUNT(DISTINCT ce.id) FILTER (WHERE ce.start_time > NOW()) AS upcoming_events_count
        FROM people p
-       LEFT JOIN captures c ON c.related_person_id = p.id
+       LEFT JOIN seeds s ON s.related_person_id = p.id
        LEFT JOIN calendar_events ce ON p.id = ANY(ce.attendee_ids)
        WHERE p.user_id = $1
     `;
@@ -178,10 +178,10 @@ router.get('/:id', async (req: Request, res: Response) => {
     // Get person
     const personResult = await pool.query(
       `SELECT p.*,
-              COUNT(DISTINCT c.id) FILTER (WHERE NOT c.is_completed) AS open_captures_count,
+              COUNT(DISTINCT s.id) FILTER (WHERE s.status = 'held') AS open_seeds_count,
               COUNT(DISTINCT ce.id) FILTER (WHERE ce.start_time > NOW()) AS upcoming_events_count
        FROM people p
-       LEFT JOIN captures c ON c.related_person_id = p.id
+       LEFT JOIN seeds s ON s.related_person_id = p.id
        LEFT JOIN calendar_events ce ON p.id = ANY(ce.attendee_ids)
        WHERE p.id = $1
        GROUP BY p.id`,
@@ -204,11 +204,11 @@ router.get('/:id', async (req: Request, res: Response) => {
       [id]
     );
 
-    // Get recent captures related to this person
-    const capturesResult = await pool.query(
-      `SELECT * FROM captures
+    // Get recent seeds related to this person
+    const seedsResult = await pool.query(
+      `SELECT * FROM seeds
        WHERE related_person_id = $1
-       ORDER BY created_at DESC
+       ORDER BY planted_at DESC
        LIMIT 10`,
       [id]
     );
@@ -227,7 +227,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     res.json({
       person,
       facts: factsResult.rows,
-      recent_captures: capturesResult.rows,
+      recent_seeds: seedsResult.rows,
       upcoming_events: eventsResult.rows
     });
   } catch (error: any) {
@@ -299,9 +299,9 @@ router.delete('/:id', async (req: Request, res: Response) => {
     // Remove links first
     await pool.query('DELETE FROM people_facts WHERE person_id = $1', [id]);
 
-    // Unlink from captures
+    // Unlink from seeds
     await pool.query(
-      'UPDATE captures SET related_person_id = NULL WHERE related_person_id = $1',
+      'UPDATE seeds SET related_person_id = NULL WHERE related_person_id = $1',
       [id]
     );
 

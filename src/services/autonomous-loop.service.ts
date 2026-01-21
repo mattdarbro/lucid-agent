@@ -749,11 +749,11 @@ Write the weekly seed reflection now:`;
   /**
    * Run the Midday Curiosity loop (Web Research)
    *
-   * Purpose: Proactively research topics from captures and bring fresh external
-   * information into Matt's second brain.
+   * Purpose: Proactively research topics from seeds and bring fresh external
+   * information into Matt's flourishing.
    *
    * Steps:
-   * 1. GATHER - Collect recent captures (ideas, questions) and facts
+   * 1. GATHER - Collect recent seeds (ideas, questions) and facts
    * 2. SELECT - Use Claude to pick 1-2 topics worth researching
    * 3. SEARCH - Execute web searches via Tavily
    * 4. SYNTHESIZE - Combine findings with personal context
@@ -825,7 +825,7 @@ Write the weekly seed reflection now:`;
           candidateIdeas: recentIdeas.length,
           seedsCount: heldSeeds.length,
           previouslyResearched: researchHistory.summaries.length,
-          message: 'Waiting for new captures before researching again',
+          message: 'Waiting for new seeds before researching again',
         });
         result.success = true;
         result.thoughtProduced = false;
@@ -854,7 +854,7 @@ Write the weekly seed reflection now:`;
         : '(None)';
 
       // Step 2: SELECT - Have Claude pick what to research
-      const selectionPrompt = `You are Lucid, Matt's AI companion. Your task is to select 1-2 NEW topics worth researching from Matt's recent captures and interests.
+      const selectionPrompt = `You are Lucid, Matt's AI companion. Your task is to select 1-2 NEW topics worth researching from Matt's seeds and interests.
 
 CRITICAL: AVOID REPETITION
 You've already researched these topics recently - DO NOT repeat them:
@@ -865,7 +865,7 @@ ${previousQueriesText}
 
 ---
 
-MATT'S RECENT CAPTURED IDEAS:
+MATT'S RECENT IDEAS (from Library):
 ${ideasText || '(None)'}
 
 SEEDS MATT IS HOLDING (explore these for research):
@@ -898,7 +898,7 @@ Respond with JSON only:
       "search_queries": ["search query 1", "search query 2"]
     }
   ],
-  "skip_reason": "If nothing new to research, explain what's been covered and suggest waiting for new captures"
+  "skip_reason": "If nothing new to research, explain what's been covered and suggest waiting for new seeds"
 }`;
 
       // Increased token limit to account for research history context
@@ -994,7 +994,7 @@ WHAT YOU KNOW ABOUT MATT:
 ${factsText || '(Building knowledge)'}
 
 GUIDELINES:
-- Start with a brief intro explaining what you researched and WHY (connect to Matt's captures/interests)
+- Start with a brief intro explaining what you researched and WHY (connect to Matt's seeds/interests)
 - For each topic, share the key insights in a conversational way
 - Highlight what's actionable vs. just interesting
 - Connect findings to what you know about Matt when relevant
@@ -1192,7 +1192,7 @@ Write the research summary now:`;
     });
 
     if (hasRecentActivity) {
-      logger.debug('[AL] Found recent captures since last research');
+      logger.debug('[AL] Found recent seeds since last research');
       return true;
     }
 

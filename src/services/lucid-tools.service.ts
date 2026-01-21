@@ -4,7 +4,7 @@ import { logger } from '../logger';
 
 /**
  * Tool definitions for Claude to use during chat
- * These allow Lucid to query calendar events, captures/reminders, and more
+ * These allow Lucid to query calendar events, seeds, and more
  */
 export const LUCID_TOOLS: Anthropic.Tool[] = [
   {
