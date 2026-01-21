@@ -91,8 +91,46 @@ export const LUCID_TOOLS: Anthropic.Tool[] = [
       required: ['user_id'],
     },
   },
-  // NOTE: get_reminders, get_upcoming_deadlines, search_reminders removed
-  // These will be replaced with seed-based tools in a future update
+  {
+    name: 'get_seeds',
+    description: "Get the seeds Matt has planted - thoughts, questions, fragments he's holding. Use this to understand what's alive in Matt's mind, what he's contemplating, or when he asks about his seeds.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID to get seeds for',
+        },
+        status: {
+          type: 'string',
+          description: "Filter by status: 'held' (active), 'growing' (being developed), 'grown' (matured into Library), 'released' (let go). Default: 'held'",
+        },
+        include_grown: {
+          type: 'boolean',
+          description: 'Whether to include seeds that have already grown into Library entries (default: false)',
+        },
+      },
+      required: ['user_id'],
+    },
+  },
+  {
+    name: 'search_seeds',
+    description: "Search Matt's seeds by keyword. Use this when looking for specific thoughts he's planted, or when a conversation topic might connect to something he's been holding.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID to search for',
+        },
+        query: {
+          type: 'string',
+          description: 'Search query (matches seed content and context)',
+        },
+      },
+      required: ['user_id', 'query'],
+    },
+  },
 ];
 
 /**
@@ -137,8 +175,15 @@ export class LucidToolsService {
             toolInput.min_duration_minutes || 30
           );
 
-        // NOTE: get_reminders, get_upcoming_deadlines, search_reminders removed
-        // These will be replaced with seed-based tools in a future update
+        case 'get_seeds':
+          return await this.getSeeds(
+            toolInput.user_id,
+            toolInput.status || 'held',
+            toolInput.include_grown || false
+          );
+
+        case 'search_seeds':
+          return await this.searchSeeds(toolInput.user_id, toolInput.query);
 
         default:
           return JSON.stringify({ error: `Unknown tool: ${toolName}` });
@@ -362,8 +407,89 @@ export class LucidToolsService {
     });
   }
 
-  // NOTE: getReminders, getUpcomingDeadlines, searchReminders methods removed
-  // These will be replaced with seed-based tools in a future update
+  /**
+   * Get user's seeds
+   */
+  private async getSeeds(userId: string, status: string, includeGrown: boolean): Promise<string> {
+    let query = `
+      SELECT
+        id, content, planted_context, time_of_day, status,
+        planted_at, last_surfaced_at, surface_count, grown_into_library_id
+      FROM seeds
+      WHERE user_id = $1
+    `;
+
+    const params: any[] = [userId];
+
+    if (status && status !== 'all') {
+      query += ` AND status = $2`;
+      params.push(status);
+    }
+
+    if (!includeGrown) {
+      query += ` AND status != 'grown'`;
+    }
+
+    query += `
+      ORDER BY planted_at DESC
+      LIMIT 50
+    `;
+
+    const result = await this.pool.query(query, params);
+
+    if (result.rows.length === 0) {
+      return JSON.stringify({
+        message: status === 'held'
+          ? 'No seeds currently being held.'
+          : `No seeds with status '${status}'.`,
+        seeds: [],
+        count: 0,
+      });
+    }
+
+    return JSON.stringify({
+      message: `Found ${result.rows.length} seed(s).`,
+      seeds: result.rows.map(this.formatSeed),
+      count: result.rows.length,
+    });
+  }
+
+  /**
+   * Search seeds by keyword
+   */
+  private async searchSeeds(userId: string, query: string): Promise<string> {
+    const searchPattern = `%${query.toLowerCase()}%`;
+
+    const result = await this.pool.query(
+      `SELECT
+        id, content, planted_context, time_of_day, status,
+        planted_at, last_surfaced_at, surface_count, grown_into_library_id
+      FROM seeds
+      WHERE user_id = $1
+        AND status IN ('held', 'growing')
+        AND (
+          LOWER(content) LIKE $2 OR
+          LOWER(planted_context) LIKE $2
+        )
+      ORDER BY planted_at DESC
+      LIMIT 20`,
+      [userId, searchPattern]
+    );
+
+    if (result.rows.length === 0) {
+      return JSON.stringify({
+        message: `No seeds found matching "${query}".`,
+        seeds: [],
+        count: 0,
+      });
+    }
+
+    return JSON.stringify({
+      message: `Found ${result.rows.length} seed(s) matching "${query}".`,
+      seeds: result.rows.map(this.formatSeed),
+      count: result.rows.length,
+    });
+  }
 
   /**
    * Format a calendar event for display
@@ -381,5 +507,20 @@ export class LucidToolsService {
     };
   }
 
-  // NOTE: formatReminder method removed - will be replaced with seed-based formatting
+  /**
+   * Format a seed for display
+   */
+  private formatSeed(seed: any): Record<string, any> {
+    return {
+      id: seed.id,
+      content: seed.content,
+      context: seed.planted_context || null,
+      time_of_day: seed.time_of_day,
+      status: seed.status,
+      planted_at: seed.planted_at,
+      last_surfaced: seed.last_surfaced_at || null,
+      surface_count: seed.surface_count || 0,
+      grown_into: seed.grown_into_library_id || null,
+    };
+  }
 }
