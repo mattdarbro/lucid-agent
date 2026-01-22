@@ -434,11 +434,11 @@ Write the briefing now:`;
   private async getHeldSeeds(userId: string): Promise<any[]> {
     try {
       const result = await this.pool.query(
-        `SELECT id, content, created_at
+        `SELECT id, content, planted_at
          FROM seeds
          WHERE user_id = $1
            AND status = 'held'
-         ORDER BY created_at DESC
+         ORDER BY planted_at DESC
          LIMIT 15`,
         [userId]
       );
@@ -455,12 +455,12 @@ Write the briefing now:`;
   private async getRecentlyPlantedSeeds(userId: string): Promise<any[]> {
     try {
       const result = await this.pool.query(
-        `SELECT id, content, created_at
+        `SELECT id, content, planted_at
          FROM seeds
          WHERE user_id = $1
-           AND created_at > NOW() - INTERVAL '3 days'
+           AND planted_at > NOW() - INTERVAL '3 days'
            AND status IN ('held', 'growing')
-         ORDER BY created_at DESC
+         ORDER BY planted_at DESC
          LIMIT 10`,
         [userId]
       );
@@ -477,9 +477,9 @@ Write the briefing now:`;
   private async getRecentlyGrownSeeds(userId: string): Promise<any[]> {
     try {
       const result = await this.pool.query(
-        `SELECT s.id, s.content, s.created_at, le.title as library_title
+        `SELECT s.id, s.content, s.planted_at, le.title as library_title
          FROM seeds s
-         LEFT JOIN library_entries le ON s.library_entry_id = le.id
+         LEFT JOIN library_entries le ON s.grown_into_library_id = le.id
          WHERE s.user_id = $1
            AND s.status = 'grown'
            AND s.updated_at > NOW() - INTERVAL '7 days'
@@ -503,7 +503,7 @@ Write the briefing now:`;
 
     return seeds
       .map((seed) => {
-        const age = this.formatTimeAgo(seed.created_at);
+        const age = this.formatTimeAgo(seed.planted_at);
         const content = seed.content.slice(0, 150);
         const truncated = seed.content.length > 150 ? '...' : '';
         return `- "${content}${truncated}" (planted ${age})`;
