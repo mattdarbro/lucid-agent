@@ -413,7 +413,7 @@ export class LucidToolsService {
   private async getSeeds(userId: string, status: string, includeGrown: boolean): Promise<string> {
     let query = `
       SELECT
-        id, content, planted_context, time_of_day, status,
+        id, content, planted_context, status,
         planted_at, last_surfaced_at, surface_count, grown_into_library_id
       FROM seeds
       WHERE user_id = $1
@@ -462,7 +462,7 @@ export class LucidToolsService {
 
     const result = await this.pool.query(
       `SELECT
-        id, content, planted_context, time_of_day, status,
+        id, content, planted_context, status,
         planted_at, last_surfaced_at, surface_count, grown_into_library_id
       FROM seeds
       WHERE user_id = $1
@@ -515,7 +515,6 @@ export class LucidToolsService {
       id: seed.id,
       content: seed.content,
       context: seed.planted_context || null,
-      time_of_day: seed.time_of_day,
       status: seed.status,
       planted_at: seed.planted_at,
       last_surfaced: seed.last_surfaced_at || null,
