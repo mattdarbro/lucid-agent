@@ -11,9 +11,17 @@ SELECT EXISTS (
 ) AS seeds_table_exists;
 
 -- 2. Get total seed counts by status
+-- IMPORTANT: Only 'held' seeds are surfaced in briefings!
+-- If most seeds are 'growing', they won't appear in daily briefings.
 SELECT
     status,
-    COUNT(*) as count
+    COUNT(*) as count,
+    CASE status
+        WHEN 'held' THEN '✓ SURFACED in briefings'
+        WHEN 'growing' THEN '✗ NOT surfaced (only in weekly digest)'
+        WHEN 'grown' THEN '✗ Completed - in Library'
+        WHEN 'released' THEN '✗ Archived'
+    END as surfacing_note
 FROM seeds
 GROUP BY status
 ORDER BY
@@ -115,4 +123,28 @@ SELECT
     (SELECT MIN(planted_at) FROM seeds) as oldest_seed,
     (SELECT MAX(planted_at) FROM seeds) as newest_seed,
     (SELECT COUNT(*) FROM seeds WHERE status IN ('held', 'growing')) as active_seeds,
+    (SELECT COUNT(*) FROM seeds WHERE status = 'held') as held_seeds_surfaceable,
     (SELECT COUNT(*) FROM seeds WHERE last_surfaced_at IS NOT NULL) as ever_surfaced;
+
+-- ============================================
+-- FIXES (run these if needed)
+-- ============================================
+
+-- FIX 1: Reset 'growing' seeds back to 'held' so they get surfaced
+-- The migration may have incorrectly set seeds to 'growing' status
+-- which prevents them from appearing in daily briefings.
+--
+-- UNCOMMENT AND RUN THIS TO FIX:
+-- UPDATE seeds
+-- SET status = 'held', updated_at = NOW()
+-- WHERE status = 'growing'
+-- RETURNING id, LEFT(content, 50) as content_preview, status;
+
+-- FIX 2: Reset surfacing counts so seeds get shown again
+-- If seeds have been surfaced many times, they may be deprioritized.
+--
+-- UNCOMMENT AND RUN THIS TO RESET SURFACING:
+-- UPDATE seeds
+-- SET last_surfaced_at = NULL, surface_count = 0, updated_at = NOW()
+-- WHERE status = 'held'
+-- RETURNING id, LEFT(content, 50) as content_preview, last_surfaced_at, surface_count;
