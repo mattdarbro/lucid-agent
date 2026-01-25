@@ -315,6 +315,14 @@ TITLE: [What this seed became]
         ? grownSeeds.map(s => `- "${s.content.slice(0, 100)}${s.content.length > 100 ? '...' : ''}" (grew into: ${s.library_title || 'Library entry'})`).join('\n')
         : '';
 
+      logger.info('[AL] Morning briefing - seeds formatted', {
+        userId,
+        heldSeedsCount: heldSeeds.length,
+        recentSeedsCount: recentlyPlantedSeeds.length,
+        heldSeedsTextLength: heldSeedsText?.length || 0,
+        heldSeedsTextPreview: heldSeedsText?.slice(0, 200) || '(empty)',
+      });
+
       const factsText = recentFacts.length > 0
         ? recentFacts.map(f => `- ${f.content}`).join('\n')
         : '';
@@ -442,9 +450,14 @@ Write the briefing now:`;
          LIMIT 15`,
         [userId]
       );
+      logger.info('[AL] getHeldSeeds query result', {
+        userId,
+        seedCount: result.rows.length,
+        seeds: result.rows.map(s => ({ id: s.id, contentPreview: s.content?.slice(0, 50) })),
+      });
       return result.rows;
     } catch (error: any) {
-      logger.error('[AL] Failed to get held seeds', { error: error.message });
+      logger.error('[AL] Failed to get held seeds', { error: error.message, userId });
       return [];
     }
   }
