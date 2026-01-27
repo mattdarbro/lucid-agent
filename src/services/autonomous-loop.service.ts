@@ -381,12 +381,13 @@ Write the briefing now:`;
         return result;
       }
 
-      // Determine title based on date
+      // Determine title based on date (in Chicago timezone)
       const today = new Date();
       const dateStr = today.toLocaleDateString('en-US', {
         weekday: 'long',
         month: 'short',
-        day: 'numeric'
+        day: 'numeric',
+        timeZone: 'America/Chicago'
       });
       const title = `Seeds - ${dateStr}`;
 
@@ -701,12 +702,12 @@ Write the weekly seed reflection now:`;
         return result;
       }
 
-      // Determine title based on week
+      // Determine title based on week (in Chicago timezone)
       const today = new Date();
       const weekStart = new Date(today);
       weekStart.setDate(today.getDate() - 7);
-      const weekStartStr = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const weekEndStr = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const weekStartStr = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' });
+      const weekEndStr = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' });
       const title = `Weekly Seeds - ${weekStartStr} to ${weekEndStr}`;
 
       // Save to Library
