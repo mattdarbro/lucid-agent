@@ -594,7 +594,8 @@ export type LibraryEntryType =
   | 'deep_thought'
   // Simplified design types (Phase 1-2)
   | 'briefing'               // Morning/weekly briefings from AL
-  | 'insight';               // Ideas captured via Capture system
+  | 'insight'                // Ideas captured via Capture system
+  | 'research_journal';      // Research findings from autonomous research executor
 
 /**
  * Subject of a thought - who/what the thought is about

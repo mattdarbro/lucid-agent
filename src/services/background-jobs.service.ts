@@ -243,13 +243,16 @@ export class BackgroundJobsService {
         };
 
       case 'afternoon_synthesis':
-        // Weekly Digest - only runs on Sundays
-        const today = new Date();
-        const isSunday = today.getDay() === 0;
+        // Weekly Digest - only runs on Sundays (in Chicago timezone)
+        const nowUtc = new Date();
+        // Convert to Chicago timezone to check the day
+        const chicagoTime = new Date(nowUtc.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+        const isSunday = chicagoTime.getDay() === 0;
 
         if (!isSunday) {
           logger.debug('[AL] Skipping weekly digest - not Sunday', {
-            dayOfWeek: today.getDay(),
+            dayOfWeek: chicagoTime.getDay(),
+            chicagoTime: chicagoTime.toISOString(),
             userId
           });
           return { thoughtProduced: false, libraryEntryId: null };
@@ -283,16 +286,18 @@ export class BackgroundJobsService {
 
   /**
    * Start the daily job scheduler
-   * Runs at midnight (in server timezone) to schedule circadian jobs for all active users
+   * Runs at midnight Chicago time to schedule circadian jobs for all active users
    * Also runs on startup to ensure today's jobs are scheduled
    */
   private startDailyJobScheduler(): void {
-    // Run daily at midnight to schedule jobs for the new day
+    // Run daily at midnight Chicago time to schedule jobs for the new day
     this.dailyJobScheduler = cron.schedule('0 0 * * *', async () => {
       await this.scheduleJobsForActiveUsers();
+    }, {
+      timezone: 'America/Chicago'
     });
 
-    logger.info('[BACKGROUND] Daily job scheduler started (runs at midnight)');
+    logger.info('[BACKGROUND] Daily job scheduler started (runs at midnight Chicago time)');
 
     // Also run on startup after a delay to schedule today's jobs
     setTimeout(() => {
