@@ -1,6 +1,8 @@
 import { Pool } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../logger';
+import { WebSearchService } from './web-search.service';
+import { VectorService } from './vector.service';
 
 /**
  * Tool definitions for Claude to use during chat
@@ -131,13 +133,45 @@ export const LUCID_TOOLS: Anthropic.Tool[] = [
       required: ['user_id', 'query'],
     },
   },
+  {
+    name: 'web_search',
+    description: "Search the web for current information. Use this when Matt asks about recent events, current data, or when the conversation would benefit from up-to-date information. Before searching, ask Matt if he'd like you to look this up. The full findings will be saved to the Library; you'll receive a summary to share in conversation.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID performing the search',
+        },
+        query: {
+          type: 'string',
+          description: 'The search query - be specific and include context for better results',
+        },
+        purpose: {
+          type: 'string',
+          description: 'Brief description of why this search is being done (helps with analysis)',
+        },
+      },
+      required: ['user_id', 'query'],
+    },
+  },
 ];
 
 /**
  * LucidToolsService - Executes tool calls from Claude
  */
 export class LucidToolsService {
-  constructor(private pool: Pool) {}
+  private webSearchService: WebSearchService | null = null;
+  private vectorService: VectorService;
+  private anthropic: Anthropic;
+
+  constructor(private pool: Pool, webSearchService?: WebSearchService) {
+    this.webSearchService = webSearchService || null;
+    this.vectorService = new VectorService();
+    this.anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    });
+  }
 
   /**
    * Execute a tool call and return the result
@@ -184,6 +218,13 @@ export class LucidToolsService {
 
         case 'search_seeds':
           return await this.searchSeeds(toolInput.user_id, toolInput.query);
+
+        case 'web_search':
+          return await this.webSearch(
+            toolInput.user_id,
+            toolInput.query,
+            toolInput.purpose
+          );
 
         default:
           return JSON.stringify({ error: `Unknown tool: ${toolName}` });
@@ -489,6 +530,203 @@ export class LucidToolsService {
       seeds: result.rows.map(this.formatSeed),
       count: result.rows.length,
     });
+  }
+
+  /**
+   * Web search - searches the web and saves findings to Library
+   * Returns a summary for the Room conversation
+   */
+  private async webSearch(
+    userId: string,
+    query: string,
+    purpose?: string
+  ): Promise<string> {
+    // Check if web search is available
+    if (!this.webSearchService || !this.webSearchService.isAvailable()) {
+      return JSON.stringify({
+        error: 'Web search is not currently available.',
+        message: 'I apologize, but web search is not configured. We can continue our conversation without it.',
+      });
+    }
+
+    try {
+      logger.info('Executing web search from Room', { userId, query, purpose });
+
+      // Execute the search
+      const searchResults = await this.webSearchService.search(query, {
+        maxResults: 5,
+        includeAnswer: true,
+        searchDepth: 'basic',
+      });
+
+      // Analyze results with Claude
+      const analysis = await this.analyzeSearchResults(query, purpose, searchResults);
+
+      // Save to Library
+      const libraryEntryId = await this.saveSearchToLibrary(
+        userId,
+        query,
+        purpose,
+        searchResults,
+        analysis
+      );
+
+      logger.info('Web search completed and saved to Library', {
+        userId,
+        query,
+        libraryEntryId,
+        resultsCount: searchResults.results.length,
+      });
+
+      // Return summary for Room conversation
+      return JSON.stringify({
+        message: 'Search completed and saved to Library.',
+        query,
+        summary: analysis.summary,
+        keyFindings: analysis.keyFindings,
+        sourcesCount: searchResults.results.length,
+        libraryEntryId,
+        // Include Tavily's AI answer if available
+        aiAnswer: searchResults.answer,
+      });
+    } catch (error: any) {
+      logger.error('Web search failed', { userId, query, error: error.message });
+      return JSON.stringify({
+        error: 'Search failed',
+        message: `I wasn't able to complete the search: ${error.message}`,
+      });
+    }
+  }
+
+  /**
+   * Analyze search results using Claude
+   */
+  private async analyzeSearchResults(
+    query: string,
+    purpose: string | undefined,
+    searchResults: any
+  ): Promise<{
+    summary: string;
+    keyFindings: string[];
+  }> {
+    const resultsText = searchResults.results
+      .map((r: any, i: number) => `${i + 1}. ${r.title}\n${r.content}\nSource: ${r.url}\n`)
+      .join('\n---\n');
+
+    const prompt = `You are analyzing web search results for a conversation.
+
+QUERY: ${query}
+PURPOSE: ${purpose || 'General information'}
+
+SEARCH RESULTS:
+${resultsText}
+
+${searchResults.answer ? `\nAI SUMMARY: ${searchResults.answer}` : ''}
+
+Provide a brief analysis:
+1. A concise summary (2-3 sentences) of the key information found
+2. 3-5 key findings as bullet points
+
+Format as JSON:
+{
+  "summary": "Brief summary...",
+  "keyFindings": ["Finding 1", "Finding 2", ...]
+}
+
+Focus on information most relevant to the query and purpose.`;
+
+    const response = await this.anthropic.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 1000,
+      temperature: 0.3,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
+
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const analysis = JSON.parse(jsonMatch[0]);
+        return {
+          summary: analysis.summary || searchResults.answer || 'Search completed.',
+          keyFindings: analysis.keyFindings || [],
+        };
+      }
+    } catch (error) {
+      logger.error('Failed to parse search analysis', { error, responseText });
+    }
+
+    // Fallback
+    return {
+      summary: searchResults.answer || 'Search completed.',
+      keyFindings: [],
+    };
+  }
+
+  /**
+   * Save search results to Library
+   */
+  private async saveSearchToLibrary(
+    userId: string,
+    query: string,
+    purpose: string | undefined,
+    searchResults: any,
+    analysis: { summary: string; keyFindings: string[] }
+  ): Promise<string> {
+    const title = `Research: ${query.slice(0, 60)}${query.length > 60 ? '...' : ''}`;
+
+    // Build Library content
+    const sources = searchResults.results
+      .map((r: any) => `- [${r.title}](${r.url})`)
+      .join('\n');
+
+    const libraryContent = [
+      `# ${query}`,
+      purpose ? `**Purpose:** ${purpose}` : '',
+      '',
+      '## Summary',
+      analysis.summary,
+      '',
+      '## Key Findings',
+      analysis.keyFindings.map(f => `- ${f}`).join('\n'),
+      '',
+      '## Sources',
+      sources,
+    ].filter(Boolean).join('\n');
+
+    // Generate embedding for semantic search
+    let embedding: number[] | null = null;
+    try {
+      embedding = await this.vectorService.generateEmbedding(`${title} ${analysis.summary}`);
+    } catch (err) {
+      logger.warn('Failed to generate embedding for search library entry', { error: err });
+    }
+
+    const embeddingString = embedding ? `[${embedding.join(',')}]` : null;
+
+    const result = await this.pool.query(
+      `INSERT INTO library_entries
+       (user_id, entry_type, title, content, time_of_day, metadata, embedding)
+       VALUES ($1, 'research_journal', $2, $3, 'afternoon', $4, $5::vector)
+       RETURNING id`,
+      [
+        userId,
+        title,
+        libraryContent,
+        JSON.stringify({
+          query,
+          purpose,
+          keyFindingsCount: analysis.keyFindings.length,
+          sourcesCount: searchResults.results.length,
+          source: 'room_web_search',
+          searchedAt: new Date().toISOString(),
+        }),
+        embeddingString,
+      ]
+    );
+
+    return result.rows[0].id;
   }
 
   /**

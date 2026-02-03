@@ -10,6 +10,7 @@ import { ProfileService } from './profile.service';
 import { CostTrackingService } from './cost-tracking.service';
 import { PromptModulesService } from './prompt-modules.service';
 import { LucidToolsService, LUCID_TOOLS } from './lucid-tools.service';
+import { WebSearchService } from './web-search.service';
 import { RecursiveContextSearchService, RecursiveSearchConfig } from './recursive-context-search.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
 import { withRetry, wrapAnthropicError } from '../utils/anthropic-errors';
@@ -102,7 +103,11 @@ export class ChatService {
     this.profileService = new ProfileService(pool);
     this.costTrackingService = new CostTrackingService(pool);
     this.promptModulesService = new PromptModulesService(pool, anthropicApiKey);
-    this.lucidToolsService = new LucidToolsService(pool);
+
+    // Initialize web search service for Room searches
+    const webSearchService = new WebSearchService();
+    this.lucidToolsService = new LucidToolsService(pool, webSearchService);
+
     this.recursiveContextService = new RecursiveContextSearchService(pool, anthropicApiKey);
   }
 
