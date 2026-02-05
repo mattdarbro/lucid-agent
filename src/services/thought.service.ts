@@ -75,7 +75,7 @@ export class ThoughtService {
   private memoryService: MemoryService;
   private vectorService: VectorService;
   private orbitsService: OrbitsService;
-  private readonly model = 'claude-opus-4-5-20251101';
+  private readonly model = 'claude-opus-4-6';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;

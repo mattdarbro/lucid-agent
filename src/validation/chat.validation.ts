@@ -20,7 +20,7 @@ export const chatCompletionSchema = z.object({
   model: z
     .string()
     .optional()
-    .default('claude-opus-4-5-20251101'),
+    .default('claude-opus-4-6'),
 
   max_tokens: z
     .number()

@@ -76,7 +76,7 @@ export class ChatService {
   private readonly DEFAULT_CONFIG: ChatConfig = {
     maxResponseWords: 150,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-opus-4-5-20251101',
+    defaultModel: 'claude-opus-4-6',
     maxTokens: 500,
     forceDeepThinking: false,
     deepThinkingBias: 50,
