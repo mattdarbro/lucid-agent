@@ -164,7 +164,7 @@ export const FULL_LUCID_PROFILE: LucidProfile = {
     includeFacts: true,
     maxThoughtsInContext: 5,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-opus-4-5-20251101',
+    defaultModel: 'claude-opus-4-6',
     maxTokens: 250,
     maxResponseWords: 150,
     forceDeepThinking: false,
@@ -252,7 +252,7 @@ export const DEV_LUCID_PROFILE: LucidProfile = {
     includeFacts: true,
     maxThoughtsInContext: 5,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-opus-4-5-20251101',
+    defaultModel: 'claude-opus-4-6',
     maxTokens: 250,
     maxResponseWords: 150,
     forceDeepThinking: true, // KEY: Always generate Library entries
@@ -330,7 +330,7 @@ export const DECISION_ASSISTANT_PROFILE: LucidProfile = {
     includeFacts: true, // Include learned decision patterns
     maxThoughtsInContext: 0,
     defaultTemperature: 0.3, // More analytical
-    defaultModel: 'claude-opus-4-5-20251101',
+    defaultModel: 'claude-opus-4-6',
     maxTokens: 250,
     maxResponseWords: 150,
     forceDeepThinking: false,
@@ -419,7 +419,7 @@ export const NEWS_DIGEST_PROFILE: LucidProfile = {
     includeFacts: true, // Topics of interest
     maxThoughtsInContext: 10, // More news insights
     defaultTemperature: 0.5,
-    defaultModel: 'claude-opus-4-5-20251101',
+    defaultModel: 'claude-opus-4-6',
     maxTokens: 250,
     maxResponseWords: 150,
     forceDeepThinking: false,
@@ -458,7 +458,7 @@ export const SIMPLE_CHAT_PROFILE: LucidProfile = {
     includeFacts: true,
     maxThoughtsInContext: 0,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-opus-4-5-20251101',
+    defaultModel: 'claude-opus-4-6',
     maxTokens: 250,
     maxResponseWords: 150,
     forceDeepThinking: false,
@@ -489,7 +489,7 @@ export const CUSTOM_PROFILE_TEMPLATE: LucidProfile = {
     includeFacts: true,
     maxThoughtsInContext: 5,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-opus-4-5-20251101',
+    defaultModel: 'claude-opus-4-6',
     maxTokens: 250,
     maxResponseWords: 150,
     forceDeepThinking: false,

@@ -2,12 +2,14 @@ import { Pool } from 'pg';
 import { logger } from '../logger';
 
 /**
- * API pricing per million tokens (as of Dec 2024)
+ * API pricing per million tokens (as of Feb 2026)
  * https://www.anthropic.com/pricing
  */
 export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  // Claude Opus 4.5
-  'claude-opus-4-5-20251101': { input: 15.0, output: 75.0 },
+  // Claude Opus 4.6
+  'claude-opus-4-6': { input: 5.0, output: 25.0 },
+  // Claude Opus 4.5 (legacy)
+  'claude-opus-4-5-20251101': { input: 5.0, output: 25.0 },
   // Claude Sonnet 4.5
   'claude-sonnet-4-5-20250929': { input: 3.0, output: 15.0 },
   // Claude Haiku 3.5 / 4.5
