@@ -649,4 +649,52 @@ router.post(
   }
 );
 
+/**
+ * POST /v1/sync/self-review
+ *
+ * Manually trigger the self-review code analysis loop for a user.
+ * This fetches source code from GitHub, analyzes it, and opens PRs for improvements.
+ * Typically runs Thursday nights automatically.
+ *
+ * Request body:
+ * - user_id: string (required) - UUID of the user
+ *
+ * Response:
+ * - success: boolean
+ * - library_entry_id: string | null
+ * - prs_opened: array of PR info
+ */
+router.post(
+  '/self-review',
+  validateBody(userIdSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { user_id } = req.body;
+
+      logger.info(`[SYNC] Manual self-review triggered for user ${user_id}`);
+
+      const backgroundJobs = new BackgroundJobsService(pool, supabase);
+      const result = await backgroundJobs.triggerSelfReview(user_id);
+
+      res.json({
+        success: result.success,
+        message: result.prsOpened.length > 0
+          ? `Self-review completed. ${result.prsOpened.length} PR(s) opened.`
+          : 'Self-review completed. No PRs opened.',
+        library_entry_id: result.libraryEntryId,
+        prs_opened: result.prsOpened,
+      });
+    } catch (error: any) {
+      logger.error('Error in POST /v1/sync/self-review:', {
+        message: error.message,
+      });
+
+      res.status(500).json({
+        error: 'Failed to run self-review',
+        details: error.message,
+      });
+    }
+  }
+);
+
 export default router;

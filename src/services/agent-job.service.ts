@@ -276,6 +276,16 @@ export class AgentJobService {
       },
     ];
 
+    // Self-review: Thursday only (day 4) at 10pm Chicago time
+    const chicagoNow = new Date(date.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+    if (chicagoNow.getDay() === 4) {
+      allJobs.push({
+        user_id: userId,
+        job_type: 'self_review',
+        scheduled_for: this.getScheduledTime(date, 22, 0), // 10pm - Self Review
+      });
+    }
+
     // Filter out jobs that already exist
     const jobsToCreate = allJobs.filter(job => !existingJobTypes.has(job.job_type));
 

@@ -52,11 +52,20 @@ export const config = {
     factExtraction: process.env.FACT_EXTRACTION_CRON || '*/10 * * * *',
   },
 
+  // GitHub Integration (for self-review)
+  github: {
+    token: process.env.GITHUB_TOKEN || '',
+    owner: process.env.GITHUB_OWNER || '',
+    repo: process.env.GITHUB_REPO || 'lucid-agent',
+    enabled: !!process.env.GITHUB_TOKEN && !!process.env.GITHUB_OWNER,
+  },
+
   // Feature Flags
   features: {
     autonomousAgents: process.env.ENABLE_AUTONOMOUS_AGENTS === 'true',
     webResearch: process.env.ENABLE_WEB_RESEARCH === 'true',
     dreams: process.env.ENABLE_DREAMS === 'true',
+    selfReview: process.env.ENABLE_SELF_REVIEW === 'true',
   },
 
   // Telegram Notifications

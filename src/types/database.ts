@@ -131,7 +131,8 @@ export type AgentJobType =
   | 'dream_session'
   | 'state_session'
   | 'orbit_session'
-  | 'document_reflection';
+  | 'document_reflection'
+  | 'self_review';
 
 export interface AgentJob {
   id: string;
@@ -595,7 +596,8 @@ export type LibraryEntryType =
   // Simplified design types (Phase 1-2)
   | 'briefing'               // Morning/weekly briefings from AL
   | 'insight'                // Ideas captured via Capture system
-  | 'research_journal';      // Research findings from autonomous research executor
+  | 'research_journal'       // Research findings from autonomous research executor
+  | 'code_review';           // Self-review findings and PR summaries
 
 /**
  * Subject of a thought - who/what the thought is about
