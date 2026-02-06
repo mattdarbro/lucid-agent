@@ -14,6 +14,8 @@ export const jobTypeSchema = z.enum([
   'orbit_session',
   // Document Reflection (Living Document maintenance)
   'document_reflection',
+  // Self-review (Thursday night code review)
+  'self_review',
 ]);
 
 // Job status aligned with database schema

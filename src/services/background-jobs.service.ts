@@ -9,6 +9,7 @@ import { ProfileService } from './profile.service';
 import { AgentJobService } from './agent-job.service';
 import { AutonomousLoopService } from './autonomous-loop.service';
 import { ResearchExecutorService } from './research-executor.service';
+import { SelfReviewLoopService } from './self-review-loop.service';
 import { JobType } from '../validation/agent-job.validation';
 
 /**
@@ -31,6 +32,7 @@ export class BackgroundJobsService {
   private agentJobService: AgentJobService;
   private autonomousLoopService: AutonomousLoopService;
   private researchExecutorService: ResearchExecutorService;
+  private selfReviewLoopService: SelfReviewLoopService;
   private factExtractionJob: cron.ScheduledTask | null = null;
   private autonomousLoopJob: cron.ScheduledTask | null = null;
   private dailyJobScheduler: cron.ScheduledTask | null = null;
@@ -47,6 +49,7 @@ export class BackgroundJobsService {
     this.agentJobService = new AgentJobService(pool, supabase);
     this.autonomousLoopService = new AutonomousLoopService(pool);
     this.researchExecutorService = new ResearchExecutorService(pool, supabase);
+    this.selfReviewLoopService = new SelfReviewLoopService(pool);
   }
 
   /**
@@ -272,6 +275,13 @@ export class BackgroundJobsService {
           libraryEntryId: researchResult.libraryEntryId,
         };
 
+      case 'self_review':
+        const selfReviewResult = await this.selfReviewLoopService.runSelfReview(userId, jobId);
+        return {
+          thoughtProduced: selfReviewResult.thoughtProduced,
+          libraryEntryId: selfReviewResult.libraryEntryId,
+        };
+
       // Placeholder for future loops
       case 'night_dream':
       case 'document_reflection':
@@ -431,6 +441,23 @@ export class BackgroundJobsService {
       success: result.success,
       libraryEntryId: result.libraryEntryId,
       title: result.title,
+    };
+  }
+
+  /**
+   * Manually trigger self-review for a user (useful for testing)
+   */
+  async triggerSelfReview(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    prsOpened: Array<{ number: number; url: string; title: string }>;
+  }> {
+    logger.info('[AL] Manual trigger: self-review', { userId });
+    const result = await this.selfReviewLoopService.runSelfReview(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      prsOpened: result.prsOpened,
     };
   }
 
