@@ -6,9 +6,53 @@ import { VectorService } from './vector.service';
 
 /**
  * Tool definitions for Claude to use during chat
- * These allow Lucid to query calendar events, seeds, and more
+ * These allow Lucid to query calendar events, seeds, library, conversations, and more
  */
 export const LUCID_TOOLS: Anthropic.Tool[] = [
+  {
+    name: 'search_library',
+    description: "Search Lucid's Library — the collection of deep thoughts, vision appraisals, possibility maps, research journals, and other entries you've written. Use this when Matt references something you discussed before, when you want to build on previous thinking, or when the conversation connects to past analysis. This is YOUR memory of deep work.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID to search for',
+        },
+        query: {
+          type: 'string',
+          description: 'Search query — describe what you are looking for (semantic search via embeddings)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of entries to return (default: 5)',
+        },
+      },
+      required: ['user_id', 'query'],
+    },
+  },
+  {
+    name: 'search_conversations',
+    description: "Search through past conversation messages with Matt. Use this when Matt asks 'did we talk about...', when you need to recall what was said about a topic, or when you want to find context from previous chats.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID to search for',
+        },
+        query: {
+          type: 'string',
+          description: 'Search query — what you are looking for in past messages (semantic search via embeddings)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of messages to return (default: 10)',
+        },
+      },
+      required: ['user_id', 'query'],
+    },
+  },
   {
     name: 'get_today_schedule',
     description: "Get the user's calendar events for today. Use this when the user asks about their schedule today, what meetings they have, or what's on their calendar.",
@@ -184,6 +228,20 @@ export class LucidToolsService {
       logger.info('Executing Lucid tool', { toolName, toolInput });
 
       switch (toolName) {
+        case 'search_library':
+          return await this.searchLibrary(
+            toolInput.user_id,
+            toolInput.query,
+            toolInput.limit || 5
+          );
+
+        case 'search_conversations':
+          return await this.searchConversations(
+            toolInput.user_id,
+            toolInput.query,
+            toolInput.limit || 10
+          );
+
         case 'get_today_schedule':
           return await this.getTodaySchedule(toolInput.user_id);
 
@@ -727,6 +785,110 @@ Focus on information most relevant to the query and purpose.`;
     );
 
     return result.rows[0].id;
+  }
+
+  /**
+   * Search Library entries using semantic similarity
+   */
+  private async searchLibrary(userId: string, query: string, limit: number): Promise<string> {
+    try {
+      const queryEmbedding = await this.vectorService.generateEmbedding(query);
+      const embeddingString = `[${queryEmbedding.join(',')}]`;
+
+      const result = await this.pool.query(
+        `SELECT id, entry_type, title, content,
+                (1 - (embedding <=> $2::vector) / 2) as similarity,
+                created_at
+         FROM library_entries
+         WHERE user_id = $1
+           AND embedding IS NOT NULL
+           AND (embedding <=> $2::vector) <= 0.5
+         ORDER BY embedding <=> $2::vector
+         LIMIT $3`,
+        [userId, embeddingString, limit]
+      );
+
+      if (result.rows.length === 0) {
+        return JSON.stringify({
+          message: `No Library entries found matching "${query}".`,
+          entries: [],
+          count: 0,
+        });
+      }
+
+      return JSON.stringify({
+        message: `Found ${result.rows.length} Library entry/entries matching "${query}".`,
+        entries: result.rows.map(row => ({
+          id: row.id,
+          type: row.entry_type,
+          title: row.title,
+          content: row.content.length > 1000
+            ? row.content.slice(0, 1000) + '...'
+            : row.content,
+          similarity: parseFloat(row.similarity).toFixed(3),
+          created_at: row.created_at,
+        })),
+        count: result.rows.length,
+      });
+    } catch (error: any) {
+      logger.error('Library search failed', { userId, query, error: error.message });
+      return JSON.stringify({
+        error: 'Library search failed',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * Search past conversation messages using semantic similarity
+   */
+  private async searchConversations(userId: string, query: string, limit: number): Promise<string> {
+    try {
+      const queryEmbedding = await this.vectorService.generateEmbedding(query);
+      const embeddingString = `[${queryEmbedding.join(',')}]`;
+
+      const result = await this.pool.query(
+        `SELECT m.id, m.role, m.content, m.conversation_id,
+                (1 - (m.embedding <=> $2::vector) / 2) as similarity,
+                m.created_at
+         FROM messages m
+         WHERE m.user_id = $1
+           AND m.embedding IS NOT NULL
+           AND (m.embedding <=> $2::vector) <= 0.5
+         ORDER BY m.embedding <=> $2::vector
+         LIMIT $3`,
+        [userId, embeddingString, limit]
+      );
+
+      if (result.rows.length === 0) {
+        return JSON.stringify({
+          message: `No past messages found matching "${query}".`,
+          messages: [],
+          count: 0,
+        });
+      }
+
+      return JSON.stringify({
+        message: `Found ${result.rows.length} past message(s) matching "${query}".`,
+        messages: result.rows.map(row => ({
+          id: row.id,
+          role: row.role,
+          content: row.content.length > 500
+            ? row.content.slice(0, 500) + '...'
+            : row.content,
+          conversation_id: row.conversation_id,
+          similarity: parseFloat(row.similarity).toFixed(3),
+          created_at: row.created_at,
+        })),
+        count: result.rows.length,
+      });
+    } catch (error: any) {
+      logger.error('Conversation search failed', { userId, query, error: error.message });
+      return JSON.stringify({
+        error: 'Conversation search failed',
+        message: error.message,
+      });
+    }
   }
 
   /**
