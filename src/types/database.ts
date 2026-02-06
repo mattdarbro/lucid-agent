@@ -584,6 +584,8 @@ export type LibraryEntryType =
   | 'orbit_reflection'       // Thinking about someone in orbits
   | 'vision_appraisal'       // Dream/vision/goal exploration
   | 'possibility_map'        // Branching alternatives when stuck
+  | 'possibilities'          // Possibility thinking results
+  | 'versus_synthesis'       // Versus comparison synthesis
   | 'user_reflection'
   | 'journal'
   | 'reflection'

@@ -26,7 +26,7 @@ EXCEPTION
   WHEN undefined_object THEN NULL;
 END $$;
 
--- Re-add with code_review and win included
+-- Re-add with all known entry types including code_review
 ALTER TABLE library_entries
 ADD CONSTRAINT library_entries_entry_type_check
 CHECK (entry_type IN (
@@ -35,6 +35,7 @@ CHECK (entry_type IN (
   'orbit_reflection',
   'vision_appraisal',
   'possibility_map',
+  'possibilities',
   'user_reflection',
   'journal',
   'reflection',
@@ -44,6 +45,7 @@ CHECK (entry_type IN (
   'state_update',
   'orbit_update',
   'deep_thought',
+  'versus_synthesis',
   'briefing',
   'insight',
   'research_journal',
