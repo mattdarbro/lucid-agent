@@ -26,7 +26,7 @@ EXCEPTION
   WHEN undefined_object THEN NULL;
 END $$;
 
--- Re-add with code_review included
+-- Re-add with code_review and win included
 ALTER TABLE library_entries
 ADD CONSTRAINT library_entries_entry_type_check
 CHECK (entry_type IN (
@@ -47,5 +47,6 @@ CHECK (entry_type IN (
   'briefing',
   'insight',
   'research_journal',
+  'win',
   'code_review'
 ));
