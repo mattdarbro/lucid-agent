@@ -597,6 +597,7 @@ export type LibraryEntryType =
   | 'briefing'               // Morning/weekly briefings from AL
   | 'insight'                // Ideas captured via Capture system
   | 'research_journal'       // Research findings from autonomous research executor
+  | 'win'                    // User wins/breakthroughs
   | 'code_review';           // Self-review findings and PR summaries
 
 /**
