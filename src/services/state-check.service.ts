@@ -215,7 +215,7 @@ export class StateCheckService {
       [userId, limit]
     );
 
-    return result.rows.map((row) => this.parseSessionRow(row));
+    return result.rows.map((row: any) => this.parseSessionRow(row));
   }
 
   /**

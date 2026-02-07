@@ -562,7 +562,7 @@ Your conversational response (do NOT include the library link - it will be added
         });
       }
 
-      return result.rows.map(row => ({
+      return result.rows.map((row: any) => ({
         title: row.title,
         content: row.content,
       }));

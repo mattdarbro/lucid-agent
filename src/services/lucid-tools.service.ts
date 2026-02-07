@@ -440,7 +440,7 @@ export class LucidToolsService {
       [userId, start.toISOString(), end.toISOString()]
     );
 
-    const busySlots = eventsResult.rows.map((e) => ({
+    const busySlots = eventsResult.rows.map((e: any) => ({
       start: new Date(e.start_time),
       end: new Date(e.end_time),
     }));
@@ -457,7 +457,7 @@ export class LucidToolsService {
       dayEnd.setHours(18, 0, 0, 0);
 
       const dayBusy = busySlots.filter(
-        (b) => b.start >= dayStart && b.start < dayEnd
+        (b: any) => b.start >= dayStart && b.start < dayEnd
       );
 
       let slotStart = dayStart;
@@ -818,7 +818,7 @@ Focus on information most relevant to the query and purpose.`;
 
       return JSON.stringify({
         message: `Found ${result.rows.length} Library entry/entries matching "${query}".`,
-        entries: result.rows.map(row => ({
+        entries: result.rows.map((row: any) => ({
           id: row.id,
           type: row.entry_type,
           title: row.title,
@@ -870,7 +870,7 @@ Focus on information most relevant to the query and purpose.`;
 
       return JSON.stringify({
         message: `Found ${result.rows.length} past message(s) matching "${query}".`,
-        messages: result.rows.map(row => ({
+        messages: result.rows.map((row: any) => ({
           id: row.id,
           role: row.role,
           content: row.content.length > 500

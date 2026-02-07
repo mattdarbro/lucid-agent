@@ -493,9 +493,9 @@ Is this context sufficient to answer the query? If not, what specific informatio
             messages: [{ role: 'user', content: userPrompt }],
           }),
         { maxRetries: 2, initialDelayMs: 500 }
-      );
+      ) as any;
 
-      const textContent = response.content.find((c) => c.type === 'text');
+      const textContent = response.content.find((c: any) => c.type === 'text');
       if (!textContent || textContent.type !== 'text') {
         return { sufficient: true, reasoning: 'Could not evaluate context' };
       }

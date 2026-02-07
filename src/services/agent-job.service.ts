@@ -120,7 +120,7 @@ export class AgentJobService {
       throw new Error(`Failed to list agent jobs: ${error.message}`);
     }
 
-    return data.map(job => this.mapToAgentJob(job));
+    return data.map((job: any) => this.mapToAgentJob(job));
   }
 
   /**
@@ -145,7 +145,7 @@ export class AgentJobService {
     if (data.length > 0) {
       logger.info('Found due agent jobs', { count: data.length });
     }
-    return data.map(job => this.mapToAgentJob(job));
+    return data.map((job: any) => this.mapToAgentJob(job));
   }
 
   /**
@@ -241,7 +241,7 @@ export class AgentJobService {
       throw new Error(`Failed to check existing jobs: ${checkError.message}`);
     }
 
-    const existingJobTypes = new Set(existingJobs?.map(j => j.job_type) || []);
+    const existingJobTypes = new Set(existingJobs?.map((j: any) => j.job_type) || []);
 
     const allJobs: CreateAgentJobInput[] = [
       {

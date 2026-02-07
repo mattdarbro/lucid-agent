@@ -334,7 +334,7 @@ export class ChatService {
               tools: toolsWithContext,
             }),
           { maxRetries: 2, initialDelayMs: 1000 }
-        );
+        ) as any;
 
         // Track token usage
         if (response.usage) {
@@ -345,7 +345,7 @@ export class ChatService {
         // Check if we got a final text response (stop_reason is 'end_turn')
         if (response.stop_reason === 'end_turn') {
           // Extract text from the response
-          const textContent = response.content.find((c) => c.type === 'text');
+          const textContent = response.content.find((c: any) => c.type === 'text');
           if (textContent && textContent.type === 'text') {
             assistantResponse = textContent.text;
           }
@@ -354,11 +354,11 @@ export class ChatService {
 
         // Check for tool use
         if (response.stop_reason === 'tool_use') {
-          const toolUseBlocks = response.content.filter((c) => c.type === 'tool_use');
+          const toolUseBlocks = response.content.filter((c: any) => c.type === 'tool_use');
 
           if (toolUseBlocks.length === 0) {
             // No tools to execute, extract any text
-            const textContent = response.content.find((c) => c.type === 'text');
+            const textContent = response.content.find((c: any) => c.type === 'text');
             if (textContent && textContent.type === 'text') {
               assistantResponse = textContent.text;
             }
@@ -406,7 +406,7 @@ export class ChatService {
           });
         } else {
           // Unknown stop reason, extract any text and break
-          const textContent = response.content.find((c) => c.type === 'text');
+          const textContent = response.content.find((c: any) => c.type === 'text');
           if (textContent && textContent.type === 'text') {
             assistantResponse = textContent.text;
           }

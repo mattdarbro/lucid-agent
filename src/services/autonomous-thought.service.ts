@@ -141,7 +141,7 @@ export class AutonomousThoughtService {
       throw new Error(`Failed to list autonomous thoughts: ${error.message}`);
     }
 
-    return data.map(thought => this.mapToAutonomousThought(thought));
+    return data.map((thought: any) => this.mapToAutonomousThought(thought));
   }
 
   /**
@@ -188,7 +188,7 @@ export class AutonomousThoughtService {
       const result = await client.query(sql, params);
 
       logger.info('Thought search completed', { resultsCount: result.rows.length });
-      return result.rows.map(row => this.mapToAutonomousThought(row));
+      return result.rows.map((row: any) => this.mapToAutonomousThought(row));
     } finally {
       client.release();
     }
@@ -221,7 +221,7 @@ export class AutonomousThoughtService {
       throw new Error(`Failed to fetch thoughts by job ID: ${error.message}`);
     }
 
-    return data.map(thought => this.mapToAutonomousThought(thought));
+    return data.map((thought: any) => this.mapToAutonomousThought(thought));
   }
 
   /**
@@ -263,7 +263,7 @@ export class AutonomousThoughtService {
       throw new Error(`Failed to fetch recent unshared thoughts: ${error.message}`);
     }
 
-    return data.map(thought => this.mapToAutonomousThought(thought));
+    return data.map((thought: any) => this.mapToAutonomousThought(thought));
   }
 
   /**

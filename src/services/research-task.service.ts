@@ -127,7 +127,7 @@ export class ResearchTaskService {
       throw new Error(`Failed to list research tasks: ${error.message}`);
     }
 
-    return data.map(task => this.mapToResearchTask(task));
+    return data.map((task: any) => this.mapToResearchTask(task));
   }
 
   /**
@@ -158,7 +158,7 @@ export class ResearchTaskService {
     }
 
     logger.info('Found pending research tasks', { count: data.length });
-    return data.map(task => this.mapToResearchTask(task));
+    return data.map((task: any) => this.mapToResearchTask(task));
   }
 
   /**
@@ -234,7 +234,7 @@ export class ResearchTaskService {
       throw new Error(`Failed to fetch tasks by emotional state ID: ${error.message}`);
     }
 
-    return data.map(task => this.mapToResearchTask(task));
+    return data.map((task: any) => this.mapToResearchTask(task));
   }
 
   /**

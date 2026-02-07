@@ -21,7 +21,7 @@ export const createConversationSchema = z.object({
   user_timezone: z
     .string()
     .refine(
-      (tz) => {
+      (tz: string) => {
         try {
           Intl.DateTimeFormat(undefined, { timeZone: tz });
           return true;
@@ -47,7 +47,7 @@ export const updateConversationSchema = z.object({
   user_timezone: z
     .string()
     .refine(
-      (tz) => {
+      (tz: string) => {
         try {
           Intl.DateTimeFormat(undefined, { timeZone: tz });
           return true;

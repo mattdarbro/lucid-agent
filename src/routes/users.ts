@@ -31,11 +31,11 @@ function validateBody(schema: z.ZodSchema) {
     try {
       req.body = schema.parse(req.body);
       next();
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -93,11 +93,11 @@ router.get('/by-id/:id', async (req: Request, res: Response) => {
     }
 
     res.json(result.rows[0]);
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -137,11 +137,11 @@ router.get('/:user_id/thought-notifications/pending', async (req: Request, res: 
       count: notifications.length,
       user_id,
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -189,11 +189,11 @@ router.get('/:user_id/thought-notifications', async (req: Request, res: Response
       limit: queryParams.limit,
       offset: queryParams.offset,
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -243,11 +243,11 @@ router.get('/:user_id/multi-day-tasks', async (req: Request, res: Response) => {
       limit: queryParams.limit,
       offset: queryParams.offset,
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -279,11 +279,11 @@ router.get('/:external_id', async (req: Request, res: Response) => {
     }
 
     res.json(user);
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -328,11 +328,11 @@ router.patch(
       const updatedUser = await userService.updateUser(existingUser.id, req.body);
 
       res.json(updatedUser);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -370,11 +370,11 @@ router.delete('/:external_id', async (req: Request, res: Response) => {
     await userService.deleteUser(existingUser.id);
 
     res.status(204).send();
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -416,11 +416,11 @@ router.post('/:user_id/push-token', async (req: Request, res: Response) => {
       success: true,
       message: 'Push token registered successfully',
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -454,11 +454,11 @@ router.delete('/:user_id/push-token', async (req: Request, res: Response) => {
       success: true,
       message: 'Push token removed successfully',
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -503,11 +503,11 @@ router.get('/:user_id/settings/deep-thinking-bias', async (req: Request, res: Re
           ? 'Deep mode: Thoughtful analysis, more Library entries'
           : 'Balanced: Mix of quick chat and deep thinking',
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -566,11 +566,11 @@ router.put('/:user_id/settings/deep-thinking-bias', async (req: Request, res: Re
       deep_thinking_bias,
       description,
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),

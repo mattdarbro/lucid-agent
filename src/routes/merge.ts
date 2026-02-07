@@ -48,7 +48,7 @@ router.get('/export/:userId', async (req: Request, res: Response) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -113,7 +113,7 @@ router.post('/into/:targetUserId', async (req: Request, res: Response) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -166,7 +166,7 @@ router.get('/preview/:targetUserId', async (req: Request, res: Response) => {
       `SELECT LOWER(content) as content FROM facts WHERE user_id = $1`,
       [targetUserId]
     );
-    const existingFacts = new Set(duplicateCheckResult.rows.map(r => r.content.toLowerCase()));
+    const existingFacts = new Set(duplicateCheckResult.rows.map((r: any) => r.content.toLowerCase()));
 
     const uniqueFacts = sourceExport.facts.filter(
       f => !existingFacts.has(f.content.toLowerCase())
@@ -208,7 +208,7 @@ router.get('/preview/:targetUserId', async (req: Request, res: Response) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),

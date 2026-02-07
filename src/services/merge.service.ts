@@ -130,7 +130,7 @@ export class MergeService {
       [userId]
     );
 
-    const facts: ExportedFact[] = factsResult.rows.map(row => ({
+    const facts: ExportedFact[] = factsResult.rows.map((row: any) => ({
       content: row.content,
       category: row.category,
       confidence: parseFloat(row.confidence),
@@ -150,7 +150,7 @@ export class MergeService {
       [userId]
     );
 
-    const autonomousThoughts: ExportedThought[] = thoughtsResult.rows.map(row => ({
+    const autonomousThoughts: ExportedThought[] = thoughtsResult.rows.map((row: any) => ({
       content: row.content,
       category: row.category,
       circadianPhase: row.circadian_phase,
@@ -168,7 +168,7 @@ export class MergeService {
       [userId]
     );
 
-    const libraryEntries: ExportedLibraryEntry[] = libraryResult.rows.map(row => ({
+    const libraryEntries: ExportedLibraryEntry[] = libraryResult.rows.map((row: any) => ({
       entryType: row.entry_type,
       title: row.title,
       content: row.content,
@@ -187,7 +187,7 @@ export class MergeService {
       [userId]
     );
 
-    const summaries: ExportedSummary[] = summariesResult.rows.map(row => ({
+    const summaries: ExportedSummary[] = summariesResult.rows.map((row: any) => ({
       userPerspective: row.user_perspective,
       modelPerspective: row.model_perspective,
       conversationOverview: row.conversation_overview,

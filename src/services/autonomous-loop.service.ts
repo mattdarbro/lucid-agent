@@ -454,7 +454,7 @@ Write the briefing now:`;
       logger.info('[AL] getHeldSeeds query result', {
         userId,
         seedCount: result.rows.length,
-        seeds: result.rows.map(s => ({ id: s.id, contentPreview: s.content?.slice(0, 50) })),
+        seeds: result.rows.map((s: any) => ({ id: s.id, contentPreview: s.content?.slice(0, 50) })),
       });
       return result.rows;
     } catch (error: any) {
@@ -1118,7 +1118,7 @@ Write the research summary now:`;
          LIMIT 5`,
         [userId]
       );
-      return result.rows.map(r => r.title).filter(Boolean);
+      return result.rows.map((r: any) => r.title).filter(Boolean);
     } catch (error: any) {
       logger.error('[AL] Failed to get conversation topics', { error: error.message });
       return [];

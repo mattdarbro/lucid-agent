@@ -105,7 +105,7 @@ export class VectorService {
         throw new Error('Embedding count mismatch');
       }
 
-      const embeddings = response.data.map((item) => {
+      const embeddings = response.data.map((item: any) => {
         if (item.embedding.length !== this.embeddingDimensions) {
           throw new Error(
             `Expected ${this.embeddingDimensions} dimensions, got ${item.embedding.length}`

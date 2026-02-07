@@ -175,7 +175,7 @@ export class ThoughtNotificationService {
       const result = await this.pool.query(query, values);
 
       // Format the response for iOS compatibility
-      const notifications = result.rows.map((row) => ({
+      const notifications = result.rows.map((row: any) => ({
         id: row.id,
         user_id: row.user_id,
         thought_id: row.thought_id || null,
@@ -239,7 +239,7 @@ export class ThoughtNotificationService {
       const result = await this.pool.query(query, [userId, limit]);
 
       // Format the response for iOS compatibility
-      const notifications = result.rows.map((row) => ({
+      const notifications = result.rows.map((row: any) => ({
         id: row.id,
         user_id: row.user_id,
         thought_id: row.thought_id || null,

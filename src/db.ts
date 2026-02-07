@@ -27,7 +27,7 @@ export const pool = new Pool({
 });
 
 // Connection error handling
-pool.on('error', (err) => {
+pool.on('error', (err: Error) => {
   logger.error('Unexpected database pool error:', err);
 });
 

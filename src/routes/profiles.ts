@@ -123,7 +123,7 @@ router.put('/user/:userId', async (req: Request, res: Response) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
