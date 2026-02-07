@@ -60,6 +60,12 @@ export const config = {
     enabled: !!process.env.GITHUB_TOKEN && !!process.env.GITHUB_OWNER,
   },
 
+  // Library Context
+  library: {
+    contextEntries: parseInt(process.env.LIBRARY_CONTEXT_ENTRIES || '5', 10),
+    contextInterval: parseInt(process.env.LIBRARY_CONTEXT_INTERVAL || '5', 10),
+  },
+
   // Feature Flags
   features: {
     autonomousAgents: process.env.ENABLE_AUTONOMOUS_AGENTS === 'true',

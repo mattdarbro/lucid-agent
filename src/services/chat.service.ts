@@ -205,7 +205,8 @@ export class ChatService {
       // Simple conversation - build standard prompt
       const moduleResult = await this.promptModulesService.buildStandardPrompt(
         input.user_id,
-        input.message
+        input.message,
+        messages.length
       );
 
       // Determine if recursive context search should be used
