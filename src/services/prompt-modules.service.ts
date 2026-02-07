@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { config } from '../config';
 import { logger } from '../logger';
 import { MemoryService } from './memory.service';
 import { LivingDocumentService } from './living-document.service';
@@ -27,6 +28,7 @@ export interface ModuleContext {
   userId: string;
   conversationId?: string;
   profile?: any;
+  turnCount?: number;
 }
 
 /**
@@ -231,6 +233,10 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
 
   /**
    * LIBRARY_CONTEXT module - Relevant deep thoughts and reflections
+   *
+   * Returns full entry content (not truncated) for richer context.
+   * Entry count is configurable via LIBRARY_CONTEXT_ENTRIES (default 5).
+   * Only invoked on the first turn and every N turns (LIBRARY_CONTEXT_INTERVAL).
    */
   private async buildLibraryContextModule(
     context: ModuleContext
@@ -240,10 +246,11 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
     }
 
     try {
+      const entryLimit = config.library.contextEntries;
       const libraryEntries = await this.thoughtService.searchLibrary(
         context.userId,
         context.message,
-        3
+        entryLimit
       );
 
       if (libraryEntries.length === 0) {
@@ -254,10 +261,7 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
       fragment += 'Relevant entries from the Library (deep thoughts, reflections):\n\n';
       libraryEntries.forEach((entry, index) => {
         const title = entry.title || 'Untitled Entry';
-        const preview = entry.content.length > 300
-          ? entry.content.substring(0, 300) + '...'
-          : entry.content;
-        fragment += `${index + 1}. "${title}"\n${preview}\n\n`;
+        fragment += `${index + 1}. "${title}"\n${entry.content}\n\n`;
       });
       fragment += 'You can reference these naturally in conversation.';
 
@@ -389,7 +393,8 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
    */
   async buildStandardPrompt(
     userId: string,
-    message?: string
+    message?: string,
+    turnCount?: number
   ): Promise<ModulesBuildResult> {
     const modules: ChatModule[] = [
       'core_identity',
@@ -398,11 +403,17 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
       'facts_relevant',
     ];
 
-    // Add library context if there's a message to search against
+    // Add library context on first turn and every N turns thereafter
     if (message) {
-      modules.push('library_context');
+      const interval = config.library.contextInterval;
+      const isFirstTurn = !turnCount || turnCount <= 2;
+      const isIntervalTurn = turnCount !== undefined && turnCount > 0 && turnCount % interval === 0;
+
+      if (isFirstTurn || isIntervalTurn) {
+        modules.push('library_context');
+      }
     }
 
-    return this.build(modules, { userId, message });
+    return this.build(modules, { userId, message, turnCount });
   }
 }
