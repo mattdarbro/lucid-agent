@@ -22,11 +22,11 @@ function validateBody(schema: z.ZodSchema) {
     try {
       req.body = schema.parse(req.body);
       next();
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -94,11 +94,11 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
 
     res.json(task);
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -147,11 +147,11 @@ router.get('/users/:user_id', async (req: Request, res: Response) => {
       limit: queryParams.limit,
       offset: queryParams.offset,
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -250,11 +250,11 @@ router.patch(
       }
 
       res.json(task);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -345,11 +345,11 @@ router.get('/:id/temporal-analysis', async (req: Request, res: Response) => {
       check_ins_count: checkIns.length,
       analysis,
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),
@@ -380,11 +380,11 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
 
     res.status(204).send();
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: error.errors.map((err) => ({
+        details: error.errors.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message,
         })),

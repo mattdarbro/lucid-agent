@@ -48,7 +48,7 @@ export const createUserSchema = z.object({
   timezone: z
     .string()
     .refine(
-      (tz) => {
+      (tz: string) => {
         // Allow any valid IANA timezone string
         try {
           Intl.DateTimeFormat(undefined, { timeZone: tz });
@@ -86,7 +86,7 @@ export const updateUserSchema = z.object({
   timezone: z
     .string()
     .refine(
-      (tz) => {
+      (tz: string) => {
         try {
           Intl.DateTimeFormat(undefined, { timeZone: tz });
           return true;

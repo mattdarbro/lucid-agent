@@ -63,7 +63,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logging with error tracking
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
   logger.debug(`${req.method} ${req.path}`);
 
@@ -80,7 +80,7 @@ app.use((req, res, next) => {
 // HEALTH & INFO ENDPOINTS
 // ============================================================================
 
-app.get('/', (req, res) => {
+app.get('/', (req: Request, res: Response) => {
   res.json({
     status: 'ok',
     service: 'lucid-agent',
@@ -89,14 +89,14 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/health', (req, res) => {
+app.get('/health', (req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
   });
 });
 
-app.get('/info', (req, res) => {
+app.get('/info', (req: Request, res: Response) => {
   res.json({
     agent: config.agent.name,
     features: config.features,
@@ -187,7 +187,7 @@ app.use('/v1/possibilities', possibilitiesRouter);
 // ============================================================================
 
 // 404 handler
-app.use((req, res) => {
+app.use((req: Request, res: Response) => {
   res.status(404).json({ error: 'Not found' });
 });
 
@@ -231,7 +231,7 @@ async function startServer() {
         backgroundJobs = new BackgroundJobsService(pool, supabase);
         backgroundJobs.start();
         logger.info('📚 Background jobs: STARTED (fact extraction + autonomous loops)');
-      } catch (error) {
+      } catch (error: any) {
         logger.error('Failed to start background jobs:', error);
         logger.warn('⚠️  Continuing without background fact extraction');
       }
@@ -272,16 +272,16 @@ async function startServer() {
       }
     });
 
-    process.on('uncaughtException', (error) => {
+    process.on('uncaughtException', (error: Error) => {
       logger.error('Uncaught exception:', error);
       process.exit(1);
     });
 
-    process.on('unhandledRejection', (reason, promise) => {
+    process.on('unhandledRejection', (reason: any, promise: any) => {
       logger.error('Unhandled rejection:', { promise, reason });
       process.exit(1);
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Failed to start server:', error);
     process.exit(1);
   }

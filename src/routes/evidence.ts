@@ -23,11 +23,11 @@ function validateBody(schema: z.ZodSchema) {
     try {
       req.body = schema.parse(req.body);
       next();
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -42,7 +42,7 @@ function validateBody(schema: z.ZodSchema) {
  * POST /v1/evidence
  * Create new evidence for a fact
  */
-router.post('/', validateBody(createEvidenceSchema), async (req, res) => {
+router.post('/', validateBody(createEvidenceSchema), async (req: Request, res: Response) => {
   try {
     const input: CreateEvidenceInput = req.body;
     const evidence = await evidenceService.createEvidence(input);
@@ -68,7 +68,7 @@ router.post('/', validateBody(createEvidenceSchema), async (req, res) => {
 router.post(
   '/batch',
   validateBody(createEvidenceSchema.array().min(1).max(100)),
-  async (req, res) => {
+  async (req: Request, res: Response) => {
     try {
       const evidenceList: CreateEvidenceInput[] = req.body;
       const created = await evidenceService.createEvidenceBatch(evidenceList);

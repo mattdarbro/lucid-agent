@@ -328,7 +328,7 @@ export class MessageService {
 
       const result = await this.pool.query(sql, params);
 
-      const results: SemanticSearchResult[] = result.rows.map((row) => ({
+      const results: SemanticSearchResult[] = result.rows.map((row: any) => ({
         message: {
           id: row.id,
           conversation_id: row.conversation_id,

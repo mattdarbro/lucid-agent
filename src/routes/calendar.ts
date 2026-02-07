@@ -486,7 +486,7 @@ router.get('/free-slots/:user_id', async (req: Request, res: Response) => {
       [user_id, startDate.toISOString(), endDate.toISOString()]
     );
 
-    const busySlots = eventsResult.rows.map(e => ({
+    const busySlots = eventsResult.rows.map((e: any) => ({
       start: new Date(e.start_time),
       end: new Date(e.end_time)
     }));
@@ -504,7 +504,7 @@ router.get('/free-slots/:user_id', async (req: Request, res: Response) => {
 
       // Get busy slots for this day
       const dayBusy = busySlots.filter(
-        b => b.start >= dayStart && b.start < dayEnd
+        (b: any) => b.start >= dayStart && b.start < dayEnd
       );
 
       // Find gaps

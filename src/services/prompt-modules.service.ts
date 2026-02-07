@@ -359,7 +359,7 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
       );
 
       if (result.rows.length > 0) {
-        return result.rows.map(r => ({ content: r.content, slot: r.slot_number }));
+        return result.rows.map((r: any) => ({ content: r.content, slot: r.slot_number }));
       }
 
       // Fallback: try immutable_facts as injectables
@@ -371,7 +371,7 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
         [userId]
       );
 
-      return fallback.rows.map((r, i) => ({ content: r.content, slot: i + 1 }));
+      return fallback.rows.map((r: any, i: any) => ({ content: r.content, slot: i + 1 }));
     } catch (error) {
       logger.debug('Could not get injectables', { userId, error });
       return [];

@@ -305,7 +305,7 @@ CRITICAL: Respond with ONLY valid JSON in this exact format:
 
       const result = await this.pool.query(sql, params);
 
-      return result.rows.map((row) => ({
+      return result.rows.map((row: any) => ({
         summary: {
           id: row.id,
           conversation_id: row.conversation_id,

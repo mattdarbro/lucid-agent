@@ -17,11 +17,11 @@ function validateBody(schema: z.ZodSchema) {
     try {
       req.body = schema.parse(req.body);
       next();
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -54,11 +54,11 @@ export function createMattStateRouter(pool: Pool): Router {
       const state = await mattStateService.getOrCreateState(user_id);
 
       res.json(state);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -95,11 +95,11 @@ export function createMattStateRouter(pool: Pool): Router {
         const state = await mattStateService.updateState(user_id, req.body, 'user');
 
         res.json(state);
-      } catch (error) {
+      } catch (error: any) {
         if (error instanceof z.ZodError) {
           return res.status(400).json({
             error: 'Validation failed',
-            details: error.errors.map((err) => ({
+            details: error.errors.map((err: any) => ({
               field: err.path.join('.'),
               message: err.message,
             })),
@@ -128,11 +128,11 @@ export function createMattStateRouter(pool: Pool): Router {
         const state = await mattStateService.updateState(user_id, req.body, 'user');
 
         res.json(state);
-      } catch (error) {
+      } catch (error: any) {
         if (error instanceof z.ZodError) {
           return res.status(400).json({
             error: 'Validation failed',
-            details: error.errors.map((err) => ({
+            details: error.errors.map((err: any) => ({
               field: err.path.join('.'),
               message: err.message,
             })),
@@ -168,11 +168,11 @@ export function createMattStateRouter(pool: Pool): Router {
         count: history.length,
         limit,
       });
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -199,11 +199,11 @@ export function createMattStateRouter(pool: Pool): Router {
       const summary = await mattStateService.getStateSummary(user_id);
 
       res.json({ summary });
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),

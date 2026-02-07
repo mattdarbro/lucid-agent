@@ -15,11 +15,11 @@ function validateBody(schema: z.ZodSchema) {
     try {
       req.body = schema.parse(req.body);
       next();
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -35,11 +35,11 @@ function validateQuery(schema: z.ZodSchema) {
     try {
       req.query = schema.parse(req.query);
       next();
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),

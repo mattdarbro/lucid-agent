@@ -359,7 +359,7 @@ export class ResearchQueueService {
       total: 0,
     };
 
-    result.rows.forEach(row => {
+    result.rows.forEach((row: any) => {
       const count = parseInt(row.count, 10);
       stats.total += count;
       if (row.status === 'pending') stats.pending = count;

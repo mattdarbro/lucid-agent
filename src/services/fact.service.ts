@@ -516,7 +516,7 @@ NOW extract facts from the conversation below. If you truly find NO facts (very 
 
       const result = await this.pool.query(sql, params);
 
-      const results: FactSearchResult[] = result.rows.map((row) => ({
+      const results: FactSearchResult[] = result.rows.map((row: any) => ({
         fact: {
           id: row.id,
           user_id: row.user_id,

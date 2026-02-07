@@ -19,11 +19,11 @@ function validateBody(schema: z.ZodSchema) {
     try {
       req.body = schema.parse(req.body);
       next();
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -82,11 +82,11 @@ export function createOrbitsRouter(pool: Pool): Router {
         orbits,
         count: orbits.length,
       });
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -117,11 +117,11 @@ export function createOrbitsRouter(pool: Pool): Router {
         ...orbits,
         counts,
       });
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -154,11 +154,11 @@ export function createOrbitsRouter(pool: Pool): Router {
       }
 
       res.json(orbit);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -195,11 +195,11 @@ export function createOrbitsRouter(pool: Pool): Router {
         const orbit = await orbitsService.upsertOrbitPerson(user_id, req.body);
 
         res.status(201).json(orbit);
-      } catch (error) {
+      } catch (error: any) {
         if (error instanceof z.ZodError) {
           return res.status(400).json({
             error: 'Validation failed',
-            details: error.errors.map((err) => ({
+            details: error.errors.map((err: any) => ({
               field: err.path.join('.'),
               message: err.message,
             })),
@@ -227,11 +227,11 @@ export function createOrbitsRouter(pool: Pool): Router {
         const orbit = await orbitsService.upsertOrbitPerson(user_id, req.body);
 
         res.json(orbit);
-      } catch (error) {
+      } catch (error: any) {
         if (error instanceof z.ZodError) {
           return res.status(400).json({
             error: 'Validation failed',
-            details: error.errors.map((err) => ({
+            details: error.errors.map((err: any) => ({
               field: err.path.join('.'),
               message: err.message,
             })),
@@ -295,11 +295,11 @@ export function createOrbitsRouter(pool: Pool): Router {
         }
 
         res.json(orbit);
-      } catch (error) {
+      } catch (error: any) {
         if (error instanceof z.ZodError) {
           return res.status(400).json({
             error: 'Validation failed',
-            details: error.errors.map((err) => ({
+            details: error.errors.map((err: any) => ({
               field: err.path.join('.'),
               message: err.message,
             })),
@@ -329,11 +329,11 @@ export function createOrbitsRouter(pool: Pool): Router {
       await orbitsService.deactivateOrbitPerson(user_id, person_name);
 
       res.status(204).send();
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -360,11 +360,11 @@ export function createOrbitsRouter(pool: Pool): Router {
       const counts = await orbitsService.getOrbitCounts(user_id);
 
       res.json(counts);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),

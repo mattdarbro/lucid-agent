@@ -88,16 +88,16 @@ export const evidenceListQuerySchema = z.object({
   limit: z
     .string()
     .optional()
-    .transform((val) => (val ? parseInt(val, 10) : 50))
-    .refine((val) => val > 0 && val <= 500, {
+    .transform((val: string | undefined) => (val ? parseInt(val, 10) : 50))
+    .refine((val: number) => val > 0 && val <= 500, {
       message: 'limit must be between 1 and 500',
     }),
 
   offset: z
     .string()
     .optional()
-    .transform((val) => (val ? parseInt(val, 10) : 0))
-    .refine((val) => val >= 0, {
+    .transform((val: string | undefined) => (val ? parseInt(val, 10) : 0))
+    .refine((val: number) => val >= 0, {
       message: 'offset must be >= 0',
     }),
 
@@ -108,8 +108,8 @@ export const evidenceListQuerySchema = z.object({
   min_strength: z
     .string()
     .optional()
-    .transform((val) => (val ? parseFloat(val) : undefined))
-    .refine((val) => val === undefined || (val >= 0 && val <= 1), {
+    .transform((val: string | undefined) => (val ? parseFloat(val) : undefined))
+    .refine((val: number | undefined) => val === undefined || (val >= 0 && val <= 1), {
       message: 'min_strength must be between 0 and 1',
     }),
 });

@@ -25,11 +25,11 @@ function validateBody(schema: z.ZodSchema) {
     try {
       req.body = schema.parse(req.body);
       next();
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((err) => ({
+          details: error.errors.map((err: any) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -69,7 +69,7 @@ router.post('/', validateBody(chatCompletionSchema), async (req: Request, res: R
     // and stop receiving autonomous thinking
     try {
       await userService.updateLastActive(input.user_id);
-    } catch (error) {
+    } catch (error: any) {
       // Don't fail the chat if this fails, just log it
       logger.warn('Failed to update last_active_at', { user_id: input.user_id, error });
     }

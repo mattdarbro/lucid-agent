@@ -198,7 +198,7 @@ export class DeviceService {
       [userId]
     );
 
-    return result.rows.map((row) => ({
+    return result.rows.map((row: any) => ({
       id: row.id,
       deviceId: row.device_id,
       deviceName: row.device_name,
@@ -272,7 +272,7 @@ export class DeviceService {
       [userId]
     );
 
-    return result.rows.map((row) => ({
+    return result.rows.map((row: any) => ({
       deviceId: row.device_id,
       pushToken: row.push_token,
     }));

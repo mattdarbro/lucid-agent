@@ -56,16 +56,16 @@ export const messageListQuerySchema = z.object({
   limit: z
     .string()
     .optional()
-    .transform((val) => (val ? parseInt(val, 10) : 50))
-    .refine((val) => val > 0 && val <= 500, {
+    .transform((val: string | undefined) => (val ? parseInt(val, 10) : 50))
+    .refine((val: number) => val > 0 && val <= 500, {
       message: 'limit must be between 1 and 500',
     }),
 
   offset: z
     .string()
     .optional()
-    .transform((val) => (val ? parseInt(val, 10) : 0))
-    .refine((val) => val >= 0, {
+    .transform((val: string | undefined) => (val ? parseInt(val, 10) : 0))
+    .refine((val: number) => val >= 0, {
       message: 'offset must be >= 0',
     }),
 

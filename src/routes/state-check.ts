@@ -48,7 +48,7 @@ export function createStateCheckRouter(pool: Pool): Router {
         message,
         session_doc: session.session_doc,
       });
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
@@ -94,7 +94,7 @@ export function createStateCheckRouter(pool: Pool): Router {
         session_doc: response.session_doc,
         is_complete: response.is_complete,
       });
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
@@ -131,7 +131,7 @@ export function createStateCheckRouter(pool: Pool): Router {
         updated_at: session.updated_at,
         completed_at: session.completed_at,
       });
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
@@ -169,7 +169,7 @@ export function createStateCheckRouter(pool: Pool): Router {
           updated_at: session.updated_at,
         },
       });
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
@@ -205,7 +205,7 @@ export function createStateCheckRouter(pool: Pool): Router {
           completed_at: s.completed_at,
         })),
       });
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
@@ -238,7 +238,7 @@ export function createStateCheckRouter(pool: Pool): Router {
       await stateCheckService.abandonSession(sessionId);
 
       res.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
