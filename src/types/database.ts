@@ -132,7 +132,9 @@ export type AgentJobType =
   | 'state_session'
   | 'orbit_session'
   | 'document_reflection'
-  | 'self_review';
+  | 'self_review'
+  | 'investment_research'
+  | 'ability_spending';
 
 export interface AgentJob {
   id: string;
@@ -600,7 +602,9 @@ export type LibraryEntryType =
   | 'insight'                // Ideas captured via Capture system
   | 'research_journal'       // Research findings from autonomous research executor
   | 'win'                    // User wins/breakthroughs
-  | 'code_review';           // Self-review findings and PR summaries
+  | 'code_review'            // Self-review findings and PR summaries
+  | 'investment_recommendation'  // Investment research and recommendations
+  | 'spending_proposal';     // Ability spending proposals
 
 /**
  * Subject of a thought - who/what the thought is about

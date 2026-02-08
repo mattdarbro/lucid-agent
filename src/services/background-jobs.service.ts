@@ -282,6 +282,20 @@ export class BackgroundJobsService {
           libraryEntryId: selfReviewResult.libraryEntryId,
         };
 
+      case 'investment_research':
+        const investmentResult = await this.autonomousLoopService.runInvestmentResearch(userId, jobId);
+        return {
+          thoughtProduced: investmentResult.thoughtProduced,
+          libraryEntryId: investmentResult.libraryEntryId,
+        };
+
+      case 'ability_spending':
+        const spendingResult = await this.autonomousLoopService.runAbilitySpending(userId, jobId);
+        return {
+          thoughtProduced: spendingResult.thoughtProduced,
+          libraryEntryId: spendingResult.libraryEntryId,
+        };
+
       // Placeholder for future loops
       case 'night_dream':
       case 'document_reflection':
@@ -458,6 +472,40 @@ export class BackgroundJobsService {
       success: result.success,
       libraryEntryId: result.libraryEntryId,
       prsOpened: result.prsOpened,
+    };
+  }
+
+  /**
+   * Manually trigger investment research for a user (useful for testing)
+   */
+  async triggerInvestmentResearch(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    title: string | null;
+  }> {
+    logger.info('[AL] Manual trigger: investment research', { userId });
+    const result = await this.autonomousLoopService.runInvestmentResearch(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      title: result.title,
+    };
+  }
+
+  /**
+   * Manually trigger ability spending for a user (useful for testing)
+   */
+  async triggerAbilitySpending(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    title: string | null;
+  }> {
+    logger.info('[AL] Manual trigger: ability spending', { userId });
+    const result = await this.autonomousLoopService.runAbilitySpending(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      title: result.title,
     };
   }
 

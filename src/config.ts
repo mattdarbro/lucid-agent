@@ -74,6 +74,18 @@ export const config = {
     selfReview: process.env.ENABLE_SELF_REVIEW === 'true',
   },
 
+  // Alpha Vantage (for market data in investment loop)
+  alphaVantage: {
+    apiKey: process.env.ALPHA_VANTAGE_API_KEY || '',
+    enabled: !!process.env.ALPHA_VANTAGE_API_KEY,
+  },
+
+  // Grok / xAI (for X/Twitter research)
+  grok: {
+    apiKey: process.env.GROK_API_KEY || '',
+    enabled: !!process.env.GROK_API_KEY,
+  },
+
   // Telegram Notifications
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '',

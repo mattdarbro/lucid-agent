@@ -286,6 +286,24 @@ export class AgentJobService {
       });
     }
 
+    // Investment research: Sunday (0) and Wednesday (3) at 10am Chicago time
+    if (chicagoNow.getDay() === 0 || chicagoNow.getDay() === 3) {
+      allJobs.push({
+        user_id: userId,
+        job_type: 'investment_research',
+        scheduled_for: this.getScheduledTime(date, 10, 0), // 10am - Market Research
+      });
+    }
+
+    // Ability spending: Friday (5) at 2pm Chicago time
+    if (chicagoNow.getDay() === 5) {
+      allJobs.push({
+        user_id: userId,
+        job_type: 'ability_spending',
+        scheduled_for: this.getScheduledTime(date, 14, 0), // 2pm - Ability Review
+      });
+    }
+
     // Filter out jobs that already exist
     const jobsToCreate = allJobs.filter(job => !existingJobTypes.has(job.job_type));
 

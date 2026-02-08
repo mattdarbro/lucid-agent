@@ -16,6 +16,9 @@ export const jobTypeSchema = z.enum([
   'document_reflection',
   // Self-review (Thursday night code review)
   'self_review',
+  // Investment & Spending loops
+  'investment_research',
+  'ability_spending',
 ]);
 
 // Job status aligned with database schema

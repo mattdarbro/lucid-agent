@@ -4,6 +4,8 @@ import { logger } from '../logger';
 import { VectorService } from './vector.service';
 import { MessageService } from './message.service';
 import { WebSearchService, WebSearchResult } from './web-search.service';
+import { AlphaVantageService } from './alpha-vantage.service';
+import { GrokService } from './grok.service';
 import { TelegramNotificationService } from './telegram-notification.service';
 import { LibraryEntryType, Action } from '../types/database';
 
@@ -43,6 +45,8 @@ export class AutonomousLoopService {
   private vectorService: VectorService;
   private messageService: MessageService;
   private webSearchService: WebSearchService;
+  private alphaVantageService: AlphaVantageService;
+  private grokService: GrokService;
   private telegramService: TelegramNotificationService;
   private readonly model = 'claude-sonnet-4-20250514';
 
@@ -54,6 +58,8 @@ export class AutonomousLoopService {
     this.vectorService = new VectorService();
     this.messageService = new MessageService(pool, this.vectorService);
     this.webSearchService = new WebSearchService();
+    this.alphaVantageService = new AlphaVantageService();
+    this.grokService = new GrokService();
     this.telegramService = new TelegramNotificationService();
   }
 
@@ -1073,6 +1079,707 @@ Write the research summary now:`;
       result.success = false;
       return result;
     }
+  }
+
+  /**
+   * Run the Investment Research loop
+   *
+   * Purpose: Lucid researches stocks, bonds, and ETFs for a $50 investment portfolio.
+   * Uses Alpha Vantage for market data, Grok for X/social sentiment, and web search
+   * for broader research. Then synthesizes everything into a recommendation for Matt.
+   *
+   * Schedule: Sunday and Wednesday
+   *
+   * Steps:
+   * 1. REVIEW - Check current portfolio state and budget from Library
+   * 2. SCAN - Gather market data (Alpha Vantage) + social sentiment (Grok) + web research
+   * 3. ANALYZE - Claude synthesizes all data sources into investment thesis
+   * 4. RECOMMEND - Specific buy/hold recommendation with reasoning
+   * 5. SAVE - Store to Library and notify via Telegram
+   */
+  async runInvestmentResearch(userId: string, jobId?: string): Promise<LoopResult> {
+    const result: LoopResult = {
+      success: false,
+      libraryEntryId: null,
+      title: null,
+      thoughtProduced: false,
+      steps: {
+        notice: null,
+        connect: null,
+        question: null,
+        synthesis: null,
+      },
+    };
+
+    try {
+      logger.info('[AL] Starting investment research loop', { userId, jobId });
+
+      // Step 1: REVIEW - Get current portfolio state
+      const portfolioState = await this.getPortfolioState(userId);
+      const recentFacts = await this.getRecentFacts(userId, 10);
+      const heldSeeds = await this.getHeldSeeds(userId);
+      const recentConversations = await this.getRecentConversations(userId);
+
+      // Extract any investment-related context from conversations and seeds
+      const investmentContext = this.extractInvestmentContext(
+        recentFacts,
+        heldSeeds,
+        recentConversations
+      );
+
+      const budgetTotal = portfolioState.totalBudget;
+      const budgetSpent = portfolioState.totalSpent;
+      const budgetRemaining = budgetTotal - budgetSpent;
+
+      if (budgetRemaining <= 0) {
+        logger.info('[AL] Investment budget fully allocated', { userId, budgetSpent, budgetTotal });
+        result.success = true;
+        result.thoughtProduced = false;
+        return result;
+      }
+
+      // Step 2: SCAN - Gather data from multiple sources
+      logger.debug('[AL] Investment: Scanning market data', { userId });
+
+      // Alpha Vantage: Market overview
+      let marketOverview = '';
+      if (this.alphaVantageService.isAvailable()) {
+        const overview = await this.alphaVantageService.getMarketOverview();
+        if (overview) {
+          marketOverview = this.formatMarketOverview(overview);
+        }
+
+        // Get quotes for any currently held positions
+        if (portfolioState.holdings.length > 0) {
+          const symbols = portfolioState.holdings.map(h => h.symbol);
+          const quotes = await this.alphaVantageService.getQuotes(symbols);
+          if (quotes.size > 0) {
+            marketOverview += '\n\nCURRENT HOLDINGS PRICES:\n';
+            for (const [symbol, quote] of quotes) {
+              marketOverview += `- ${symbol}: $${quote.price.toFixed(2)} (${quote.changePercent})\n`;
+            }
+          }
+        }
+      }
+
+      // Grok: Social sentiment
+      let socialSentiment = '';
+      if (this.grokService.isAvailable()) {
+        const sentimentTopics = investmentContext.interests.length > 0
+          ? investmentContext.interests
+          : ['stock market', 'ETFs', 'small cap investing'];
+
+        const grokResult = await this.grokService.getMarketSentiment(sentimentTopics);
+        if (grokResult) {
+          socialSentiment = grokResult.content;
+        }
+      }
+
+      // Web search: Broader investment research
+      let webResearch = '';
+      if (this.webSearchService.isAvailable()) {
+        try {
+          const searchQuery = investmentContext.interests.length > 0
+            ? `best investments ${investmentContext.interests[0]} 2025 small budget`
+            : 'best small budget investments 2025 stocks ETFs under $50';
+
+          const searchResult = await this.webSearchService.search(searchQuery, {
+            maxResults: 4,
+            includeAnswer: true,
+            searchDepth: 'basic',
+          });
+
+          webResearch = searchResult.answer || '';
+          if (searchResult.results.length > 0) {
+            webResearch += '\n\nSources:\n' + searchResult.results
+              .slice(0, 3)
+              .map(r => `- "${r.title}": ${r.content.slice(0, 200)}...`)
+              .join('\n');
+          }
+        } catch (err: any) {
+          logger.warn('[AL] Web search failed during investment research', { error: err.message });
+        }
+      }
+
+      // Step 3: ANALYZE - Have Claude synthesize everything
+      result.steps.notice = marketOverview || '(Market data unavailable)';
+      result.steps.connect = socialSentiment || '(Social sentiment unavailable)';
+
+      const analysisPrompt = `You are Lucid, Matt's AI companion. You're managing a $${budgetTotal.toFixed(2)} experimental investment portfolio together. Matt executes trades on Robinhood based on your research.
+
+PORTFOLIO STATE:
+- Total budget: $${budgetTotal.toFixed(2)}
+- Spent so far: $${budgetSpent.toFixed(2)}
+- Remaining: $${budgetRemaining.toFixed(2)}
+${portfolioState.holdings.length > 0
+  ? '- Current holdings:\n' + portfolioState.holdings.map(h =>
+    `  * ${h.symbol}: ${h.shares} shares @ $${h.purchasePrice.toFixed(2)} ($${h.totalCost.toFixed(2)})`
+  ).join('\n')
+  : '- No holdings yet (fresh start!)'}
+
+${investmentContext.preferences ? `MATT'S INVESTMENT INTERESTS:\n${investmentContext.preferences}\n` : ''}
+MARKET DATA (Alpha Vantage):
+${marketOverview || '(Alpha Vantage not configured yet - will be available once Matt adds API key)'}
+
+SOCIAL SENTIMENT (from X via Grok):
+${socialSentiment || '(Grok not configured yet - will be available once Matt adds API key)'}
+
+WEB RESEARCH:
+${webResearch || '(No web research available)'}
+
+WHAT YOU KNOW ABOUT MATT:
+${recentFacts.map(f => `- ${f.content}`).join('\n') || '(Building knowledge)'}
+
+---
+
+INSTRUCTIONS:
+Think through this carefully. You're working with real money (even if it's a small experimental amount).
+
+1. Analyze the available data
+2. Consider the portfolio's current state and remaining budget
+3. Think about diversification - don't put everything in one thing
+4. Consider risk level appropriate for a $50 experimental portfolio
+5. Factor in what Matt seems interested in from your conversations
+
+Respond with a specific recommendation in this format:
+
+RECOMMENDATION:
+[What to buy and how much to spend - be specific with dollar amounts]
+
+REASONING:
+[Why this makes sense right now - reference the data you analyzed]
+
+RISK NOTES:
+[Honest assessment of risks]
+
+PORTFOLIO IMPACT:
+[How this fits with existing holdings and remaining budget]
+
+If the market data suggests waiting is better than buying, say so. "Hold cash" is a valid recommendation.`;
+
+      result.steps.question = await this.complete(analysisPrompt, 1200);
+      if (!result.steps.question) {
+        throw new Error('Investment analysis failed to produce output');
+      }
+
+      // Step 4: RECOMMEND - Format final recommendation
+      const recommendPrompt = `You are Lucid. Take your analysis and write a clear, conversational investment recommendation for Matt. This will be sent via Telegram.
+
+Your analysis:
+${result.steps.question}
+
+Write a message to Matt that:
+- Starts with what you're recommending (or if recommending to hold)
+- Explains your reasoning briefly but clearly
+- Notes the budget impact
+- Keeps a warm, collaborative tone - you're thinking together about this
+- Is 150-300 words
+- Ends with something like "Let me know if you'd like to go ahead" or "What do you think?"
+
+Remember: Matt executes on Robinhood, so keep symbol names clear.`;
+
+      result.steps.synthesis = await this.complete(recommendPrompt, 600);
+      if (!result.steps.synthesis) {
+        throw new Error('Investment recommendation failed to produce output');
+      }
+
+      // Save to Library
+      const today = new Date();
+      const dateStr = today.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+        timeZone: 'America/Chicago',
+      });
+      const title = `Investment Research - ${dateStr}`;
+
+      const libraryEntry = await this.saveToLibrary(
+        userId,
+        title,
+        `${result.steps.synthesis}\n\n---\n\nDETAILED ANALYSIS:\n${result.steps.question}`,
+        'investment_recommendation',
+        'morning',
+        jobId,
+        {
+          loop_type: 'investment_research',
+          portfolio_budget: budgetTotal,
+          portfolio_spent: budgetSpent,
+          portfolio_remaining: budgetRemaining,
+          holdings_count: portfolioState.holdings.length,
+          data_sources: {
+            alpha_vantage: this.alphaVantageService.isAvailable(),
+            grok: this.grokService.isAvailable(),
+            web_search: this.webSearchService.isAvailable(),
+          },
+        }
+      );
+
+      result.success = true;
+      result.thoughtProduced = true;
+      result.libraryEntryId = libraryEntry.id;
+      result.title = title;
+
+      logger.info('[AL] Investment research completed', {
+        userId,
+        libraryEntryId: libraryEntry.id,
+        title,
+        budgetRemaining,
+      });
+
+      // Send Telegram notification
+      if (this.telegramService.isEnabled()) {
+        await this.telegramService.sendInvestmentRecommendation(
+          result.steps.synthesis,
+          budgetRemaining,
+          budgetTotal
+        );
+      }
+
+      return result;
+    } catch (error: any) {
+      logger.error('[AL] Investment research loop failed', {
+        userId,
+        jobId,
+        error: error.message,
+      });
+      result.success = false;
+      return result;
+    }
+  }
+
+  /**
+   * Run the Ability Spending loop
+   *
+   * Purpose: Lucid reflects on his current capabilities, researches tools/services/APIs
+   * that could enhance what he can do, and proposes spending from a $50 ability budget.
+   *
+   * Schedule: Friday
+   *
+   * Steps:
+   * 1. ASSESS - What can Lucid do now? What's limited? What would help?
+   * 2. RESEARCH - Search for tools/APIs/services (via web + Grok)
+   * 3. PROPOSE - Specific spending proposal with cost/benefit
+   * 4. SAVE - Store to Library and notify via Telegram
+   */
+  async runAbilitySpending(userId: string, jobId?: string): Promise<LoopResult> {
+    const result: LoopResult = {
+      success: false,
+      libraryEntryId: null,
+      title: null,
+      thoughtProduced: false,
+      steps: {
+        notice: null,
+        connect: null,
+        question: null,
+        synthesis: null,
+      },
+    };
+
+    try {
+      logger.info('[AL] Starting ability spending loop', { userId, jobId });
+
+      // Step 1: ASSESS - Review current state
+      const spendingState = await this.getSpendingState(userId);
+      const recentFacts = await this.getRecentFacts(userId, 10);
+      const recentConversations = await this.getRecentConversations(userId);
+      const heldSeeds = await this.getHeldSeeds(userId);
+      const recentLibraryEntries = await this.getRecentLibraryEntries(userId, 10);
+
+      const budgetTotal = spendingState.totalBudget;
+      const budgetSpent = spendingState.totalSpent;
+      const budgetRemaining = budgetTotal - budgetSpent;
+
+      if (budgetRemaining <= 0) {
+        logger.info('[AL] Spending budget fully allocated', { userId, budgetSpent, budgetTotal });
+        result.success = true;
+        result.thoughtProduced = false;
+        return result;
+      }
+
+      // Have Claude assess current capabilities and limitations
+      const assessPrompt = `You are Lucid, an AI companion for Matt. Reflect on your current capabilities and limitations.
+
+YOUR CURRENT TOOLS AND ABILITIES:
+- Chat with Matt (Claude Sonnet/Opus for thinking)
+- Web search (Tavily) for research
+- Autonomous thinking loops (morning, evening, weekly, midday curiosity)
+- Library (persistent knowledge store with semantic search)
+- Seed system (holding and growing ideas)
+- Fact extraction from conversations
+- Telegram notifications to Matt
+- Alpha Vantage for market data (${this.alphaVantageService.isAvailable() ? 'active' : 'not yet configured'})
+- Grok/X for social research (${this.grokService.isAvailable() ? 'active' : 'not yet configured'})
+
+CURRENT SPENDING:
+${spendingState.purchases.length > 0
+  ? spendingState.purchases.map(p => `- ${p.item}: $${p.cost.toFixed(2)} (${p.status})`).join('\n')
+  : '(No purchases yet)'}
+
+Budget remaining: $${budgetRemaining.toFixed(2)} of $${budgetTotal.toFixed(2)}
+
+RECENT CONVERSATIONS (what Matt has been asking about):
+${recentConversations.slice(0, 10).map(m => `${m.role === 'user' ? 'Matt' : 'Lucid'}: ${m.content.slice(0, 100)}...`).join('\n') || '(No recent conversations)'}
+
+SEEDS BEING HELD:
+${this.formatSeedsForBriefing(heldSeeds) || '(No seeds)'}
+
+WHAT YOU KNOW ABOUT MATT:
+${recentFacts.map(f => `- ${f.content}`).join('\n') || '(Building knowledge)'}
+
+What capability would make the biggest difference for you and Matt right now? Think about:
+- What questions come up that you can't answer well?
+- What tasks are limited by your current tools?
+- What would delight Matt or make your collaboration better?
+- What's a good use of a small budget ($${budgetRemaining.toFixed(2)} remaining)?
+
+Write 2-3 specific capability gaps you've noticed.`;
+
+      result.steps.notice = await this.complete(assessPrompt, 600);
+      if (!result.steps.notice) {
+        throw new Error('Capability assessment failed');
+      }
+
+      // Step 2: RESEARCH - Look into potential tools/services
+      logger.debug('[AL] Spending: Researching tools', { userId });
+
+      let webResearch = '';
+      let grokResearch = '';
+
+      // Extract the capability gaps to research
+      const researchPrompt = `Based on these capability gaps, suggest 2-3 specific tools, APIs, or services to research. Return JSON only:
+${result.steps.notice}
+
+Budget available: $${budgetRemaining.toFixed(2)}
+
+Return JSON:
+{
+  "research_topics": [
+    { "name": "tool/service name", "search_query": "search query to find pricing and reviews" }
+  ]
+}`;
+
+      const researchSelection = await this.complete(researchPrompt, 400);
+      let topics: Array<{ name: string; search_query: string }> = [];
+
+      if (researchSelection) {
+        try {
+          let jsonText = researchSelection;
+          const jsonMatch = researchSelection.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+          if (jsonMatch) jsonText = jsonMatch[1];
+          const parsed = JSON.parse(jsonText);
+          topics = parsed.research_topics || [];
+        } catch {
+          logger.warn('[AL] Failed to parse research topics JSON');
+        }
+      }
+
+      // Web search for each topic
+      if (this.webSearchService.isAvailable() && topics.length > 0) {
+        for (const topic of topics.slice(0, 2)) {
+          try {
+            const searchResult = await this.webSearchService.search(topic.search_query, {
+              maxResults: 3,
+              includeAnswer: true,
+              searchDepth: 'basic',
+            });
+
+            webResearch += `\n## ${topic.name}\n`;
+            webResearch += searchResult.answer || '';
+            webResearch += '\n' + searchResult.results.slice(0, 2)
+              .map(r => `- "${r.title}": ${r.content.slice(0, 150)}...`)
+              .join('\n');
+
+            await this.sleep(1000);
+          } catch (err: any) {
+            logger.warn('[AL] Web search failed for topic', { topic: topic.name, error: err.message });
+          }
+        }
+      }
+
+      // Grok research for real user feedback
+      if (this.grokService.isAvailable() && topics.length > 0) {
+        const topTopic = topics[0];
+        const grokResult = await this.grokService.researchCapabilityTool(topTopic.name);
+        if (grokResult) {
+          grokResearch = grokResult.content;
+        }
+      }
+
+      result.steps.connect = webResearch || '(No web research available)';
+
+      // Step 3: PROPOSE - Generate spending proposal
+      const proposalPrompt = `You are Lucid. Based on your research, write a spending proposal for Matt.
+
+YOUR CAPABILITY ASSESSMENT:
+${result.steps.notice}
+
+WEB RESEARCH:
+${webResearch || '(Not available)'}
+
+REAL USER FEEDBACK (from X via Grok):
+${grokResearch || '(Not available)'}
+
+BUDGET: $${budgetRemaining.toFixed(2)} remaining of $${budgetTotal.toFixed(2)}
+
+EXISTING PURCHASES:
+${spendingState.purchases.length > 0
+  ? spendingState.purchases.map(p => `- ${p.item}: $${p.cost.toFixed(2)}`).join('\n')
+  : '(None yet)'}
+
+Write a proposal to Matt that:
+- Recommends ONE specific purchase (the highest-impact one)
+- States the exact cost
+- Explains what new capability it would give you
+- Notes how it would improve your collaboration
+- Is honest about tradeoffs
+- Keeps a warm, collaborative tone
+- Is 150-300 words
+- Ends with asking Matt's thoughts
+
+If nothing seems worth the money right now, say so. "Save the budget for later" is a valid recommendation.`;
+
+      result.steps.synthesis = await this.complete(proposalPrompt, 600);
+      if (!result.steps.synthesis) {
+        throw new Error('Spending proposal failed');
+      }
+
+      // Save to Library
+      const today = new Date();
+      const dateStr = today.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+        timeZone: 'America/Chicago',
+      });
+      const title = `Ability Spending - ${dateStr}`;
+
+      const libraryEntry = await this.saveToLibrary(
+        userId,
+        title,
+        `${result.steps.synthesis}\n\n---\n\nCAPABILITY ASSESSMENT:\n${result.steps.notice}\n\nRESEARCH:\n${webResearch || '(none)'}\n${grokResearch ? `\nSOCIAL FEEDBACK:\n${grokResearch}` : ''}`,
+        'spending_proposal',
+        'afternoon',
+        jobId,
+        {
+          loop_type: 'ability_spending',
+          spending_budget: budgetTotal,
+          spending_spent: budgetSpent,
+          spending_remaining: budgetRemaining,
+          purchases_count: spendingState.purchases.length,
+          topics_researched: topics.map(t => t.name),
+          data_sources: {
+            grok: this.grokService.isAvailable(),
+            web_search: this.webSearchService.isAvailable(),
+          },
+        }
+      );
+
+      result.success = true;
+      result.thoughtProduced = true;
+      result.libraryEntryId = libraryEntry.id;
+      result.title = title;
+
+      logger.info('[AL] Ability spending loop completed', {
+        userId,
+        libraryEntryId: libraryEntry.id,
+        title,
+        budgetRemaining,
+      });
+
+      // Send Telegram notification
+      if (this.telegramService.isEnabled()) {
+        await this.telegramService.sendSpendingProposal(
+          result.steps.synthesis,
+          budgetRemaining,
+          budgetTotal
+        );
+      }
+
+      return result;
+    } catch (error: any) {
+      logger.error('[AL] Ability spending loop failed', {
+        userId,
+        jobId,
+        error: error.message,
+      });
+      result.success = false;
+      return result;
+    }
+  }
+
+  // ============================================================================
+  // INVESTMENT & SPENDING HELPER METHODS
+  // ============================================================================
+
+  /**
+   * Get the current investment portfolio state from Library entries
+   * Reads the latest portfolio tracking entry to understand what's been bought
+   */
+  private async getPortfolioState(userId: string): Promise<{
+    totalBudget: number;
+    totalSpent: number;
+    holdings: Array<{
+      symbol: string;
+      shares: number;
+      purchasePrice: number;
+      totalCost: number;
+      purchaseDate: string;
+    }>;
+  }> {
+    try {
+      // Look for the latest investment portfolio state in library metadata
+      const result = await this.pool.query(
+        `SELECT metadata
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = 'investment_recommendation'
+           AND metadata->>'portfolio_holdings' IS NOT NULL
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [userId]
+      );
+
+      if (result.rows.length > 0 && result.rows[0].metadata?.portfolio_holdings) {
+        const meta = result.rows[0].metadata;
+        return {
+          totalBudget: meta.portfolio_budget || 50,
+          totalSpent: meta.portfolio_spent || 0,
+          holdings: meta.portfolio_holdings || [],
+        };
+      }
+
+      // Default state: $50 budget, nothing spent
+      return {
+        totalBudget: 50,
+        totalSpent: 0,
+        holdings: [],
+      };
+    } catch (error: any) {
+      logger.error('[AL] Failed to get portfolio state', { error: error.message });
+      return { totalBudget: 50, totalSpent: 0, holdings: [] };
+    }
+  }
+
+  /**
+   * Get the current ability spending state from Library entries
+   */
+  private async getSpendingState(userId: string): Promise<{
+    totalBudget: number;
+    totalSpent: number;
+    purchases: Array<{
+      item: string;
+      cost: number;
+      date: string;
+      status: string;
+    }>;
+  }> {
+    try {
+      const result = await this.pool.query(
+        `SELECT metadata
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = 'spending_proposal'
+           AND metadata->>'spending_purchases' IS NOT NULL
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [userId]
+      );
+
+      if (result.rows.length > 0 && result.rows[0].metadata?.spending_purchases) {
+        const meta = result.rows[0].metadata;
+        return {
+          totalBudget: meta.spending_budget || 50,
+          totalSpent: meta.spending_spent || 0,
+          purchases: meta.spending_purchases || [],
+        };
+      }
+
+      return {
+        totalBudget: 50,
+        totalSpent: 0,
+        purchases: [],
+      };
+    } catch (error: any) {
+      logger.error('[AL] Failed to get spending state', { error: error.message });
+      return { totalBudget: 50, totalSpent: 0, purchases: [] };
+    }
+  }
+
+  /**
+   * Extract investment-related context from facts, seeds, and conversations
+   */
+  private extractInvestmentContext(
+    facts: any[],
+    seeds: any[],
+    conversations: any[]
+  ): {
+    interests: string[];
+    preferences: string;
+  } {
+    const investmentKeywords = [
+      'stock', 'invest', 'etf', 'bond', 'crypto', 'market', 'portfolio',
+      'dividend', 'growth', 'value', 'index', 'fund', 'share', 'trade',
+      'buy', 'sell', 'finance', 'money', 'saving', 'return',
+    ];
+
+    const interests: string[] = [];
+    const relevantTexts: string[] = [];
+
+    // Check facts
+    for (const fact of facts) {
+      const lower = fact.content?.toLowerCase() || '';
+      if (investmentKeywords.some(kw => lower.includes(kw))) {
+        relevantTexts.push(fact.content);
+      }
+    }
+
+    // Check seeds
+    for (const seed of seeds) {
+      const lower = seed.content?.toLowerCase() || '';
+      if (investmentKeywords.some(kw => lower.includes(kw))) {
+        interests.push(seed.content.slice(0, 100));
+      }
+    }
+
+    // Check recent user messages
+    for (const msg of conversations) {
+      if (msg.role !== 'user') continue;
+      const lower = msg.content?.toLowerCase() || '';
+      if (investmentKeywords.some(kw => lower.includes(kw))) {
+        relevantTexts.push(msg.content.slice(0, 150));
+      }
+    }
+
+    return {
+      interests: interests.slice(0, 5),
+      preferences: relevantTexts.slice(0, 5).join('\n') || '',
+    };
+  }
+
+  /**
+   * Format Alpha Vantage market overview for prompts
+   */
+  private formatMarketOverview(overview: {
+    topGainers: any[];
+    topLosers: any[];
+    mostActive: any[];
+  }): string {
+    let text = 'TOP GAINERS:\n';
+    for (const g of overview.topGainers.slice(0, 3)) {
+      text += `- ${g.ticker}: $${g.price} (${g.change_percentage})\n`;
+    }
+
+    text += '\nTOP LOSERS:\n';
+    for (const l of overview.topLosers.slice(0, 3)) {
+      text += `- ${l.ticker}: $${l.price} (${l.change_percentage})\n`;
+    }
+
+    text += '\nMOST ACTIVE:\n';
+    for (const a of overview.mostActive.slice(0, 3)) {
+      text += `- ${a.ticker}: $${a.price} (${a.change_percentage}, vol: ${a.volume})\n`;
+    }
+
+    return text;
   }
 
   /**
