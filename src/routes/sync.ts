@@ -697,4 +697,92 @@ router.post(
   }
 );
 
+/**
+ * POST /v1/sync/investment-research
+ *
+ * Manually triggers investment research for a specific user.
+ * Lucid researches stocks/bonds/ETFs and generates a recommendation.
+ */
+router.post(
+  '/investment-research',
+  validateBody(userIdSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { user_id } = req.body;
+
+      logger.info(`[SYNC] Manual investment research triggered for user ${user_id}`);
+
+      const backgroundJobs = new BackgroundJobsService(pool, supabase);
+      const result = await backgroundJobs.triggerInvestmentResearch(user_id);
+
+      if (result.success && result.libraryEntryId) {
+        res.json({
+          success: true,
+          message: 'Investment research completed',
+          library_entry_id: result.libraryEntryId,
+          title: result.title,
+        });
+      } else {
+        res.json({
+          success: result.success,
+          message: 'Investment research ran but produced no recommendation (budget may be fully allocated or no data available)',
+        });
+      }
+    } catch (error: any) {
+      logger.error('Error in POST /v1/sync/investment-research:', {
+        message: error.message,
+      });
+
+      res.status(500).json({
+        error: 'Failed to run investment research',
+        details: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * POST /v1/sync/ability-spending
+ *
+ * Manually triggers ability spending review for a specific user.
+ * Lucid evaluates tools/services and proposes a purchase.
+ */
+router.post(
+  '/ability-spending',
+  validateBody(userIdSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { user_id } = req.body;
+
+      logger.info(`[SYNC] Manual ability spending triggered for user ${user_id}`);
+
+      const backgroundJobs = new BackgroundJobsService(pool, supabase);
+      const result = await backgroundJobs.triggerAbilitySpending(user_id);
+
+      if (result.success && result.libraryEntryId) {
+        res.json({
+          success: true,
+          message: 'Ability spending review completed',
+          library_entry_id: result.libraryEntryId,
+          title: result.title,
+        });
+      } else {
+        res.json({
+          success: result.success,
+          message: 'Ability spending review ran but produced no proposal (budget may be fully allocated)',
+        });
+      }
+    } catch (error: any) {
+      logger.error('Error in POST /v1/sync/ability-spending:', {
+        message: error.message,
+      });
+
+      res.status(500).json({
+        error: 'Failed to run ability spending review',
+        details: error.message,
+      });
+    }
+  }
+);
+
 export default router;

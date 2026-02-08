@@ -237,6 +237,38 @@ export class TelegramNotificationService {
   }
 
   /**
+   * Send an investment recommendation notification
+   * Lucid shares what he wants to buy and why
+   */
+  async sendInvestmentRecommendation(
+    recommendation: string,
+    budgetRemaining: number,
+    totalBudget: number
+  ): Promise<boolean> {
+    const truncated = recommendation.length > 3000
+      ? recommendation.substring(0, 2997) + '...'
+      : recommendation;
+    const text = `📈 *Investment Idea*\n\n${truncated}\n\n_Budget: $${budgetRemaining.toFixed(2)} remaining of $${totalBudget.toFixed(2)}_`;
+    return this.sendMessage(text);
+  }
+
+  /**
+   * Send a spending proposal notification
+   * Lucid proposes a tool/service purchase to enhance his abilities
+   */
+  async sendSpendingProposal(
+    proposal: string,
+    budgetRemaining: number,
+    totalBudget: number
+  ): Promise<boolean> {
+    const truncated = proposal.length > 3000
+      ? proposal.substring(0, 2997) + '...'
+      : proposal;
+    const text = `🛠 *Spending Proposal*\n\n${truncated}\n\n_Ability Budget: $${budgetRemaining.toFixed(2)} remaining of $${totalBudget.toFixed(2)}_`;
+    return this.sendMessage(text);
+  }
+
+  /**
    * Escape special characters for Markdown
    */
   private escapeMarkdown(text: string): string {
