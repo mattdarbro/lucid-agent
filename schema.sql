@@ -636,10 +636,29 @@ CREATE TABLE library_entries (
 
   -- Entry type: LUCID thoughts, user reflections, debate syntheses, or research journals
   entry_type TEXT NOT NULL CHECK (entry_type IN (
-    'lucid_thought',      -- LUCID's deep thinking
-    'user_reflection',    -- User's long-form writing
-    'versus_synthesis',   -- Debate summaries from Lu & Cid
-    'research_journal'    -- User's observations about LUCID
+    'lucid_thought',              -- LUCID's deep thinking
+    'lucid_self_reflection',      -- Lucid thinking about himself
+    'orbit_reflection',           -- Thinking about someone in orbits
+    'vision_appraisal',           -- Dream/vision/goal exploration
+    'possibility_map',            -- Branching alternatives when stuck
+    'possibilities',              -- Possibility thinking results
+    'user_reflection',            -- User's long-form writing
+    'journal',                    -- Journal entries
+    'reflection',                 -- General reflections
+    'curiosity',                  -- Web research findings
+    'dream',                      -- Dream processing
+    'consolidation',              -- Evening synthesis
+    'state_update',               -- State session updates
+    'orbit_update',               -- Orbit session updates
+    'deep_thought',               -- Deep thinking entries
+    'versus_synthesis',           -- Debate summaries from Lu & Cid
+    'briefing',                   -- Morning/weekly briefings from AL
+    'insight',                    -- Ideas captured via Capture system
+    'research_journal',           -- Research findings
+    'win',                        -- User wins/breakthroughs
+    'code_review',                -- Self-review findings and PR summaries
+    'investment_recommendation',  -- Investment research and recommendations
+    'spending_proposal'           -- Ability spending proposals
   )),
 
   -- Content
