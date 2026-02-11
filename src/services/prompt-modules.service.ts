@@ -18,7 +18,8 @@ export type ChatModule =
   | 'injectables'        // User-owned stable facts (3 slots, 500 chars each)
   | 'living_document'    // Lucid's working memory - questions, threads, curiosities
   | 'facts_relevant'     // Semantic search for relevant stored knowledge
-  | 'library_context';   // Relevant Library entries for deep context
+  | 'library_context'    // Relevant Library entries for deep context (semantic search)
+  | 'recent_library';    // Most recent Library entries chronologically (always included)
 
 /**
  * Context passed to module builders
@@ -122,6 +123,8 @@ export class PromptModulesService {
         return this.buildFactsRelevantModule(context);
       case 'library_context':
         return this.buildLibraryContextModule(context);
+      case 'recent_library':
+        return this.buildRecentLibraryModule(context);
       default:
         logger.warn(`Unknown module: ${mod}`);
         return { fragment: '' };
@@ -273,6 +276,69 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
   }
 
   /**
+   * RECENT_LIBRARY module - Most recent Library entries (chronological)
+   *
+   * Unlike library_context (semantic search), this always includes the N most
+   * recent entries regardless of topic. This gives Lucid awareness of everything
+   * that's been happening: his own autonomous loop outputs, user entries,
+   * investment research, spending proposals, seeds that grew, etc.
+   *
+   * Included on EVERY turn so Lucid always has context of recent activity.
+   * Count configurable via RECENT_LIBRARY_ENTRIES (default 10).
+   */
+  private async buildRecentLibraryModule(
+    context: ModuleContext
+  ): Promise<{ fragment: string; libraryEntries?: any[] }> {
+    try {
+      const entryLimit = config.library.recentEntries;
+
+      const result = await this.pool.query(
+        `SELECT id, entry_type, title, content, time_of_day, created_at
+         FROM library_entries
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [context.userId, entryLimit]
+      );
+
+      if (result.rows.length === 0) {
+        return { fragment: '', libraryEntries: [] };
+      }
+
+      let fragment = '\n\n📖 RECENT ACTIVITY (your latest Library entries):\n';
+      fragment += 'These are the most recent entries in the Library — your thoughts, research, reflections, and autonomous loop results. You produced many of these yourself. Reference them naturally.\n\n';
+
+      // Show oldest first so it reads chronologically
+      const entries = result.rows.reverse();
+      entries.forEach((entry: any, index: number) => {
+        const title = entry.title || 'Untitled';
+        const type = entry.entry_type || 'unknown';
+        const date = new Date(entry.created_at).toLocaleDateString('en-US', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZone: 'America/Chicago',
+        });
+
+        // Truncate very long entries to keep context manageable
+        const maxContentLength = 800;
+        const content = entry.content.length > maxContentLength
+          ? entry.content.slice(0, maxContentLength) + '...[truncated]'
+          : entry.content;
+
+        fragment += `${index + 1}. [${type}] "${title}" (${date})\n${content}\n\n`;
+      });
+
+      return { fragment, libraryEntries: entries };
+    } catch (error) {
+      logger.warn('Failed to load recent library entries', { error });
+      return { fragment: '', libraryEntries: [] };
+    }
+  }
+
+  /**
    * Get user's name from immutable facts
    */
   private async getUserName(userId: string): Promise<string | null> {
@@ -401,9 +467,10 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
       'injectables',
       'living_document',
       'facts_relevant',
+      'recent_library', // Always include recent Library entries for awareness
     ];
 
-    // Add library context on first turn and every N turns thereafter
+    // Add semantic library search on first turn and every N turns thereafter
     if (message) {
       const interval = config.library.contextInterval;
       const isFirstTurn = !turnCount || turnCount <= 2;
