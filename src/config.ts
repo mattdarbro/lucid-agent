@@ -64,6 +64,7 @@ export const config = {
   library: {
     contextEntries: parseInt(process.env.LIBRARY_CONTEXT_ENTRIES || '5', 10),
     contextInterval: parseInt(process.env.LIBRARY_CONTEXT_INTERVAL || '5', 10),
+    recentEntries: parseInt(process.env.RECENT_LIBRARY_ENTRIES || '10', 10),
   },
 
   // Feature Flags
