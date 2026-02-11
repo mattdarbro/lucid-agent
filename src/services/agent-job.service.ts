@@ -286,8 +286,9 @@ export class AgentJobService {
       });
     }
 
-    // Investment research: Sunday (0) and Wednesday (3) at 10am Chicago time
-    if (chicagoNow.getDay() === 0 || chicagoNow.getDay() === 3) {
+    // Investment research: Sunday (0) through Thursday (4) at 10am Chicago time
+    const dayOfWeek = chicagoNow.getDay();
+    if (dayOfWeek >= 0 && dayOfWeek <= 4) {
       allJobs.push({
         user_id: userId,
         job_type: 'investment_research',
