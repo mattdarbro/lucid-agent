@@ -38,6 +38,7 @@ export class BackgroundJobsService {
   private dailyJobScheduler: cron.ScheduledTask | null = null;
   private researchExecutorJob: cron.ScheduledTask | null = null;
   private isRunning: boolean = false;
+  private isRunningAutonomousLoops: boolean = false;
 
   constructor(pool: Pool, supabase: SupabaseClient) {
     this.pool = pool;
@@ -171,6 +172,13 @@ export class BackgroundJobsService {
    * Check for and run any due autonomous loop jobs
    */
   private async runDueAutonomousLoops(): Promise<void> {
+    // Prevent concurrent runs (startup + cron can overlap)
+    if (this.isRunningAutonomousLoops) {
+      logger.debug('[AL] Autonomous loop runner already in progress, skipping');
+      return;
+    }
+    this.isRunningAutonomousLoops = true;
+
     try {
       const dueJobs = await this.agentJobService.getDueJobs();
 
@@ -219,6 +227,8 @@ export class BackgroundJobsService {
       }
     } catch (error: any) {
       logger.error('[AL] Autonomous loop runner failed', { error: error.message });
+    } finally {
+      this.isRunningAutonomousLoops = false;
     }
   }
 
