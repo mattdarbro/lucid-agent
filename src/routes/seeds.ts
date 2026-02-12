@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { logger } from '../logger';
 import { SeedService } from '../services/seed.service';
-import { seedSchema, updateSeedSchema } from '../validation/seed.validation';
+import { seedSchema, updateSeedSchema, recordTradeSchema } from '../validation/seed.validation';
 import { z } from 'zod';
 import { SeedStatus } from '../types/database';
 
@@ -57,17 +57,19 @@ export function createSeedsRouter(pool: Pool): Router {
     validateBody(seedSchema),
     async (req: Request, res: Response) => {
       try {
-        const { user_id, content, source, source_metadata, planted_context } = req.body;
+        const { user_id, content, seed_type, source, source_metadata, planted_context } = req.body;
 
         logger.info('Planting seed', {
           userId: user_id,
           contentLength: content.length,
+          seedType: seed_type,
           source,
         });
 
         const result = await seedService.plant({
           user_id,
           content,
+          seed_type,
           source,
           source_metadata,
           planted_context,
@@ -78,6 +80,95 @@ export function createSeedsRouter(pool: Pool): Router {
         logger.error('Error in POST /v1/seeds:', error);
         res.status(500).json({
           error: 'Failed to plant seed',
+          details: error.message,
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /v1/seeds/trade
+   *
+   * Record a trade execution (creates a trade_execution seed).
+   * Must be defined BEFORE /:user_id to avoid Express matching "trade" as a param.
+   *
+   * Request body:
+   * - user_id: string (required)
+   * - symbol: string (required) - Ticker symbol
+   * - action: 'buy' | 'sell' (required)
+   * - shares: number (required)
+   * - price: number (required) - Price per share
+   * - executed_at: string (optional) - ISO date, defaults to now
+   * - recommendation_seed_id: string (optional) - Links to the recommendation
+   * - notes: string (optional)
+   */
+  router.post(
+    '/trade',
+    validateBody(recordTradeSchema),
+    async (req: Request, res: Response) => {
+      try {
+        const { user_id, symbol, action, shares, price, executed_at, recommendation_seed_id, notes } = req.body;
+        const totalCost = shares * price;
+
+        const content = action === 'buy'
+          ? `Bought ${shares} shares of ${symbol} at $${price.toFixed(2)} ($${totalCost.toFixed(2)} total)`
+          : `Sold ${shares} shares of ${symbol} at $${price.toFixed(2)} ($${totalCost.toFixed(2)} total)`;
+
+        const result = await seedService.plant({
+          user_id,
+          content,
+          seed_type: 'trade_execution',
+          source: 'app',
+          source_metadata: {
+            symbol,
+            action,
+            shares,
+            price,
+            total_cost: totalCost,
+            executed_at: executed_at || new Date().toISOString(),
+            recommendation_seed_id: recommendation_seed_id || null,
+            notes: notes || null,
+          },
+          planted_context: 'Trade recorded via API',
+        });
+
+        // If buying, mark as growing (active position)
+        if (action === 'buy') {
+          await seedService.markGrowing(result.seed.id);
+        }
+
+        // If this fulfills a recommendation, mark it as growing
+        if (recommendation_seed_id) {
+          try {
+            await seedService.update(recommendation_seed_id, {
+              status: 'growing',
+              source_metadata: {
+                fulfilled_by_trade_id: result.seed.id,
+                fulfilled_at: new Date().toISOString(),
+              },
+            });
+          } catch (err: any) {
+            logger.warn('Failed to update recommendation seed', { error: err.message });
+          }
+        }
+
+        logger.info('Trade recorded', {
+          userId: user_id,
+          symbol,
+          action,
+          shares,
+          price,
+          seedId: result.seed.id,
+        });
+
+        res.status(201).json({
+          trade: result.seed,
+          message: content,
+        });
+      } catch (error: any) {
+        logger.error('Error in POST /v1/seeds/trade:', error);
+        res.status(500).json({
+          error: 'Failed to record trade',
           details: error.message,
         });
       }
@@ -171,12 +262,13 @@ export function createSeedsRouter(pool: Pool): Router {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
-        const { content, planted_context, status } = req.body;
+        const { content, planted_context, status, source_metadata } = req.body;
 
         const seed = await seedService.update(id, {
           content,
           planted_context,
           status,
+          source_metadata,
         });
 
         res.json(seed);
