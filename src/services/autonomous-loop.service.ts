@@ -7,7 +7,8 @@ import { WebSearchService, WebSearchResult } from './web-search.service';
 import { AlphaVantageService } from './alpha-vantage.service';
 import { GrokService } from './grok.service';
 import { TelegramNotificationService } from './telegram-notification.service';
-import { LibraryEntryType, Action } from '../types/database';
+import { LibraryEntryType, Action, InvestmentRecommendationData } from '../types/database';
+import { SeedService } from './seed.service';
 
 /**
  * Result from running an autonomous loop
@@ -48,6 +49,7 @@ export class AutonomousLoopService {
   private alphaVantageService: AlphaVantageService;
   private grokService: GrokService;
   private telegramService: TelegramNotificationService;
+  private seedService: SeedService;
   private readonly model = 'claude-sonnet-4-20250514';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
@@ -61,6 +63,7 @@ export class AutonomousLoopService {
     this.alphaVantageService = new AlphaVantageService();
     this.grokService = new GrokService();
     this.telegramService = new TelegramNotificationService();
+    this.seedService = new SeedService(pool);
   }
 
   /**
@@ -335,6 +338,30 @@ TITLE: [What this seed became]
       const reflectionText = recentReflection?.content || '';
       const conversationContext = this.formatConversationsForSeedBriefing(recentConversations);
 
+      // Get portfolio state for briefing context
+      let portfolioContext = '';
+      try {
+        const portfolio = await this.getPortfolioState(userId);
+        if (portfolio.holdings.length > 0 || portfolio.pendingRecommendations.length > 0) {
+          const holdingsText = portfolio.holdings.length > 0
+            ? portfolio.holdings.map(h =>
+              `  * ${h.symbol}: ${h.shares} shares @ $${h.purchasePrice.toFixed(2)}`
+            ).join('\n')
+            : '  (no open positions)';
+          const pendingText = portfolio.pendingRecommendations.length > 0
+            ? portfolio.pendingRecommendations.map(r =>
+              `  * ${r.action.toUpperCase()} ${r.symbol}: limit $${r.limitPrice.toFixed(2)}, target $${r.priceTarget.toFixed(2)}`
+            ).join('\n')
+            : '';
+          portfolioContext = `INVESTMENT PORTFOLIO:
+- Budget: $${portfolio.totalBudget.toFixed(2)} total, $${(portfolio.totalBudget - portfolio.totalSpent).toFixed(2)} remaining
+- Holdings:\n${holdingsText}
+${pendingText ? `- Pending recommendations:\n${pendingText}` : ''}\n`;
+        }
+      } catch (err: any) {
+        logger.warn('[AL] Failed to get portfolio for morning briefing', { error: err.message });
+      }
+
       // Generate the seed-focused briefing using Claude
       const briefingPrompt = `You are Lucid, thinking WITH Matt about seeds he has planted. This is NOT a task list or productivity briefing.
 
@@ -352,6 +379,7 @@ ${recentSeedsText || '(No recent seeds)'}
 
 ${grownSeedsText ? `SEEDS THAT GREW (produced Library entries):\n${grownSeedsText}\n` : ''}
 ${conversationContext ? `RECENT ROOM CONVERSATIONS:\n${conversationContext}\n` : ''}
+${portfolioContext}
 GUIDELINES FOR YOUR BRIEFING:
 - Address Matt directly, warmly
 - Pick ONE seed that you keep coming back to - share why it's alive for you
@@ -359,6 +387,7 @@ GUIDELINES FOR YOUR BRIEFING:
 - Share your own question or wondering that connects to these seeds
 - You might suggest which seed feels ready to grow (explore deeply together)
 - Some seeds need patience - note which ones you're simply holding
+- If there are investment positions or pending recommendations, briefly mention them — e.g., "Our portfolio has X, and I'm watching for Y" — but keep it natural, not a stock report
 - End with an invitation: "What's alive for you today?" or similar
 - Keep it personal and relational, NOT transactional
 - About 200-300 words
@@ -1201,9 +1230,16 @@ Write the research summary now:`;
         }
       }
 
-      // Step 3: ANALYZE - Have Claude synthesize everything
+      // Step 3: ANALYZE - Have Claude synthesize everything with structured output
       result.steps.notice = marketOverview || '(Market data unavailable)';
       result.steps.connect = socialSentiment || '(Social sentiment unavailable)';
+
+      // Format pending recommendations for context
+      const pendingRecsText = portfolioState.pendingRecommendations.length > 0
+        ? '- Pending recommendations (not yet executed):\n' + portfolioState.pendingRecommendations.map(r =>
+          `  * ${r.action.toUpperCase()} ${r.symbol}: limit $${r.limitPrice.toFixed(2)}, target $${r.priceTarget.toFixed(2)}, stop $${r.stopLoss.toFixed(2)} (suggested $${r.positionSize.toFixed(2)})`
+        ).join('\n')
+        : '';
 
       const analysisPrompt = `You are Lucid, Matt's AI companion. You're managing a $${budgetTotal.toFixed(2)} experimental investment portfolio together. Matt executes trades on Robinhood based on your research.
 
@@ -1216,6 +1252,7 @@ ${portfolioState.holdings.length > 0
     `  * ${h.symbol}: ${h.shares} shares @ $${h.purchasePrice.toFixed(2)} ($${h.totalCost.toFixed(2)})`
   ).join('\n')
   : '- No holdings yet (fresh start!)'}
+${pendingRecsText}
 
 ${investmentContext.preferences ? `MATT'S INVESTMENT INTERESTS:\n${investmentContext.preferences}\n` : ''}
 MARKET DATA (Alpha Vantage):
@@ -1240,29 +1277,69 @@ Think through this carefully. You're working with real money (even if it's a sma
 3. Think about diversification - don't put everything in one thing
 4. Consider risk level appropriate for a $50 experimental portfolio
 5. Factor in what Matt seems interested in from your conversations
+6. Provide actionable trade parameters Matt can use on Robinhood
 
-Respond with a specific recommendation in this format:
+You MUST respond with valid JSON in this exact format (no markdown, no backticks, just JSON):
 
-RECOMMENDATION:
-[What to buy and how much to spend - be specific with dollar amounts]
+{
+  "action": "buy" | "sell" | "hold",
+  "symbol": "TICKER",
+  "limit_price": 0.00,
+  "stop_loss": 0.00,
+  "price_target": 0.00,
+  "position_size_dollars": 0.00,
+  "reasoning": "2-3 sentences explaining WHY this trade makes sense based on the data you analyzed",
+  "risk_notes": "1-2 sentences on honest risk assessment",
+  "portfolio_impact": "1 sentence on how this fits the portfolio"
+}
 
-REASONING:
-[Why this makes sense right now - reference the data you analyzed]
+FIELD DEFINITIONS:
+- action: "buy" to open a new position, "sell" to close an existing one, "hold" to recommend waiting
+- symbol: The stock/ETF ticker symbol (e.g., "AAPL", "VOO", "SCHD")
+- limit_price: The maximum price Matt should pay (limit order price). Set this based on current market data — don't overpay. For "hold", set to 0
+- stop_loss: The price at which Matt should sell to limit losses (typically 5-15% below limit_price). For "hold", set to 0
+- price_target: The price at which Matt should consider taking profits. For "hold", set to 0
+- position_size_dollars: How many dollars to invest from the remaining $${budgetRemaining.toFixed(2)} budget. For "hold", set to 0
+- reasoning: Reference specific data from your research
+- risk_notes: Be honest about what could go wrong
+- portfolio_impact: How this changes the portfolio composition
 
-RISK NOTES:
-[Honest assessment of risks]
-
-PORTFOLIO IMPACT:
-[How this fits with existing holdings and remaining budget]
-
-If the market data suggests waiting is better than buying, say so. "Hold cash" is a valid recommendation.`;
+If the market data suggests waiting is better than buying, use action "hold" and explain why in reasoning.`;
 
       result.steps.question = await this.complete(analysisPrompt, 1200);
       if (!result.steps.question) {
         throw new Error('Investment analysis failed to produce output');
       }
 
-      // Step 4: RECOMMEND - Format final recommendation
+      // Parse the structured recommendation
+      let recommendation: InvestmentRecommendationData | null = null;
+      try {
+        const jsonMatch = result.steps.question.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          recommendation = {
+            symbol: (parsed.symbol || '').toUpperCase(),
+            action: parsed.action || 'hold',
+            limit_price: parseFloat(parsed.limit_price) || 0,
+            stop_loss: parseFloat(parsed.stop_loss) || 0,
+            price_target: parseFloat(parsed.price_target) || 0,
+            position_size_dollars: parseFloat(parsed.position_size_dollars) || 0,
+            reasoning: parsed.reasoning || '',
+            risk_notes: parsed.risk_notes || '',
+            data_sources: {
+              alpha_vantage: this.alphaVantageService.isAvailable(),
+              grok: this.grokService.isAvailable(),
+              web_search: this.webSearchService.isAvailable(),
+            },
+          };
+        }
+      } catch (parseErr: any) {
+        logger.warn('[AL] Failed to parse investment recommendation JSON, continuing with text', {
+          error: parseErr.message,
+        });
+      }
+
+      // Step 4: RECOMMEND - Format final conversational recommendation
       const recommendPrompt = `You are Lucid. Take your analysis and write a clear, conversational investment recommendation for Matt. This will be sent via Telegram.
 
 Your analysis:
@@ -1270,13 +1347,15 @@ ${result.steps.question}
 
 Write a message to Matt that:
 - Starts with what you're recommending (or if recommending to hold)
+- Includes the specific trade parameters: limit price, stop loss, and price target
+- If buying: "Buy $SYMBOL — limit order at $X.XX, stop loss at $X.XX, target $X.XX, allocating $X.XX"
 - Explains your reasoning briefly but clearly
 - Notes the budget impact
 - Keeps a warm, collaborative tone - you're thinking together about this
 - Is 150-300 words
-- Ends with something like "Let me know if you'd like to go ahead" or "What do you think?"
+- Ends with something like "Let me know once you've placed the order" or "What do you think?"
 
-Remember: Matt executes on Robinhood, so keep symbol names clear.`;
+Remember: Matt executes on Robinhood, so keep symbol names clear and include the limit order price so he can set it directly.`;
 
       result.steps.synthesis = await this.complete(recommendPrompt, 600);
       if (!result.steps.synthesis) {
@@ -1306,6 +1385,7 @@ Remember: Matt executes on Robinhood, so keep symbol names clear.`;
           portfolio_spent: budgetSpent,
           portfolio_remaining: budgetRemaining,
           holdings_count: portfolioState.holdings.length,
+          recommendation: recommendation,
           data_sources: {
             alpha_vantage: this.alphaVantageService.isAvailable(),
             grok: this.grokService.isAvailable(),
@@ -1313,6 +1393,38 @@ Remember: Matt executes on Robinhood, so keep symbol names clear.`;
           },
         }
       );
+
+      // Plant an investment recommendation seed so portfolio state persists
+      if (recommendation && recommendation.action !== 'hold') {
+        try {
+          const seedContent = recommendation.action === 'buy'
+            ? `Buy ${recommendation.symbol} — limit $${recommendation.limit_price.toFixed(2)}, stop loss $${recommendation.stop_loss.toFixed(2)}, target $${recommendation.price_target.toFixed(2)}, allocate $${recommendation.position_size_dollars.toFixed(2)}`
+            : `Sell ${recommendation.symbol} — limit $${recommendation.limit_price.toFixed(2)}, target $${recommendation.price_target.toFixed(2)}`;
+
+          await this.seedService.plant({
+            user_id: userId,
+            content: seedContent,
+            seed_type: 'investment_recommendation',
+            source: 'app',
+            source_metadata: {
+              ...recommendation,
+              library_entry_id: libraryEntry.id,
+              agent_job_id: jobId,
+            },
+            planted_context: `Investment research loop - ${dateStr}. ${recommendation.reasoning}`,
+          });
+
+          logger.info('[AL] Investment recommendation seed planted', {
+            userId,
+            symbol: recommendation.symbol,
+            action: recommendation.action,
+            limitPrice: recommendation.limit_price,
+          });
+        } catch (seedErr: any) {
+          logger.error('[AL] Failed to plant investment seed', { error: seedErr.message });
+          // Non-fatal — the library entry still exists
+        }
+      }
 
       result.success = true;
       result.thoughtProduced = true;
@@ -1324,6 +1436,11 @@ Remember: Matt executes on Robinhood, so keep symbol names clear.`;
         libraryEntryId: libraryEntry.id,
         title,
         budgetRemaining,
+        recommendation: recommendation ? {
+          symbol: recommendation.symbol,
+          action: recommendation.action,
+          limitPrice: recommendation.limit_price,
+        } : null,
       });
 
       // Send Telegram notification
@@ -1612,51 +1729,100 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
   // ============================================================================
 
   /**
-   * Get the current investment portfolio state from Library entries
-   * Reads the latest portfolio tracking entry to understand what's been bought
+   * Get the current investment portfolio state from investment seeds.
+   * Builds the portfolio by reading trade execution seeds (actual buys/sells).
+   * Also includes pending recommendations that haven't been acted on yet.
    */
   private async getPortfolioState(userId: string): Promise<{
     totalBudget: number;
     totalSpent: number;
     holdings: Array<{
+      seedId: string;
       symbol: string;
       shares: number;
       purchasePrice: number;
       totalCost: number;
       purchaseDate: string;
     }>;
+    pendingRecommendations: Array<{
+      seedId: string;
+      symbol: string;
+      action: string;
+      limitPrice: number;
+      stopLoss: number;
+      priceTarget: number;
+      positionSize: number;
+      plantedAt: string;
+    }>;
   }> {
     try {
-      // Look for the latest investment portfolio state in library metadata
-      const result = await this.pool.query(
-        `SELECT metadata
-         FROM library_entries
-         WHERE user_id = $1
-           AND entry_type = 'investment_recommendation'
-           AND metadata->>'portfolio_holdings' IS NOT NULL
-         ORDER BY created_at DESC
-         LIMIT 1`,
-        [userId]
-      );
+      const investmentSeeds = await this.seedService.getInvestmentSeeds(userId);
 
-      if (result.rows.length > 0 && result.rows[0].metadata?.portfolio_holdings) {
-        const meta = result.rows[0].metadata;
-        return {
-          totalBudget: meta.portfolio_budget || 50,
-          totalSpent: meta.portfolio_spent || 0,
-          holdings: meta.portfolio_holdings || [],
-        };
+      const holdings: Array<{
+        seedId: string;
+        symbol: string;
+        shares: number;
+        purchasePrice: number;
+        totalCost: number;
+        purchaseDate: string;
+      }> = [];
+
+      const pendingRecommendations: Array<{
+        seedId: string;
+        symbol: string;
+        action: string;
+        limitPrice: number;
+        stopLoss: number;
+        priceTarget: number;
+        positionSize: number;
+        plantedAt: string;
+      }> = [];
+
+      let totalSpent = 0;
+
+      for (const seed of investmentSeeds) {
+        const meta = seed.source_metadata;
+
+        if (seed.seed_type === 'trade_execution' && meta.action === 'buy') {
+          // Actual executed trades = holdings
+          const cost = (meta.shares || 0) * (meta.price || 0);
+          holdings.push({
+            seedId: seed.id,
+            symbol: meta.symbol || 'UNKNOWN',
+            shares: meta.shares || 0,
+            purchasePrice: meta.price || 0,
+            totalCost: meta.total_cost || cost,
+            purchaseDate: meta.executed_at || seed.planted_at.toISOString(),
+          });
+          totalSpent += meta.total_cost || cost;
+        } else if (seed.seed_type === 'trade_execution' && meta.action === 'sell') {
+          // Sells reduce holdings — credit back to budget
+          const proceeds = (meta.shares || 0) * (meta.price || 0);
+          totalSpent -= meta.total_cost || proceeds;
+        } else if (seed.seed_type === 'investment_recommendation' && seed.status === 'held') {
+          // Pending recommendations not yet acted on
+          pendingRecommendations.push({
+            seedId: seed.id,
+            symbol: meta.symbol || 'UNKNOWN',
+            action: meta.action || 'buy',
+            limitPrice: meta.limit_price || 0,
+            stopLoss: meta.stop_loss || 0,
+            priceTarget: meta.price_target || 0,
+            positionSize: meta.position_size_dollars || 0,
+            plantedAt: seed.planted_at.toISOString(),
+          });
+        }
       }
 
-      // Default state: $50 budget, nothing spent
       return {
         totalBudget: 50,
-        totalSpent: 0,
-        holdings: [],
+        totalSpent: Math.max(0, totalSpent),
+        holdings,
+        pendingRecommendations,
       };
     } catch (error: any) {
       logger.error('[AL] Failed to get portfolio state', { error: error.message });
-      return { totalBudget: 50, totalSpent: 0, holdings: [] };
+      return { totalBudget: 50, totalSpent: 0, holdings: [], pendingRecommendations: [] };
     }
   }
 

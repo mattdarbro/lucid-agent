@@ -260,12 +260,15 @@ export interface Person {
  */
 export type SeedStatus = 'held' | 'growing' | 'grown' | 'released';
 export type SeedSource = 'app' | 'voice' | 'share';
+export type SeedType = 'thought' | 'investment_recommendation' | 'trade_execution';
 
 export interface Seed {
   id: string;
   user_id: string;
   // Content
   content: string;
+  // Type
+  seed_type: SeedType;
   // Source
   source: SeedSource;
   source_metadata: Record<string, any>;
@@ -284,6 +287,39 @@ export interface Seed {
   // Timestamps
   planted_at: Date;
   updated_at: Date;
+}
+
+/**
+ * Structured investment recommendation data stored in source_metadata
+ */
+export interface InvestmentRecommendationData {
+  symbol: string;
+  action: 'buy' | 'sell' | 'hold';
+  limit_price: number;
+  stop_loss: number;
+  price_target: number;
+  position_size_dollars: number;
+  reasoning: string;
+  risk_notes: string;
+  data_sources: {
+    alpha_vantage: boolean;
+    grok: boolean;
+    web_search: boolean;
+  };
+}
+
+/**
+ * Trade execution data stored in source_metadata when Matt records a trade
+ */
+export interface TradeExecutionData {
+  symbol: string;
+  action: 'buy' | 'sell';
+  shares: number;
+  price: number;
+  total_cost: number;
+  executed_at: string;
+  recommendation_seed_id?: string;
+  notes?: string;
 }
 
 export interface CalendarEvent {

@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { logger } from '../logger';
-import { Seed, SeedStatus, SeedSource } from '../types/database';
+import { Seed, SeedStatus, SeedSource, SeedType } from '../types/database';
 import { VectorService } from './vector.service';
 
 /**
@@ -9,6 +9,7 @@ import { VectorService } from './vector.service';
 export interface PlantSeedInput {
   user_id: string;
   content: string;
+  seed_type?: SeedType;
   source?: SeedSource;
   source_metadata?: Record<string, any>;
   planted_context?: string;
@@ -28,6 +29,12 @@ export interface PlantResult {
  * Simplified capture system - just stores what the user plants.
  * No AI classification, no routing to different tables.
  * Seeds grow over time through surfacing and reflection.
+ *
+ * Investment seeds use the same lifecycle:
+ *   held     = recommendation pending / open position
+ *   growing  = position is active, being tracked
+ *   grown    = position closed, P&L recorded
+ *   released = recommendation skipped/cancelled
  */
 export class SeedService {
   private vectorService: VectorService;
@@ -46,6 +53,7 @@ export class SeedService {
     const {
       user_id,
       content,
+      seed_type = 'thought',
       source = 'app',
       source_metadata = {},
       planted_context = null,
@@ -63,11 +71,11 @@ export class SeedService {
 
       const result = await this.pool.query(
         `INSERT INTO seeds (
-          user_id, content, source, source_metadata, status, planted_context, embedding
+          user_id, content, seed_type, source, source_metadata, status, planted_context, embedding
         )
-        VALUES ($1, $2, $3, $4, 'held', $5, $6::vector)
+        VALUES ($1, $2, $3, $4, $5, 'held', $6, $7::vector)
         RETURNING *`,
-        [user_id, content.trim(), source, source_metadata, planted_context, embeddingString]
+        [user_id, content.trim(), seed_type, source, source_metadata, planted_context, embeddingString]
       );
 
       const seed = this.rowToSeed(result.rows[0]);
@@ -75,6 +83,7 @@ export class SeedService {
       logger.info('Seed planted', {
         seedId: seed.id,
         userId: user_id,
+        seedType: seed_type,
         source,
         hasContext: !!planted_context,
       });
@@ -117,12 +126,13 @@ export class SeedService {
     userId: string,
     options: {
       status?: SeedStatus | SeedStatus[];
+      seed_type?: SeedType | SeedType[];
       limit?: number;
       offset?: number;
     } = {}
   ): Promise<{ seeds: Seed[]; total: number }> {
     try {
-      const { status, limit = 50, offset = 0 } = options;
+      const { status, seed_type, limit = 50, offset = 0 } = options;
 
       let whereClause = 'WHERE user_id = $1';
       const params: any[] = [userId];
@@ -134,6 +144,16 @@ export class SeedService {
         } else {
           params.push(status);
           whereClause += ` AND status = $${params.length}`;
+        }
+      }
+
+      if (seed_type) {
+        if (Array.isArray(seed_type)) {
+          params.push(seed_type);
+          whereClause += ` AND seed_type = ANY($${params.length})`;
+        } else {
+          params.push(seed_type);
+          whereClause += ` AND seed_type = $${params.length}`;
         }
       }
 
@@ -159,6 +179,40 @@ export class SeedService {
       };
     } catch (error: any) {
       logger.error('Error getting seeds:', { userId, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Get investment seeds for building portfolio state
+   * Returns recommendation and trade execution seeds that are active
+   */
+  async getInvestmentSeeds(
+    userId: string,
+    options: {
+      includeCompleted?: boolean;
+    } = {}
+  ): Promise<Seed[]> {
+    try {
+      const { includeCompleted = false } = options;
+
+      let statusFilter = `AND status IN ('held', 'growing')`;
+      if (includeCompleted) {
+        statusFilter = ''; // all statuses
+      }
+
+      const result = await this.pool.query(
+        `SELECT * FROM seeds
+         WHERE user_id = $1
+           AND seed_type IN ('investment_recommendation', 'trade_execution')
+           ${statusFilter}
+         ORDER BY planted_at DESC`,
+        [userId]
+      );
+
+      return result.rows.map(this.rowToSeed);
+    } catch (error: any) {
+      logger.error('Error getting investment seeds:', { userId, error: error.message });
       throw error;
     }
   }
@@ -263,7 +317,7 @@ export class SeedService {
   }
 
   /**
-   * Update a seed's content or context
+   * Update a seed's content, context, status, or source_metadata
    */
   async update(
     seedId: string,
@@ -271,6 +325,7 @@ export class SeedService {
       content?: string;
       planted_context?: string;
       status?: SeedStatus;
+      source_metadata?: Record<string, any>;
     }
   ): Promise<Seed> {
     try {
@@ -299,6 +354,13 @@ export class SeedService {
         if (updates.status === 'released') {
           setClauses.push(`released_at = NOW()`);
         }
+      }
+
+      if (updates.source_metadata !== undefined) {
+        // Merge with existing metadata rather than replacing
+        setClauses.push(`source_metadata = source_metadata || $${paramIndex}::jsonb`);
+        values.push(JSON.stringify(updates.source_metadata));
+        paramIndex++;
       }
 
       if (setClauses.length === 0) {
@@ -330,6 +392,7 @@ export class SeedService {
 
   /**
    * Get seeds that haven't been surfaced recently (for briefings)
+   * Excludes investment seeds — those are surfaced separately in portfolio context
    */
   async getSeedsForSurfacing(
     userId: string,
@@ -340,6 +403,7 @@ export class SeedService {
         `SELECT * FROM seeds
          WHERE user_id = $1
            AND status IN ('held', 'growing')
+           AND seed_type = 'thought'
          ORDER BY
            last_surfaced_at ASC NULLS FIRST,
            surface_count ASC,
@@ -363,6 +427,7 @@ export class SeedService {
       id: row.id,
       user_id: row.user_id,
       content: row.content,
+      seed_type: row.seed_type || 'thought',
       source: row.source,
       source_metadata: row.source_metadata || {},
       status: row.status,

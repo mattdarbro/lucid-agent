@@ -129,12 +129,18 @@ export class AgentJobService {
   async getDueJobs(): Promise<AgentJob[]> {
     logger.debug('Fetching due agent jobs');
 
+    // Only look back 48 hours to prevent unbounded accumulation of stale jobs.
+    // Jobs older than 48h are no longer relevant (e.g., yesterday's morning briefing).
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
     const { data, error } = await this.supabase
       .from('agent_jobs')
       .select('*')
       .eq('status', 'pending')
+      .gte('scheduled_for', cutoff)
       .lte('scheduled_for', new Date().toISOString())
-      .order('scheduled_for', { ascending: true });
+      .order('scheduled_for', { ascending: true })
+      .limit(10);
 
     if (error) {
       logger.error('Failed to fetch due agent jobs', { error });
@@ -222,13 +228,29 @@ export class AgentJobService {
   async scheduleCircadianJobs(userId: string, date: Date): Promise<AgentJob[]> {
     logger.info('Scheduling circadian jobs for user', { userId, date });
 
-    // Get start and end of the scheduling day
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
+    // Get start and end of the scheduling day in CHICAGO timezone.
+    // Jobs are scheduled in Chicago time, so dedup boundaries must match.
+    // Using server-local time here previously caused evening/night jobs
+    // (which fall in the next UTC day) to be missed by the dedup check,
+    // leading to duplicate job creation on server restarts.
+    const userTimezone = 'America/Chicago';
+    const dateInChicago = new Date(date.toLocaleString('en-US', { timeZone: userTimezone }));
+    const chicagoYear = dateInChicago.getFullYear();
+    const chicagoMonth = dateInChicago.getMonth();
+    const chicagoDay = dateInChicago.getDate();
 
-    // Check for existing jobs for this user on this day
+    // Build day boundaries in Chicago time, then convert to UTC for the query
+    const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+    const chicagoDate = new Date(date.toLocaleString('en-US', { timeZone: userTimezone }));
+    const offsetMs = utcDate.getTime() - chicagoDate.getTime();
+
+    const dayStartChicago = new Date(chicagoYear, chicagoMonth, chicagoDay, 0, 0, 0, 0);
+    const dayEndChicago = new Date(chicagoYear, chicagoMonth, chicagoDay, 23, 59, 59, 999);
+    // Shift to UTC: add the offset so the query matches the stored UTC timestamps
+    const dayStart = new Date(dayStartChicago.getTime() + offsetMs);
+    const dayEnd = new Date(dayEndChicago.getTime() + offsetMs);
+
+    // Check for existing jobs for this user on this day (in Chicago timezone)
     const { data: existingJobs, error: checkError } = await this.supabase
       .from('agent_jobs')
       .select('job_type')
