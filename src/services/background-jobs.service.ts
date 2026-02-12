@@ -102,7 +102,11 @@ export class BackgroundJobsService {
   private startResearchExecutorJob(): void {
     // Check every 2 minutes for pending research tasks
     this.researchExecutorJob = cron.schedule('*/2 * * * *', async () => {
-      await this.runResearchExecutor();
+      try {
+        await this.runResearchExecutor();
+      } catch (err: any) {
+        logger.error('[BACKGROUND] Unhandled error in research executor cron', { error: err.message });
+      }
     });
 
     logger.info('[BACKGROUND] Research executor job scheduled (every 2 minutes)');
@@ -155,7 +159,11 @@ export class BackgroundJobsService {
   private startAutonomousLoopJob(): void {
     // Check every 5 minutes for due jobs
     this.autonomousLoopJob = cron.schedule('*/5 * * * *', async () => {
-      await this.runDueAutonomousLoops();
+      try {
+        await this.runDueAutonomousLoops();
+      } catch (err: any) {
+        logger.error('[BACKGROUND] Unhandled error in autonomous loop cron', { error: err.message });
+      }
     });
 
     logger.info('[BACKGROUND] Autonomous loop job scheduled (every 5 minutes)');
@@ -326,7 +334,11 @@ export class BackgroundJobsService {
   private startDailyJobScheduler(): void {
     // Run daily at midnight Chicago time to schedule jobs for the new day
     this.dailyJobScheduler = cron.schedule('0 0 * * *', async () => {
-      await this.scheduleJobsForActiveUsers();
+      try {
+        await this.scheduleJobsForActiveUsers();
+      } catch (err: any) {
+        logger.error('[BACKGROUND] Unhandled error in daily job scheduler cron', { error: err.message });
+      }
     }, {
       timezone: 'America/Chicago'
     });
@@ -540,7 +552,11 @@ export class BackgroundJobsService {
   private startFactExtractionJob(): void {
     // Check hourly for idle conversations
     this.factExtractionJob = cron.schedule('0 * * * *', async () => {
-      await this.runFactExtraction();
+      try {
+        await this.runFactExtraction();
+      } catch (err: any) {
+        logger.error('[BACKGROUND] Unhandled error in fact extraction cron', { error: err.message });
+      }
     });
 
     logger.info('[BACKGROUND] Fact extraction job scheduled (hourly, 60min idle trigger)');

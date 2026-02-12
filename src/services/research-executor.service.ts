@@ -258,12 +258,17 @@ export class ResearchExecutorService {
       });
 
       // Mark as failed with error details
-      await this.researchTaskService.markTaskAsFailed(taskId, {
-        error: error.message,
-        timestamp: new Date().toISOString(),
-      });
-
-      throw error;
+      try {
+        await this.researchTaskService.markTaskAsFailed(taskId, {
+          error: error.message,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (markError: any) {
+        logger.error('Failed to mark research task as failed', {
+          taskId,
+          error: markError.message,
+        });
+      }
     }
   }
 

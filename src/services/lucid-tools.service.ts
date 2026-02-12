@@ -770,26 +770,30 @@ Format as JSON:
 
 Focus on information most relevant to the query and purpose.`;
 
-    const response = await this.anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 1000,
-      temperature: 0.3,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
-
     try {
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const analysis = JSON.parse(jsonMatch[0]);
-        return {
-          summary: analysis.summary || searchResults.answer || 'Search completed.',
-          keyFindings: analysis.keyFindings || [],
-        };
+      const response = await this.anthropic.messages.create({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 1000,
+        temperature: 0.3,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
+
+      try {
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const analysis = JSON.parse(jsonMatch[0]);
+          return {
+            summary: analysis.summary || searchResults.answer || 'Search completed.',
+            keyFindings: analysis.keyFindings || [],
+          };
+        }
+      } catch (parseError) {
+        logger.error('Failed to parse search analysis', { error: parseError, responseText });
       }
-    } catch (error) {
-      logger.error('Failed to parse search analysis', { error, responseText });
+    } catch (error: any) {
+      logger.error('Failed to analyze search results via Claude', { error: error.message });
     }
 
     // Fallback
