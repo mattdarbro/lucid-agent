@@ -274,12 +274,14 @@ async function startServer() {
 
     process.on('uncaughtException', (error: Error) => {
       logger.error('Uncaught exception:', error);
-      process.exit(1);
+      shutdown();
     });
 
     process.on('unhandledRejection', (reason: any, promise: any) => {
-      logger.error('Unhandled rejection:', { promise, reason });
-      process.exit(1);
+      logger.error('Unhandled rejection:', { reason });
+      // Don't crash on unhandled rejections - log and continue.
+      // The specific operation that failed will have its own error handling.
+      // Only truly fatal issues (uncaughtException) should trigger shutdown.
     });
   } catch (error: any) {
     logger.error('Failed to start server:', error);

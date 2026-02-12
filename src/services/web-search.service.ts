@@ -69,7 +69,9 @@ export class WebSearchService {
     try {
       logger.info('Executing web search', { query, maxResults, searchDepth });
 
-      const response = await this.client.search({
+      // Wrap Tavily call with a timeout to prevent hanging requests
+      const SEARCH_TIMEOUT_MS = 30000; // 30 seconds
+      const searchPromise = this.client.search({
         query,
         max_results: maxResults,
         include_answer: includeAnswer,
@@ -77,6 +79,12 @@ export class WebSearchService {
         include_domains: [], // Could restrict to specific domains if needed
         exclude_domains: [], // Could exclude specific domains
       });
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Web search timed out after 30s')), SEARCH_TIMEOUT_MS)
+      );
+
+      const response = await Promise.race([searchPromise, timeoutPromise]);
 
       const results: SearchResult[] = (response.results || []).map((result: any) => ({
         title: result.title,
