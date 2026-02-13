@@ -89,11 +89,25 @@ app.get('/', (req: Request, res: Response) => {
   });
 });
 
-app.get('/health', (req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-  });
+app.get('/health', async (req: Request, res: Response) => {
+  try {
+    // Actually verify database connectivity for Railway health checks
+    const client = await pool.connect();
+    await client.query('SELECT 1');
+    client.release();
+
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    logger.error('Health check failed - database unreachable:', error.message);
+    res.status(503).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      error: 'Database connection failed',
+    });
+  }
 });
 
 app.get('/info', (req: Request, res: Response) => {
