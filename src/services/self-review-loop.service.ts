@@ -289,7 +289,7 @@ export class SelfReviewLoopService {
 
     const response = await this.anthropic.messages.create({
       model: this.model,
-      max_tokens: 4096,
+      max_tokens: 16384,
       temperature: 0.5,
       messages: [
         {
