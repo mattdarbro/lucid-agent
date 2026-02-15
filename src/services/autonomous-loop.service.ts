@@ -1983,14 +1983,15 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
   private async getRecentConversationTopics(userId: string): Promise<string[]> {
     try {
       const result = await this.pool.query(
-        `SELECT DISTINCT c.title
+        `SELECT c.title, MAX(m.created_at) AS last_message_at
          FROM conversations c
          JOIN messages m ON m.conversation_id = c.id
          WHERE c.user_id = $1
            AND m.created_at > NOW() - INTERVAL '3 days'
            AND c.title IS NOT NULL
            AND c.title != ''
-         ORDER BY MAX(m.created_at) DESC
+         GROUP BY c.title
+         ORDER BY last_message_at DESC
          LIMIT 5`,
         [userId]
       );

@@ -124,10 +124,9 @@ router.get('/user/:user_id', async (req: Request, res: Response) => {
 
     let query = `
       SELECT p.*,
-             COUNT(DISTINCT s.id) FILTER (WHERE s.status = 'held') AS open_seeds_count,
+             0 AS open_seeds_count,
              COUNT(DISTINCT ce.id) FILTER (WHERE ce.start_time > NOW()) AS upcoming_events_count
        FROM people p
-       LEFT JOIN seeds s ON s.related_person_id = p.id
        LEFT JOIN calendar_events ce ON p.id = ANY(ce.attendee_ids)
        WHERE p.user_id = $1
     `;

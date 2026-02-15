@@ -53,6 +53,18 @@ interface SelfReviewResult {
   filesReviewed: string[];
 }
 
+/**
+ * Strip markdown code fences from LLM responses that wrap JSON in ```json ... ```
+ */
+function extractJson(text: string): string {
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (jsonMatch) {
+    logger.info('[SELF-REVIEW] Extracted JSON from markdown code block');
+    return jsonMatch[1].trim();
+  }
+  return text.trim();
+}
+
 export class SelfReviewLoopService {
   private pool: Pool;
   private anthropic: Anthropic;
@@ -340,7 +352,8 @@ ${fileContext}`,
     });
 
     try {
-      const text = response.content[0].type === 'text' ? response.content[0].text : '';
+      const rawText = response.content[0].type === 'text' ? response.content[0].text : '';
+      const text = extractJson(rawText);
       const parsed = JSON.parse(text);
       return (parsed.improvements || []) as Improvement[];
     } catch (parseError: any) {
@@ -403,7 +416,8 @@ If none meet the criteria, return: { "selected": [], "deprioritized_reasoning": 
     });
 
     try {
-      const text = response.content[0].type === 'text' ? response.content[0].text : '';
+      const rawText = response.content[0].type === 'text' ? response.content[0].text : '';
+      const text = extractJson(rawText);
       const parsed = JSON.parse(text);
       return (parsed.selected || []) as Improvement[];
     } catch (parseError: any) {
@@ -453,7 +467,8 @@ Rules:
       ],
     });
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const rawText = response.content[0].type === 'text' ? response.content[0].text : '';
+    const text = extractJson(rawText);
     const parsed = JSON.parse(text);
 
     return {
