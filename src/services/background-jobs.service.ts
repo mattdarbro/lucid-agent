@@ -314,6 +314,20 @@ export class BackgroundJobsService {
           libraryEntryId: spendingResult.libraryEntryId,
         };
 
+      case 'health_check_morning':
+        const healthMorningResult = await this.autonomousLoopService.runMorningHealthCheck(userId, jobId);
+        return {
+          thoughtProduced: healthMorningResult.thoughtProduced,
+          libraryEntryId: healthMorningResult.libraryEntryId,
+        };
+
+      case 'health_check_evening':
+        const healthEveningResult = await this.autonomousLoopService.runEveningHealthCheck(userId, jobId);
+        return {
+          thoughtProduced: healthEveningResult.thoughtProduced,
+          libraryEntryId: healthEveningResult.libraryEntryId,
+        };
+
       // Placeholder for future loops
       case 'night_dream':
       case 'document_reflection':
@@ -524,6 +538,40 @@ export class BackgroundJobsService {
   }> {
     logger.info('[AL] Manual trigger: ability spending', { userId });
     const result = await this.autonomousLoopService.runAbilitySpending(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      title: result.title,
+    };
+  }
+
+  /**
+   * Manually trigger morning health check for a user (useful for testing)
+   */
+  async triggerMorningHealthCheck(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    title: string | null;
+  }> {
+    logger.info('[AL] Manual trigger: morning health check', { userId });
+    const result = await this.autonomousLoopService.runMorningHealthCheck(userId);
+    return {
+      success: result.success,
+      libraryEntryId: result.libraryEntryId,
+      title: result.title,
+    };
+  }
+
+  /**
+   * Manually trigger evening health check for a user (useful for testing)
+   */
+  async triggerEveningHealthCheck(userId: string): Promise<{
+    success: boolean;
+    libraryEntryId: string | null;
+    title: string | null;
+  }> {
+    logger.info('[AL] Manual trigger: evening health check', { userId });
+    const result = await this.autonomousLoopService.runEveningHealthCheck(userId);
     return {
       success: result.success,
       libraryEntryId: result.libraryEntryId,

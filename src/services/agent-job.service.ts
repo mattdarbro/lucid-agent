@@ -327,6 +327,20 @@ export class AgentJobService {
       });
     }
 
+    // Health check loops: daily, morning and evening
+    allJobs.push(
+      {
+        user_id: userId,
+        job_type: 'health_check_morning',
+        scheduled_for: this.getScheduledTime(date, 7, 30), // 7:30am - Morning Health Check
+      },
+      {
+        user_id: userId,
+        job_type: 'health_check_evening',
+        scheduled_for: this.getScheduledTime(date, 20, 30), // 8:30pm - Evening Health Check
+      }
+    );
+
     // Filter out jobs that already exist
     const jobsToCreate = allJobs.filter(job => !existingJobTypes.has(job.job_type));
 

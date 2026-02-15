@@ -134,7 +134,9 @@ export type AgentJobType =
   | 'document_reflection'
   | 'self_review'
   | 'investment_research'
-  | 'ability_spending';
+  | 'ability_spending'
+  | 'health_check_morning'
+  | 'health_check_evening';
 
 export interface AgentJob {
   id: string;
@@ -582,6 +584,56 @@ export interface Orbit {
 }
 
 // ============================================================================
+// HEALTH METRICS (Apple HealthKit / Oura Ring / Manual)
+// ============================================================================
+
+export type HealthMetricType =
+  | 'blood_pressure_systolic'
+  | 'blood_pressure_diastolic'
+  | 'weight'
+  | 'steps'
+  | 'heart_rate'
+  | 'resting_heart_rate'
+  | 'blood_oxygen'
+  | 'respiratory_rate'
+  | 'body_temperature'
+  | 'sleep_duration'
+  | 'active_energy'
+  | 'exercise_minutes';
+
+export type HealthMetricSource = 'apple_health' | 'oura_ring' | 'manual' | 'withings';
+
+export interface HealthMetric {
+  id: string;
+  user_id: string;
+  metric_type: HealthMetricType;
+  value: number;
+  unit: string;
+  recorded_at: Date;
+  source: HealthMetricSource;
+  source_device: string | null;
+  metadata: Record<string, any>;
+  created_at: Date;
+  updated_at: Date;
+}
+
+/**
+ * A day's health summary assembled from individual metrics.
+ * Used by the health check loops to give Lucid a daily snapshot.
+ */
+export interface DailyHealthSummary {
+  date: string; // YYYY-MM-DD
+  blood_pressure?: { systolic: number; diastolic: number; recorded_at: Date };
+  weight?: { value: number; unit: string; recorded_at: Date };
+  steps?: { value: number; recorded_at: Date };
+  heart_rate?: { avg: number; min: number; max: number };
+  resting_heart_rate?: { value: number; recorded_at: Date };
+  sleep_duration?: { hours: number; recorded_at: Date };
+  active_energy?: { value: number; unit: string };
+  exercise_minutes?: { value: number };
+}
+
+// ============================================================================
 // ACTIONS SYSTEM
 // ============================================================================
 
@@ -640,7 +692,8 @@ export type LibraryEntryType =
   | 'win'                    // User wins/breakthroughs
   | 'code_review'            // Self-review findings and PR summaries
   | 'investment_recommendation'  // Investment research and recommendations
-  | 'spending_proposal';     // Ability spending proposals
+  | 'spending_proposal'      // Ability spending proposals
+  | 'health_review';         // Morning/evening health check-in analysis
 
 /**
  * Subject of a thought - who/what the thought is about
