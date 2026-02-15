@@ -34,6 +34,8 @@ import { createSeedsRouter } from './routes/seeds';
 // Calendar integration routes
 import calendarRouter from './routes/calendar';
 import peopleRouter from './routes/people';
+// Health metrics (Apple HealthKit integration)
+import { createHealthRouter } from './routes/health';
 
 // Validate configuration on startup
 try {
@@ -192,6 +194,9 @@ app.use('/v1/wins', winsRouter);
 
 // Possibilities (sigma-based alternative exploration)
 app.use('/v1/possibilities', possibilitiesRouter);
+
+// Health metrics (Apple HealthKit data from iOS app)
+app.use('/v1/health', createHealthRouter(pool));
 
 // TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);

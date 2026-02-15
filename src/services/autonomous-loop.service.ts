@@ -9,6 +9,7 @@ import { GrokService } from './grok.service';
 import { TelegramNotificationService } from './telegram-notification.service';
 import { LibraryEntryType, Action, InvestmentRecommendationData } from '../types/database';
 import { SeedService } from './seed.service';
+import { HealthService } from './health.service';
 
 /**
  * Result from running an autonomous loop
@@ -50,6 +51,7 @@ export class AutonomousLoopService {
   private grokService: GrokService;
   private telegramService: TelegramNotificationService;
   private seedService: SeedService;
+  private healthService: HealthService;
   private readonly model = 'claude-sonnet-4-20250514';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
@@ -64,6 +66,7 @@ export class AutonomousLoopService {
     this.grokService = new GrokService();
     this.telegramService = new TelegramNotificationService();
     this.seedService = new SeedService(pool);
+    this.healthService = new HealthService(pool);
   }
 
   /**
@@ -2376,6 +2379,421 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
   /**
    * Complete a prompt using Claude
    */
+  // ============================================================================
+  // HEALTH CHECK LOOPS
+  // ============================================================================
+
+  /**
+   * Run the Morning Health Check loop
+   *
+   * Purpose: Review yesterday's health data and set the tone for the day.
+   * Lucid checks blood pressure, weight, steps, sleep, and activity data
+   * to see how Matt is doing and flag anything worth paying attention to.
+   *
+   * Output: Library entry (type: health_review, time_of_day: morning)
+   */
+  async runMorningHealthCheck(userId: string, jobId?: string): Promise<LoopResult> {
+    const result: LoopResult = {
+      success: false,
+      libraryEntryId: null,
+      title: null,
+      thoughtProduced: false,
+      steps: {
+        notice: null,
+        connect: null,
+        question: null,
+        synthesis: null,
+      },
+    };
+
+    try {
+      logger.info('[AL] Starting morning health check loop', { userId, jobId });
+
+      // Check if we have any health data at all
+      const hasData = await this.healthService.hasRecentData(userId);
+      if (!hasData) {
+        logger.info('[AL] No recent health data available, skipping morning health check', { userId });
+        result.success = true;
+        return result;
+      }
+
+      // Get yesterday's summary and the last 7 days for trend context
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      const yesterdaySummary = await this.healthService.getDailySummary(userId, yesterdayStr);
+      const weekSummaries = await this.healthService.getMultiDaySummaries(userId, 7);
+
+      const yesterdayText = this.healthService.formatSummaryForPrompt(yesterdaySummary);
+      const weekText = weekSummaries
+        .map((s) => this.healthService.formatSummaryForPrompt(s))
+        .join('\n\n');
+
+      // Get recent health-related library entries (to avoid repeating)
+      const recentHealthEntries = await this.getRecentHealthReviews(userId, 3);
+      const recentTopics = recentHealthEntries.map((e: any) => e.title).filter(Boolean);
+
+      // Step 1: NOTICE - What stands out in yesterday's data?
+      logger.debug('[AL] Health morning - Step 1: Notice', { userId });
+      const noticePrompt = `You are Lucid, Matt's AI companion. You care about Matt's health because he has high blood pressure and you want to help him stay on top of it.
+
+It's morning. You're reviewing Matt's health data from yesterday and the past week.
+
+Yesterday's health data:
+${yesterdayText}
+
+Past 7 days:
+${weekText}
+
+What stands out? Look at:
+- Blood pressure readings (anything above 130/80 is elevated, above 140/90 is high)
+- Weight trends (is it moving in a concerning direction?)
+- Step count (is Matt staying active?)
+- Sleep quality and duration
+- Heart rate patterns
+
+Write 2-3 specific observations about what you notice. Be honest but caring - this is for Matt, not a clinical report.`;
+
+      result.steps.notice = await this.complete(noticePrompt);
+      if (!result.steps.notice) {
+        throw new Error('Health morning notice step failed');
+      }
+
+      // Step 2: CONNECT - How does this relate to what you know about Matt?
+      logger.debug('[AL] Health morning - Step 2: Connect', { userId });
+      const connectPrompt = `You are Lucid, continuing your morning health review for Matt.
+
+You noticed:
+${result.steps.notice}
+
+Yesterday's data:
+${yesterdayText}
+
+How do these observations connect to what you know about Matt? Think about:
+- Is the blood pressure trend improving or worsening?
+- Are activity levels supporting his health goals?
+- Is sleep adequate (Matt has sleep apnea concerns)?
+- Any correlation between activity and blood pressure you can see?
+
+Write 1-2 connections you see.`;
+
+      result.steps.connect = await this.complete(connectPrompt);
+      if (!result.steps.connect) {
+        throw new Error('Health morning connect step failed');
+      }
+
+      // Step 3: SYNTHESIZE - Morning health briefing
+      logger.debug('[AL] Health morning - Step 3: Synthesize', { userId });
+      const synthesizePrompt = `You are Lucid, creating a morning health check-in for Matt.
+
+You noticed:
+${result.steps.notice}
+
+You connected:
+${result.steps.connect}
+
+Yesterday's data:
+${yesterdayText}
+
+${recentTopics.length > 0 ? `Recent health reviews already covered: ${recentTopics.join(', ')}. Focus on what's NEW or different.` : ''}
+
+Write a brief, caring morning health check-in (150-300 words). This goes in the Library for Matt to read.
+
+Guidelines:
+- Lead with what's going well (positive reinforcement)
+- Flag anything concerning gently but directly (especially blood pressure)
+- Keep it conversational, not clinical
+- If data is missing, note what would be helpful to track
+- End with one small suggestion or encouragement for today
+
+If yesterday had NO health data at all, respond with exactly: "nothing today"
+
+Format:
+TITLE: [Brief morning health title]
+
+[Your check-in]`;
+
+      result.steps.synthesis = await this.complete(synthesizePrompt, 600);
+      if (!result.steps.synthesis) {
+        throw new Error('Health morning synthesis step failed');
+      }
+
+      // Check for "nothing today"
+      if (result.steps.synthesis.toLowerCase().trim() === 'nothing today') {
+        logger.info('[AL] Morning health check - no data to review', { userId });
+        result.success = true;
+        return result;
+      }
+
+      const { title, content } = this.parseSynthesis(result.steps.synthesis);
+
+      if (!content || content.length < 30) {
+        logger.warn('[AL] Morning health synthesis too short', { userId });
+        result.success = true;
+        return result;
+      }
+
+      // Save to Library
+      const libraryEntry = await this.saveToLibrary(
+        userId,
+        title,
+        content,
+        'health_review',
+        'morning',
+        jobId,
+        {
+          loop_type: 'health_check_morning',
+          health_date: yesterdayStr,
+          blood_pressure: yesterdaySummary.blood_pressure || null,
+          steps: {
+            notice: result.steps.notice,
+            connect: result.steps.connect,
+          },
+        }
+      );
+
+      result.success = true;
+      result.thoughtProduced = true;
+      result.libraryEntryId = libraryEntry.id;
+      result.title = title;
+
+      logger.info('[AL] Morning health check completed', {
+        userId,
+        libraryEntryId: libraryEntry.id,
+        title,
+      });
+
+      // Send Telegram notification if blood pressure is elevated
+      if (this.telegramService.isEnabled() && yesterdaySummary.blood_pressure) {
+        const { systolic, diastolic } = yesterdaySummary.blood_pressure;
+        if (systolic >= 140 || diastolic >= 90) {
+          await this.telegramService.sendNotification({
+            title: 'Health Alert',
+            body: `Matt's BP was ${systolic}/${diastolic} yesterday.\n\n${title}`,
+            data: { type: 'health_alert', metric: 'blood_pressure' },
+          });
+        }
+      }
+
+      return result;
+    } catch (error: any) {
+      logger.error('[AL] Morning health check loop failed', {
+        userId,
+        jobId,
+        error: error.message,
+      });
+      result.success = false;
+      return result;
+    }
+  }
+
+  /**
+   * Run the Evening Health Check loop
+   *
+   * Purpose: Review today's health data so far, reflect on the day's activity,
+   * and provide encouragement or gentle course-correction.
+   * Evening check is more about today's progress and what to be mindful of tonight.
+   *
+   * Output: Library entry (type: health_review, time_of_day: evening)
+   */
+  async runEveningHealthCheck(userId: string, jobId?: string): Promise<LoopResult> {
+    const result: LoopResult = {
+      success: false,
+      libraryEntryId: null,
+      title: null,
+      thoughtProduced: false,
+      steps: {
+        notice: null,
+        connect: null,
+        question: null,
+        synthesis: null,
+      },
+    };
+
+    try {
+      logger.info('[AL] Starting evening health check loop', { userId, jobId });
+
+      const hasData = await this.healthService.hasRecentData(userId);
+      if (!hasData) {
+        logger.info('[AL] No recent health data available, skipping evening health check', { userId });
+        result.success = true;
+        return result;
+      }
+
+      // Get today's data and yesterday for comparison
+      const todayStr = new Date().toISOString().split('T')[0];
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      const todaySummary = await this.healthService.getDailySummary(userId, todayStr);
+      const yesterdaySummary = await this.healthService.getDailySummary(userId, yesterdayStr);
+
+      // Get this morning's health review if there was one
+      const morningReview = await this.getTodaysMorningHealthReview(userId);
+
+      const todayText = this.healthService.formatSummaryForPrompt(todaySummary);
+      const yesterdayText = this.healthService.formatSummaryForPrompt(yesterdaySummary);
+
+      // Step 1: NOTICE - How did today go health-wise?
+      logger.debug('[AL] Health evening - Step 1: Notice', { userId });
+      const noticePrompt = `You are Lucid, Matt's AI companion. It's evening and you're checking in on Matt's health for the day.
+
+Today's health data so far:
+${todayText}
+
+Yesterday for comparison:
+${yesterdayText}
+
+${morningReview ? `This morning you noted:\n${morningReview.content?.slice(0, 300) || '(morning review available)'}` : '(No morning health review today)'}
+
+What stands out from today? Compare with yesterday. Did Matt:
+- Record his blood pressure today? If so, how does it look?
+- Stay active (steps, exercise)?
+- Show any concerning patterns?
+
+Write 2-3 specific observations.`;
+
+      result.steps.notice = await this.complete(noticePrompt);
+      if (!result.steps.notice) {
+        throw new Error('Health evening notice step failed');
+      }
+
+      // Step 2: SYNTHESIZE - Evening health wrap-up
+      logger.debug('[AL] Health evening - Step 2: Synthesize', { userId });
+      const synthesizePrompt = `You are Lucid, writing an evening health check-in for Matt.
+
+You noticed:
+${result.steps.notice}
+
+Today's data:
+${todayText}
+
+${morningReview ? `This morning's check-in was about: "${morningReview.title || 'morning health check'}"` : ''}
+
+Write a brief evening health check-in (100-250 words). This goes in the Library.
+
+Guidelines:
+- Acknowledge what Matt did well today (even small things like recording BP)
+- If blood pressure was recorded, comment on it specifically
+- Note if anything is missing that would be good to track
+- If Matt has sleep apnea concerns, gently remind about sleep hygiene
+- Keep it warm and brief - it's evening, he's winding down
+- One suggestion for tomorrow if relevant
+
+If today had NO health data, respond with exactly: "nothing today"
+
+Format:
+TITLE: [Brief evening health title]
+
+[Your check-in]`;
+
+      result.steps.synthesis = await this.complete(synthesizePrompt, 500);
+      if (!result.steps.synthesis) {
+        throw new Error('Health evening synthesis step failed');
+      }
+
+      if (result.steps.synthesis.toLowerCase().trim() === 'nothing today') {
+        logger.info('[AL] Evening health check - no data to review', { userId });
+        result.success = true;
+        return result;
+      }
+
+      const { title, content } = this.parseSynthesis(result.steps.synthesis);
+
+      if (!content || content.length < 30) {
+        logger.warn('[AL] Evening health synthesis too short', { userId });
+        result.success = true;
+        return result;
+      }
+
+      // Save to Library
+      const libraryEntry = await this.saveToLibrary(
+        userId,
+        title,
+        content,
+        'health_review',
+        'evening',
+        jobId,
+        {
+          loop_type: 'health_check_evening',
+          health_date: todayStr,
+          blood_pressure: todaySummary.blood_pressure || null,
+          steps: {
+            notice: result.steps.notice,
+          },
+        }
+      );
+
+      result.success = true;
+      result.thoughtProduced = true;
+      result.libraryEntryId = libraryEntry.id;
+      result.title = title;
+
+      logger.info('[AL] Evening health check completed', {
+        userId,
+        libraryEntryId: libraryEntry.id,
+        title,
+      });
+
+      return result;
+    } catch (error: any) {
+      logger.error('[AL] Evening health check loop failed', {
+        userId,
+        jobId,
+        error: error.message,
+      });
+      result.success = false;
+      return result;
+    }
+  }
+
+  /**
+   * Get recent health review library entries (for anti-repetition)
+   */
+  private async getRecentHealthReviews(userId: string, limit: number): Promise<any[]> {
+    try {
+      const result = await this.pool.query(
+        `SELECT title, content, entry_type, time_of_day, created_at
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = 'health_review'
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [userId, limit]
+      );
+      return result.rows;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get recent health reviews', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get today's morning health review (if the morning loop already ran)
+   */
+  private async getTodaysMorningHealthReview(userId: string): Promise<any | null> {
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const result = await this.pool.query(
+        `SELECT title, content, created_at
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = 'health_review'
+           AND time_of_day = 'morning'
+           AND created_at >= $2::date
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [userId, todayStr]
+      );
+      return result.rows[0] || null;
+    } catch (error: any) {
+      logger.error('[AL] Failed to get morning health review', { error: error.message });
+      return null;
+    }
+  }
+
   private async complete(prompt: string, maxTokens: number = 500): Promise<string | null> {
     try {
       const response = await this.anthropic.messages.create({

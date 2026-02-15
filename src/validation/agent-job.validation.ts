@@ -19,6 +19,9 @@ export const jobTypeSchema = z.enum([
   // Investment & Spending loops
   'investment_research',
   'ability_spending',
+  // Health monitoring loops
+  'health_check_morning',
+  'health_check_evening',
 ]);
 
 // Job status aligned with database schema

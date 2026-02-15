@@ -73,6 +73,7 @@ export const config = {
     webResearch: process.env.ENABLE_WEB_RESEARCH === 'true',
     dreams: process.env.ENABLE_DREAMS === 'true',
     selfReview: process.env.ENABLE_SELF_REVIEW === 'true',
+    healthMonitoring: process.env.ENABLE_HEALTH_MONITORING === 'true',
   },
 
   // Alpha Vantage (for market data in investment loop)
