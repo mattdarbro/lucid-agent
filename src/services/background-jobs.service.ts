@@ -294,7 +294,13 @@ export class BackgroundJobsService {
         };
 
       case 'self_review':
-        const selfReviewResult = await this.selfReviewLoopService.runSelfReview(userId, jobId);
+        // First Thursday of the month = full review (20 files), other Thursdays = quick (10 files)
+        const now = new Date();
+        const chicagoDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+        const isFirstThursday = chicagoDate.getDate() <= 7;
+        const reviewDepth = isFirstThursday ? 'full' as const : 'quick' as const;
+        logger.info(`[SELF-REVIEW] Running ${reviewDepth} review (${isFirstThursday ? 'first Thursday' : 'weekly'})`);
+        const selfReviewResult = await this.selfReviewLoopService.runSelfReview(userId, jobId, reviewDepth);
         return {
           thoughtProduced: selfReviewResult.thoughtProduced,
           libraryEntryId: selfReviewResult.libraryEntryId,
@@ -497,13 +503,13 @@ export class BackgroundJobsService {
   /**
    * Manually trigger self-review for a user (useful for testing)
    */
-  async triggerSelfReview(userId: string): Promise<{
+  async triggerSelfReview(userId: string, depth: 'quick' | 'full' = 'quick'): Promise<{
     success: boolean;
     libraryEntryId: string | null;
     prsOpened: Array<{ number: number; url: string; title: string }>;
   }> {
-    logger.info('[AL] Manual trigger: self-review', { userId });
-    const result = await this.selfReviewLoopService.runSelfReview(userId);
+    logger.info('[AL] Manual trigger: self-review', { userId, depth });
+    const result = await this.selfReviewLoopService.runSelfReview(userId, undefined, depth);
     return {
       success: result.success,
       libraryEntryId: result.libraryEntryId,
