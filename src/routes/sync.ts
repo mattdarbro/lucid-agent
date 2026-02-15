@@ -785,4 +785,90 @@ router.post(
   }
 );
 
+/**
+ * POST /v1/sync/health-check-morning
+ *
+ * Manually trigger the morning health check loop for a user.
+ * Reviews yesterday's health data + 7-day trends.
+ * Normally runs at 7:30am Chicago time daily.
+ *
+ * Request body:
+ * - user_id: string (required) - UUID of the user
+ */
+router.post(
+  '/health-check-morning',
+  validateBody(userIdSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { user_id } = req.body;
+
+      logger.info(`[SYNC] Manual morning health check triggered for user ${user_id}`);
+
+      const backgroundJobs = new BackgroundJobsService(pool, supabase);
+      const result = await backgroundJobs.triggerMorningHealthCheck(user_id);
+
+      res.json({
+        success: result.success,
+        message: result.libraryEntryId
+          ? 'Morning health check completed'
+          : 'Morning health check ran - no data to review or nothing new to say',
+        library_entry_id: result.libraryEntryId,
+        title: result.title,
+      });
+    } catch (error: any) {
+      logger.error('Error in POST /v1/sync/health-check-morning:', {
+        message: error.message,
+      });
+
+      res.status(500).json({
+        error: 'Failed to run morning health check',
+        details: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * POST /v1/sync/health-check-evening
+ *
+ * Manually trigger the evening health check loop for a user.
+ * Reviews today's health data and compares to yesterday.
+ * Normally runs at 8:30pm Chicago time daily.
+ *
+ * Request body:
+ * - user_id: string (required) - UUID of the user
+ */
+router.post(
+  '/health-check-evening',
+  validateBody(userIdSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { user_id } = req.body;
+
+      logger.info(`[SYNC] Manual evening health check triggered for user ${user_id}`);
+
+      const backgroundJobs = new BackgroundJobsService(pool, supabase);
+      const result = await backgroundJobs.triggerEveningHealthCheck(user_id);
+
+      res.json({
+        success: result.success,
+        message: result.libraryEntryId
+          ? 'Evening health check completed'
+          : 'Evening health check ran - no data to review or nothing new to say',
+        library_entry_id: result.libraryEntryId,
+        title: result.title,
+      });
+    } catch (error: any) {
+      logger.error('Error in POST /v1/sync/health-check-evening:', {
+        message: error.message,
+      });
+
+      res.status(500).json({
+        error: 'Failed to run evening health check',
+        details: error.message,
+      });
+    }
+  }
+);
+
 export default router;
