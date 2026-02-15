@@ -658,6 +658,7 @@ router.post(
  *
  * Request body:
  * - user_id: string (required) - UUID of the user
+ * - depth: 'quick' | 'full' (optional, default 'quick') - quick=10 files, full=20 files
  *
  * Response:
  * - success: boolean
@@ -669,12 +670,13 @@ router.post(
   validateBody(userIdSchema),
   async (req: Request, res: Response) => {
     try {
-      const { user_id } = req.body;
+      const { user_id, depth } = req.body;
+      const reviewDepth = depth === 'full' ? 'full' as const : 'quick' as const;
 
-      logger.info(`[SYNC] Manual self-review triggered for user ${user_id}`);
+      logger.info(`[SYNC] Manual self-review triggered for user ${user_id}`, { depth: reviewDepth });
 
       const backgroundJobs = new BackgroundJobsService(pool, supabase);
-      const result = await backgroundJobs.triggerSelfReview(user_id);
+      const result = await backgroundJobs.triggerSelfReview(user_id, reviewDepth);
 
       res.json({
         success: result.success,

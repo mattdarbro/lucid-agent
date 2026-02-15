@@ -57,10 +57,17 @@ interface SelfReviewResult {
  * Strip markdown code fences from LLM responses that wrap JSON in ```json ... ```
  */
 function extractJson(text: string): string {
-  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (jsonMatch) {
+  // Try closed code fence first
+  const closedMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (closedMatch) {
     logger.info('[SELF-REVIEW] Extracted JSON from markdown code block');
-    return jsonMatch[1].trim();
+    return closedMatch[1].trim();
+  }
+  // Handle unclosed code fence (truncated response)
+  const openMatch = text.match(/```(?:json)?\s*([\s\S]*)/);
+  if (openMatch) {
+    logger.info('[SELF-REVIEW] Extracted JSON from unclosed markdown code block (truncated response)');
+    return openMatch[1].trim();
   }
   return text.trim();
 }
@@ -83,7 +90,7 @@ export class SelfReviewLoopService {
     this.telegramService = new TelegramNotificationService();
   }
 
-  async runSelfReview(userId: string, jobId?: string): Promise<SelfReviewResult> {
+  async runSelfReview(userId: string, jobId?: string, depth: 'quick' | 'full' = 'quick'): Promise<SelfReviewResult> {
     const result: SelfReviewResult = {
       success: false,
       thoughtProduced: false,
@@ -104,10 +111,10 @@ export class SelfReviewLoopService {
         return result;
       }
 
-      logger.info('[SELF-REVIEW] Starting self-review loop', { userId, jobId });
+      logger.info('[SELF-REVIEW] Starting self-review loop', { userId, jobId, depth });
 
       // ====== STEP 1: GATHER ======
-      const files = await this.gatherFiles();
+      const files = await this.gatherFiles(depth);
       result.filesReviewed = files.map(f => f.path);
 
       if (files.length === 0) {
@@ -211,7 +218,9 @@ export class SelfReviewLoopService {
   /**
    * GATHER: Fetch key source files from GitHub
    */
-  private async gatherFiles(): Promise<Array<{ path: string; content: string }>> {
+  private async gatherFiles(depth: 'quick' | 'full' = 'quick'): Promise<Array<{ path: string; content: string }>> {
+    const maxFiles = depth === 'full' ? 20 : 10;
+
     // Get recently modified files first
     let filePaths: string[] = [];
     try {
@@ -228,32 +237,33 @@ export class SelfReviewLoopService {
       'src/types/database.ts',
     ];
 
-    // Add core service files
-    try {
-      const serviceFiles = await this.githubService.getFileTree('src/services');
-      for (const f of serviceFiles) {
-        if (f.type === 'file' && f.name.endsWith('.ts') && !f.name.endsWith('.test.ts')) {
-          if (!filePaths.includes(f.path)) {
-            filePaths.push(f.path);
+    // Full review: also scan all services and routes
+    if (depth === 'full') {
+      try {
+        const serviceFiles = await this.githubService.getFileTree('src/services');
+        for (const f of serviceFiles) {
+          if (f.type === 'file' && f.name.endsWith('.ts') && !f.name.endsWith('.test.ts')) {
+            if (!filePaths.includes(f.path)) {
+              filePaths.push(f.path);
+            }
           }
         }
+      } catch {
+        // Fall through
       }
-    } catch {
-      // Fall through
-    }
 
-    // Add route files
-    try {
-      const routeFiles = await this.githubService.getFileTree('src/routes');
-      for (const f of routeFiles) {
-        if (f.type === 'file' && f.name.endsWith('.ts') && !f.name.endsWith('.test.ts')) {
-          if (!filePaths.includes(f.path)) {
-            filePaths.push(f.path);
+      try {
+        const routeFiles = await this.githubService.getFileTree('src/routes');
+        for (const f of routeFiles) {
+          if (f.type === 'file' && f.name.endsWith('.ts') && !f.name.endsWith('.test.ts')) {
+            if (!filePaths.includes(f.path)) {
+              filePaths.push(f.path);
+            }
           }
         }
+      } catch {
+        // Fall through
       }
-    } catch {
-      // Fall through
     }
 
     for (const core of coreFiles) {
@@ -262,8 +272,8 @@ export class SelfReviewLoopService {
       }
     }
 
-    // Cap at 20 files to stay within token limits
-    filePaths = filePaths.slice(0, 20);
+    filePaths = filePaths.slice(0, maxFiles);
+    logger.info(`[SELF-REVIEW] Gathering ${filePaths.length} files (depth: ${depth}, max: ${maxFiles})`);
 
     // Fetch contents
     const fileContents = await this.githubService.getMultipleFiles(filePaths);
@@ -282,7 +292,7 @@ export class SelfReviewLoopService {
 
     const response = await this.anthropic.messages.create({
       model: this.model,
-      max_tokens: 2000,
+      max_tokens: 16384,
       temperature: 0.5,
       messages: [
         {
