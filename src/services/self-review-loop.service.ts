@@ -57,10 +57,17 @@ interface SelfReviewResult {
  * Strip markdown code fences from LLM responses that wrap JSON in ```json ... ```
  */
 function extractJson(text: string): string {
-  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (jsonMatch) {
+  // Try closed code fence first
+  const closedMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (closedMatch) {
     logger.info('[SELF-REVIEW] Extracted JSON from markdown code block');
-    return jsonMatch[1].trim();
+    return closedMatch[1].trim();
+  }
+  // Handle unclosed code fence (truncated response)
+  const openMatch = text.match(/```(?:json)?\s*([\s\S]*)/);
+  if (openMatch) {
+    logger.info('[SELF-REVIEW] Extracted JSON from unclosed markdown code block (truncated response)');
+    return openMatch[1].trim();
   }
   return text.trim();
 }
@@ -282,7 +289,7 @@ export class SelfReviewLoopService {
 
     const response = await this.anthropic.messages.create({
       model: this.model,
-      max_tokens: 2000,
+      max_tokens: 4096,
       temperature: 0.5,
       messages: [
         {
