@@ -544,12 +544,15 @@ Your conversational response (do NOT include the library link - it will be added
       const maxDistance = 2 * (1 - minSimilarity);
 
       const result = await this.pool.query(
-        `SELECT title, content, (1 - (embedding <=> $2::vector) / 2) as similarity
+        `SELECT title, content, (1 - (embedding <=> $2::vector) / 2) as similarity,
+                (1 - (embedding <=> $2::vector) / 2) *
+                  (1.0 / (1.0 + EXTRACT(EPOCH FROM (NOW() - created_at)) / (86400 * 60)))
+                  as recency_score
          FROM library_entries
          WHERE user_id = $1
            AND embedding IS NOT NULL
            AND (embedding <=> $2::vector) <= $4
-         ORDER BY embedding <=> $2::vector
+         ORDER BY recency_score DESC
          LIMIT $3`,
         [userId, embeddingString, limit, maxDistance]
       );

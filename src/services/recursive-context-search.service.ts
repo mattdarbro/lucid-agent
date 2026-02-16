@@ -364,12 +364,15 @@ export class RecursiveContextSearchService {
 
       const result = await this.pool.query(
         `SELECT id, title, content,
-                1 - (embedding <=> $1::vector) as similarity
+                1 - (embedding <=> $1::vector) as similarity,
+                (1 - (embedding <=> $1::vector)) *
+                  (1.0 / (1.0 + EXTRACT(EPOCH FROM (NOW() - created_at)) / (86400 * 60)))
+                  as recency_score
          FROM library_entries
          WHERE user_id = $2
            AND embedding IS NOT NULL
            AND (1 - (embedding <=> $1::vector)) >= $3
-         ORDER BY similarity DESC
+         ORDER BY recency_score DESC
          LIMIT 5`,
         [`[${queryEmbedding.join(',')}]`, userId, config.minSimilarity]
       );
