@@ -194,13 +194,15 @@ export class SelfReviewLoopService {
       // ====== STEP 6: NOTIFY ======
       if (result.prsOpened.length > 0) {
         const prList = result.prsOpened.map(pr => `• #${pr.number}: ${pr.title}`).join('\n');
-        await this.telegramService.sendMessage(
-          `🔍 Lucid reviewed his own code.\n\n${result.prsOpened.length} PR(s) opened for Friday review:\n${prList}`,
-        );
+        await this.telegramService.sendNotification({
+          title: 'Self-Review Complete',
+          body: `${result.prsOpened.length} PR(s) opened for Friday review:\n${prList}`,
+        });
       } else {
-        await this.telegramService.sendMessage(
-          '🔍 Lucid reviewed his own code. No PRs this week — everything looks solid.',
-        );
+        await this.telegramService.sendNotification({
+          title: 'Self-Review Complete',
+          body: 'No PRs this week — everything looks solid.',
+        });
       }
 
       result.success = true;
