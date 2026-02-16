@@ -1,0 +1,44 @@
+-- Migration 044: Health Review Entry Type
+-- Adds 'health_review' to library_entries.entry_type check constraint
+-- for the Apple Health morning/evening health check loops.
+
+-- ============================================================================
+-- UPDATE LIBRARY_ENTRIES ENTRY_TYPE CHECK
+-- ============================================================================
+
+DO $$
+BEGIN
+  ALTER TABLE library_entries DROP CONSTRAINT IF EXISTS library_entries_entry_type_check;
+EXCEPTION
+  WHEN undefined_object THEN NULL;
+END $$;
+
+-- Re-add with all known entry types including health_review
+ALTER TABLE library_entries
+ADD CONSTRAINT library_entries_entry_type_check
+CHECK (entry_type IN (
+  'lucid_thought',
+  'lucid_self_reflection',
+  'orbit_reflection',
+  'vision_appraisal',
+  'possibility_map',
+  'possibilities',
+  'user_reflection',
+  'journal',
+  'reflection',
+  'curiosity',
+  'dream',
+  'consolidation',
+  'state_update',
+  'orbit_update',
+  'deep_thought',
+  'versus_synthesis',
+  'briefing',
+  'insight',
+  'research_journal',
+  'win',
+  'code_review',
+  'investment_recommendation',
+  'spending_proposal',
+  'health_review'
+));
