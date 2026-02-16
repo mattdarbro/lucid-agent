@@ -64,6 +64,7 @@ export class TelegramNotificationService {
     options: {
       parseMode?: 'Markdown' | 'MarkdownV2' | 'HTML';
       disableNotification?: boolean;
+      isPlainTextRetry?: boolean;
     } = {}
   ): Promise<boolean> {
     const targetChatId = chatId || this.defaultChatId;
@@ -81,17 +82,23 @@ export class TelegramNotificationService {
     try {
       const url = `${this.baseUrl}/bot${this.botToken}/sendMessage`;
 
+      const parseMode = options.isPlainTextRetry ? undefined : (options.parseMode || 'Markdown');
+
+      const requestBody: Record<string, any> = {
+        chat_id: targetChatId,
+        text,
+        disable_notification: options.disableNotification || false,
+      };
+      if (parseMode) {
+        requestBody.parse_mode = parseMode;
+      }
+
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          chat_id: targetChatId,
-          text,
-          parse_mode: options.parseMode || 'Markdown',
-          disable_notification: options.disableNotification || false,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const result = await response.json() as TelegramResponse;
@@ -101,6 +108,20 @@ export class TelegramNotificationService {
           error_code: result.error_code,
           description: result.description,
         });
+
+        // If the error is a Markdown/HTML parse failure, retry as plain text
+        if (
+          result.error_code === 400 &&
+          result.description?.includes("can't parse entities") &&
+          !options.isPlainTextRetry
+        ) {
+          logger.info('Retrying Telegram message as plain text');
+          return this.sendMessage(text, chatId, {
+            ...options,
+            isPlainTextRetry: true,
+          });
+        }
+
         return false;
       }
 
@@ -123,11 +144,12 @@ export class TelegramNotificationService {
    */
   async sendNotification(notification: TelegramNotification): Promise<boolean> {
     // Format the notification as a Telegram message
-    let text = `*${this.escapeMarkdown(notification.title)}*\n\n${notification.body}`;
+    // Escape both title and body to prevent Markdown parse errors from LLM-generated content
+    let text = `*${this.escapeMarkdown(notification.title)}*\n\n${this.escapeMarkdown(notification.body)}`;
 
-    // Add data context if present
+    // Add data context if present (escape type value to avoid underscore conflicts with italic markers)
     if (notification.data?.type) {
-      text += `\n\n_Type: ${notification.data.type}_`;
+      text += `\n\n_Type: ${this.escapeMarkdown(notification.data.type)}_`;
     }
 
     return this.sendMessage(text);
