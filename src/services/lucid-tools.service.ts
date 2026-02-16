@@ -879,12 +879,15 @@ Focus on information most relevant to the query and purpose.`;
       const result = await this.pool.query(
         `SELECT id, entry_type, title, content,
                 (1 - (embedding <=> $2::vector) / 2) as similarity,
-                created_at
+                created_at,
+                (1 - (embedding <=> $2::vector) / 2) *
+                  (1.0 / (1.0 + EXTRACT(EPOCH FROM (NOW() - created_at)) / (86400 * 60)))
+                  as recency_score
          FROM library_entries
          WHERE user_id = $1
            AND embedding IS NOT NULL
            AND (embedding <=> $2::vector) <= 0.5
-         ORDER BY embedding <=> $2::vector
+         ORDER BY recency_score DESC
          LIMIT $3`,
         [userId, embeddingString, limit]
       );
