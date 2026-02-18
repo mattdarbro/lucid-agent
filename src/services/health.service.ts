@@ -17,6 +17,16 @@ import {
  * Lucid's morning/evening health check loops query this service for daily summaries.
  */
 export class HealthService {
+  /**
+   * Metrics where the iOS app sends pre-aggregated daily totals (one row per day
+   * at midnight UTC) instead of individual HealthKit samples.
+   */
+  private static readonly CUMULATIVE_DAILY_METRICS = new Set([
+    'steps',
+    'active_energy',
+    'exercise_minutes',
+  ]);
+
   constructor(private pool: Pool) {}
 
   /**
@@ -165,8 +175,9 @@ export class HealthService {
    * Aggregates all metrics for a given day into a structured snapshot.
    */
   async getDailySummary(userId: string, date: string): Promise<DailyHealthSummary> {
-    const dayStart = `${date}T00:00:00`;
-    const dayEnd = `${date}T23:59:59`;
+    // Explicit UTC so day boundaries match iOS-synced timestamps (recorded_at at midnight UTC)
+    const dayStart = `${date}T00:00:00Z`;
+    const dayEnd = `${date}T23:59:59.999Z`;
 
     const result = await this.pool.query(
       `SELECT metric_type, value, unit, recorded_at
@@ -213,11 +224,13 @@ export class HealthService {
       };
     }
 
-    // Steps: sum for the day
+    // Steps: daily total (iOS sends one pre-aggregated row per day at midnight UTC)
     const steps = byType.get('steps');
     if (steps?.length) {
-      const totalSteps = steps.reduce((sum, s) => sum + s.value, 0);
-      summary.steps = { value: totalSteps, recorded_at: steps[0].recorded_at };
+      summary.steps = {
+        value: this.aggregateCumulative(steps),
+        recorded_at: steps[0].recorded_at,
+      };
     }
 
     // Heart rate: avg, min, max across readings
@@ -247,18 +260,21 @@ export class HealthService {
       summary.sleep_duration = { hours: totalHours, recorded_at: sleep[0].recorded_at };
     }
 
-    // Active energy: sum
+    // Active energy: daily total (iOS sends one pre-aggregated row per day)
     const energy = byType.get('active_energy');
     if (energy?.length) {
-      const total = energy.reduce((sum, e) => sum + e.value, 0);
-      summary.active_energy = { value: Math.round(total), unit: energy[0].unit };
+      summary.active_energy = {
+        value: Math.round(this.aggregateCumulative(energy)),
+        unit: energy[0].unit,
+      };
     }
 
-    // Exercise minutes: sum
+    // Exercise minutes: daily total (iOS sends one pre-aggregated row per day)
     const exercise = byType.get('exercise_minutes');
     if (exercise?.length) {
-      const total = exercise.reduce((sum, e) => sum + e.value, 0);
-      summary.exercise_minutes = { value: Math.round(total) };
+      summary.exercise_minutes = {
+        value: Math.round(this.aggregateCumulative(exercise)),
+      };
     }
 
     return summary;
@@ -353,6 +369,39 @@ export class HealthService {
       [userId]
     );
     return result.rows.map(this.mapRow);
+  }
+
+  /**
+   * Aggregate a cumulative daily metric (steps, active_energy, exercise_minutes).
+   *
+   * The iOS app now sends one pre-aggregated row per day at midnight UTC.
+   * Old data may still have individual HealthKit samples throughout the day.
+   *
+   * Strategy:
+   * - Single row → use it directly
+   * - Multiple rows with a midnight-UTC row → use the midnight row (daily total)
+   * - Multiple rows without midnight row → sum all (legacy fragment behavior)
+   */
+  private aggregateCumulative(
+    entries: Array<{ value: number; unit: string; recorded_at: Date }>
+  ): number {
+    if (entries.length === 1) {
+      return entries[0].value;
+    }
+
+    // Look for a daily total row (midnight UTC from new iOS format)
+    const midnightEntries = entries.filter((e) => {
+      const d = e.recorded_at;
+      return d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0;
+    });
+
+    if (midnightEntries.length === 1) {
+      // New iOS format: daily total at midnight UTC — use it directly
+      return midnightEntries[0].value;
+    }
+
+    // Legacy format: sum individual samples
+    return entries.reduce((sum, e) => sum + e.value, 0);
   }
 
   private mapRow(row: any): HealthMetric {
