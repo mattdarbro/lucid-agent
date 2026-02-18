@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { logger } from '../logger';
-import { HealthMetric, DailyHealthSummary, HealthMetricType } from '../types/database';
+import { HealthMetric, DailyHealthSummary, HealthMetricType, ActivitySample } from '../types/database';
 import {
   CreateHealthMetricInput,
   BatchHealthMetricsInput,
@@ -180,7 +180,7 @@ export class HealthService {
     const dayEnd = `${date}T23:59:59.999Z`;
 
     const result = await this.pool.query(
-      `SELECT metric_type, value, unit, recorded_at
+      `SELECT metric_type, value, unit, recorded_at, metadata
        FROM health_metrics
        WHERE user_id = $1
          AND recorded_at >= $2::timestamptz
@@ -192,13 +192,14 @@ export class HealthService {
     const summary: DailyHealthSummary = { date };
 
     // Group metrics by type
-    const byType = new Map<string, Array<{ value: number; unit: string; recorded_at: Date }>>();
+    const byType = new Map<string, Array<{ value: number; unit: string; recorded_at: Date; metadata: Record<string, any> }>>();
     for (const row of result.rows) {
       const entries = byType.get(row.metric_type) || [];
       entries.push({
         value: parseFloat(row.value),
         unit: row.unit,
         recorded_at: new Date(row.recorded_at),
+        metadata: row.metadata || {},
       });
       byType.set(row.metric_type, entries);
     }
@@ -224,12 +225,14 @@ export class HealthService {
       };
     }
 
-    // Steps: daily total (iOS sends one pre-aggregated row per day at midnight UTC)
+    // Steps: daily total + optional per-sample breakdown for activity patterns
     const steps = byType.get('steps');
     if (steps?.length) {
+      const { total, samples } = this.aggregateCumulative(steps);
       summary.steps = {
-        value: this.aggregateCumulative(steps),
+        value: total,
         recorded_at: steps[0].recorded_at,
+        ...(samples.length > 0 && { samples }),
       };
     }
 
@@ -260,20 +263,24 @@ export class HealthService {
       summary.sleep_duration = { hours: totalHours, recorded_at: sleep[0].recorded_at };
     }
 
-    // Active energy: daily total (iOS sends one pre-aggregated row per day)
+    // Active energy: daily total + optional per-sample breakdown
     const energy = byType.get('active_energy');
     if (energy?.length) {
+      const { total, samples } = this.aggregateCumulative(energy);
       summary.active_energy = {
-        value: Math.round(this.aggregateCumulative(energy)),
+        value: Math.round(total),
         unit: energy[0].unit,
+        ...(samples.length > 0 && { samples }),
       };
     }
 
-    // Exercise minutes: daily total (iOS sends one pre-aggregated row per day)
+    // Exercise minutes: daily total + optional per-sample breakdown
     const exercise = byType.get('exercise_minutes');
     if (exercise?.length) {
+      const { total, samples } = this.aggregateCumulative(exercise);
       summary.exercise_minutes = {
-        value: Math.round(this.aggregateCumulative(exercise)),
+        value: Math.round(total),
+        ...(samples.length > 0 && { samples }),
       };
     }
 
@@ -316,6 +323,8 @@ export class HealthService {
     }
     if (summary.steps) {
       lines.push(`  Steps: ${summary.steps.value.toLocaleString()}`);
+      const pattern = this.formatActivityPattern(summary.steps.samples);
+      if (pattern) lines.push(`    ${pattern}`);
     }
     if (summary.heart_rate) {
       lines.push(`  Heart Rate: avg ${summary.heart_rate.avg} bpm (${summary.heart_rate.min}-${summary.heart_rate.max})`);
@@ -328,9 +337,13 @@ export class HealthService {
     }
     if (summary.active_energy) {
       lines.push(`  Active Energy: ${summary.active_energy.value} ${summary.active_energy.unit}`);
+      const pattern = this.formatActivityPattern(summary.active_energy.samples);
+      if (pattern) lines.push(`    ${pattern}`);
     }
     if (summary.exercise_minutes) {
       lines.push(`  Exercise: ${summary.exercise_minutes.value} minutes`);
+      const pattern = this.formatActivityPattern(summary.exercise_minutes.samples);
+      if (pattern) lines.push(`    ${pattern}`);
     }
 
     if (lines.length === 1) {
@@ -374,34 +387,80 @@ export class HealthService {
   /**
    * Aggregate a cumulative daily metric (steps, active_energy, exercise_minutes).
    *
-   * The iOS app now sends one pre-aggregated row per day at midnight UTC.
-   * Old data may still have individual HealthKit samples throughout the day.
+   * The iOS app sends two kinds of records distinguished by metadata.granularity:
+   *   - "daily_total": one authoritative row per day with the summed value
+   *   - "sample": individual HealthKit readings with original timestamps
    *
-   * Strategy:
-   * - Single row → use it directly
-   * - Multiple rows with a midnight-UTC row → use the midnight row (daily total)
-   * - Multiple rows without midnight row → sum all (legacy fragment behavior)
+   * Returns the daily total and any individual samples (for time-of-day analysis).
+   *
+   * Legacy data (no granularity metadata) falls back to midnight-UTC detection
+   * or summing all rows.
    */
   private aggregateCumulative(
-    entries: Array<{ value: number; unit: string; recorded_at: Date }>
-  ): number {
-    if (entries.length === 1) {
-      return entries[0].value;
+    entries: Array<{ value: number; unit: string; recorded_at: Date; metadata: Record<string, any> }>
+  ): { total: number; samples: ActivitySample[] } {
+    // New iOS format: use metadata.granularity to distinguish daily_total from samples
+    const dailyTotalEntry = entries.find((e) => e.metadata?.granularity === 'daily_total');
+    const sampleEntries = entries.filter((e) => e.metadata?.granularity === 'sample');
+
+    if (dailyTotalEntry) {
+      return {
+        total: dailyTotalEntry.value,
+        samples: sampleEntries.map((s) => ({ value: s.value, recorded_at: s.recorded_at })),
+      };
     }
 
-    // Look for a daily total row (midnight UTC from new iOS format)
+    // --- Legacy fallback (data without granularity metadata) ---
+
+    if (entries.length === 1) {
+      return { total: entries[0].value, samples: [] };
+    }
+
+    // Look for a daily total row (midnight UTC from old iOS format)
     const midnightEntries = entries.filter((e) => {
       const d = e.recorded_at;
       return d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0;
     });
 
     if (midnightEntries.length === 1) {
-      // New iOS format: daily total at midnight UTC — use it directly
-      return midnightEntries[0].value;
+      return { total: midnightEntries[0].value, samples: [] };
     }
 
     // Legacy format: sum individual samples
-    return entries.reduce((sum, e) => sum + e.value, 0);
+    return { total: entries.reduce((sum, e) => sum + e.value, 0), samples: [] };
+  }
+
+  /**
+   * Bucket activity samples into 3-hour windows so Lucid can see
+   * time-of-day patterns (e.g. "most steps in the afternoon").
+   *
+   * Returns a compact one-liner like:
+   *   "By time (UTC): 06-09h: 1,200 | 09-12h: 890 | 15-18h: 1,320"
+   *
+   * Returns empty string when there are fewer than 2 samples.
+   */
+  private formatActivityPattern(samples?: ActivitySample[]): string {
+    if (!samples || samples.length < 2) return '';
+
+    // Bucket into 3-hour windows (0-3, 3-6, ..., 21-24)
+    const buckets = new Map<number, number>();
+    for (const s of samples) {
+      const hour = s.recorded_at.getUTCHours();
+      const bucketStart = Math.floor(hour / 3) * 3;
+      buckets.set(bucketStart, (buckets.get(bucketStart) || 0) + s.value);
+    }
+
+    const parts = Array.from(buckets.entries())
+      .filter(([, total]) => total > 0)
+      .sort(([a], [b]) => a - b)
+      .map(([start, total]) => {
+        const end = start + 3;
+        const pad = (n: number) => n.toString().padStart(2, '0');
+        return `${pad(start)}-${pad(end)}h: ${Math.round(total).toLocaleString()}`;
+      });
+
+    if (parts.length === 0) return '';
+    return `By time (UTC): ${parts.join(' | ')}`;
   }
 
   private mapRow(row: any): HealthMetric {
