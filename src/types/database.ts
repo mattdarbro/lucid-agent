@@ -617,20 +617,32 @@ export interface HealthMetric {
   updated_at: Date;
 }
 
+/** A single HealthKit sample for a cumulative metric (steps, energy, exercise). */
+export interface ActivitySample {
+  value: number;
+  recorded_at: Date;
+}
+
 /**
  * A day's health summary assembled from individual metrics.
  * Used by the health check loops to give Lucid a daily snapshot.
+ *
+ * For cumulative metrics (steps, active_energy, exercise_minutes) the iOS app
+ * now sends both a daily_total record AND individual samples.  The `value`
+ * field always holds the authoritative daily total; the optional `samples`
+ * array carries the individual HealthKit readings so Lucid can reason about
+ * time-of-day activity patterns.
  */
 export interface DailyHealthSummary {
   date: string; // YYYY-MM-DD
   blood_pressure?: { systolic: number; diastolic: number; recorded_at: Date };
   weight?: { value: number; unit: string; recorded_at: Date };
-  steps?: { value: number; recorded_at: Date };
+  steps?: { value: number; recorded_at: Date; samples?: ActivitySample[] };
   heart_rate?: { avg: number; min: number; max: number };
   resting_heart_rate?: { value: number; recorded_at: Date };
   sleep_duration?: { hours: number; recorded_at: Date };
-  active_energy?: { value: number; unit: string };
-  exercise_minutes?: { value: number };
+  active_energy?: { value: number; unit: string; samples?: ActivitySample[] };
+  exercise_minutes?: { value: number; samples?: ActivitySample[] };
 }
 
 // ============================================================================
