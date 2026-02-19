@@ -6,7 +6,7 @@ import { MessageService } from './message.service';
 import { WebSearchService, WebSearchResult } from './web-search.service';
 import { AlphaVantageService } from './alpha-vantage.service';
 import { GrokService } from './grok.service';
-import { TelegramNotificationService } from './telegram-notification.service';
+import { DispatchNotificationService } from './dispatch-notification.service';
 import { LibraryEntryType, Action, InvestmentRecommendationData } from '../types/database';
 import { SeedService } from './seed.service';
 import { HealthService } from './health.service';
@@ -49,7 +49,7 @@ export class AutonomousLoopService {
   private webSearchService: WebSearchService;
   private alphaVantageService: AlphaVantageService;
   private grokService: GrokService;
-  private telegramService: TelegramNotificationService;
+  private dispatchService: DispatchNotificationService;
   private seedService: SeedService;
   private healthService: HealthService;
   private readonly model = 'claude-sonnet-4-20250514';
@@ -64,7 +64,7 @@ export class AutonomousLoopService {
     this.webSearchService = new WebSearchService();
     this.alphaVantageService = new AlphaVantageService();
     this.grokService = new GrokService();
-    this.telegramService = new TelegramNotificationService();
+    this.dispatchService = new DispatchNotificationService();
     this.seedService = new SeedService(pool);
     this.healthService = new HealthService(pool);
   }
@@ -256,8 +256,8 @@ TITLE: [What this seed became]
       });
 
       // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendSeedGrownNotification(title, content);
+      if (this.dispatchService.isEnabled()) {
+        await this.dispatchService.sendSeedGrownNotification(title, content);
       }
 
       return result;
@@ -459,8 +459,8 @@ Write the briefing now:`;
       });
 
       // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendSeedBriefingNotification(briefingContent);
+      if (this.dispatchService.isEnabled()) {
+        await this.dispatchService.sendSeedBriefingNotification(briefingContent);
       }
 
       return result;
@@ -782,8 +782,8 @@ Write the weekly seed reflection now:`;
       });
 
       // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendWeeklySeedReflection(digestContent);
+      if (this.dispatchService.isEnabled()) {
+        await this.dispatchService.sendWeeklySeedReflection(digestContent);
       }
 
       return result;
@@ -1097,8 +1097,8 @@ Write the research summary now:`;
       });
 
       // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendResearchNotification(title, synthesisContent);
+      if (this.dispatchService.isEnabled()) {
+        await this.dispatchService.sendResearchNotification(title, synthesisContent);
       }
 
       return result;
@@ -1447,8 +1447,8 @@ Remember: Matt executes on Robinhood, so keep symbol names clear and include the
       });
 
       // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendInvestmentRecommendation(
+      if (this.dispatchService.isEnabled()) {
+        await this.dispatchService.sendInvestmentRecommendation(
           result.steps.synthesis,
           budgetRemaining,
           budgetTotal
@@ -1707,8 +1707,8 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
       });
 
       // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendSpendingProposal(
+      if (this.dispatchService.isEnabled()) {
+        await this.dispatchService.sendSpendingProposal(
           result.steps.synthesis,
           budgetRemaining,
           budgetTotal
@@ -2566,10 +2566,10 @@ TITLE: [Brief morning health title]
       });
 
       // Send Telegram notification if blood pressure is elevated
-      if (this.telegramService.isEnabled() && yesterdaySummary.blood_pressure) {
+      if (this.dispatchService.isEnabled() && yesterdaySummary.blood_pressure) {
         const { systolic, diastolic } = yesterdaySummary.blood_pressure;
         if (systolic >= 140 || diastolic >= 90) {
-          await this.telegramService.sendNotification({
+          await this.dispatchService.sendNotification({
             title: 'Health Alert',
             body: `Matt's BP was ${systolic}/${diastolic} yesterday.\n\n${title}`,
             data: { type: 'health_alert', metric: 'blood_pressure' },

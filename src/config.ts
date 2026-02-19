@@ -88,11 +88,12 @@ export const config = {
     enabled: !!process.env.GROK_API_KEY,
   },
 
-  // Telegram Notifications
-  telegram: {
-    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
-    chatId: process.env.TELEGRAM_CHAT_ID || '',
-    enabled: !!process.env.TELEGRAM_BOT_TOKEN && !!process.env.TELEGRAM_CHAT_ID,
+  // Dispatch Notifications
+  dispatch: {
+    apiUrl: process.env.DISPATCH_API_URL || 'https://studio-api-production-3deb.up.railway.app',
+    appKey: process.env.DISPATCH_APP_KEY || '',
+    senderId: process.env.DISPATCH_SENDER_ID || 'lucid',
+    enabled: !!process.env.DISPATCH_APP_KEY,
   },
 
   // APNs (Apple Push Notifications) - Optional

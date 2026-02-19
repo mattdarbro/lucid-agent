@@ -36,6 +36,8 @@ import calendarRouter from './routes/calendar';
 import peopleRouter from './routes/people';
 // Health metrics (Apple HealthKit integration)
 import { createHealthRouter } from './routes/health';
+// Dispatch webhook (two-way messaging)
+import dispatchWebhookRouter from './routes/dispatch-webhook';
 
 // Validate configuration on startup
 try {
@@ -197,6 +199,9 @@ app.use('/v1/possibilities', possibilitiesRouter);
 
 // Health metrics (Apple HealthKit data from iOS app)
 app.use('/v1/health', createHealthRouter(pool));
+
+// Dispatch webhook (replies from Dispatch app)
+app.use('/v1/dispatch-webhook', dispatchWebhookRouter);
 
 // TODO: Memory endpoints (unified memory interface)
 // app.use('/v1/memory', memoryRouter);
