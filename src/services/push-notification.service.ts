@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { logger } from '../logger';
-import { TelegramNotificationService } from './telegram-notification.service';
+import { DispatchNotificationService } from './dispatch-notification.service';
 
 /**
  * Push notification payload
@@ -16,15 +16,15 @@ interface PushNotification {
  *
  * Handles push notifications for Lucid.
  * Supports multiple channels:
- * - Telegram (enabled via TELEGRAM_BOT_TOKEN) - recommended for proactive notifications
+ * - Dispatch (enabled via DISPATCH_APP_KEY) - recommended for proactive notifications
  * - APNs (Apple Push) - requires iOS app and certificates
  * - FCM (Firebase) - for cross-platform
  */
 export class PushNotificationService {
-  private telegramService: TelegramNotificationService;
+  private dispatchService: DispatchNotificationService;
 
   constructor(private pool: Pool) {
-    this.telegramService = new TelegramNotificationService();
+    this.dispatchService = new DispatchNotificationService();
   }
 
   /**
@@ -84,18 +84,18 @@ export class PushNotificationService {
    * Send a push notification to a user
    *
    * Attempts to send via multiple channels:
-   * 1. Telegram (if configured) - works without app running
+   * 1. Dispatch (if configured) - works without app running
    * 2. APNs (if push token registered) - requires iOS app
    */
   async sendNotification(userId: string, notification: PushNotification): Promise<boolean> {
     let sent = false;
 
     try {
-      // Try Telegram first (most reliable for proactive notifications)
-      if (this.telegramService.isEnabled()) {
-        const telegramSent = await this.telegramService.sendNotification(notification);
-        if (telegramSent) {
-          logger.info('Notification sent via Telegram', {
+      // Try Dispatch first (most reliable for proactive notifications)
+      if (this.dispatchService.isEnabled()) {
+        const dispatchSent = await this.dispatchService.sendNotification(notification);
+        if (dispatchSent) {
+          logger.info('Notification sent via Dispatch', {
             userId,
             title: notification.title,
           });
@@ -149,10 +149,10 @@ export class PushNotificationService {
   }
 
   /**
-   * Get the Telegram service for direct access
+   * Get the Dispatch service for direct access
    */
-  getTelegramService(): TelegramNotificationService {
-    return this.telegramService;
+  getDispatchService(): DispatchNotificationService {
+    return this.dispatchService;
   }
 
   /**
