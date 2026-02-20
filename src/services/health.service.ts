@@ -6,6 +6,7 @@ import {
   BatchHealthMetricsInput,
   QueryHealthMetricsInput,
 } from '../validation/health.validation';
+import { chicagoDayBounds, chicagoDateStr } from '../utils/chicago-time';
 
 /**
  * HealthService
@@ -211,9 +212,11 @@ export class HealthService {
    * Aggregates all metrics for a given day into a structured snapshot.
    */
   async getDailySummary(userId: string, date: string): Promise<DailyHealthSummary> {
-    // Explicit UTC so day boundaries match iOS-synced timestamps (recorded_at at midnight UTC)
-    const dayStart = `${date}T00:00:00Z`;
-    const dayEnd = `${date}T23:59:59.999Z`;
+    // Use Chicago day boundaries so "today" means midnight-to-midnight Central.
+    // This ensures evening readings (after 6pm CST / 7pm CDT) and daily totals
+    // (recorded at midnight UTC, which is ~6pm Chicago previous day) land in
+    // the correct Chicago calendar day.
+    const { start, end } = chicagoDayBounds(date);
 
     const result = await this.pool.query(
       `SELECT metric_type, value, unit, recorded_at, metadata
@@ -222,7 +225,7 @@ export class HealthService {
          AND recorded_at >= $2::timestamptz
          AND recorded_at <= $3::timestamptz
        ORDER BY recorded_at DESC`,
-      [userId, dayStart, dayEnd]
+      [userId, start.toISOString(), end.toISOString()]
     );
 
     const summary: DailyHealthSummary = { date };
@@ -331,13 +334,15 @@ export class HealthService {
     days: number,
     endDate?: string
   ): Promise<DailyHealthSummary[]> {
-    const end = endDate ? new Date(endDate) : new Date();
+    // Compute date strings in Chicago timezone so day boundaries are consistent
+    const endDateStr = endDate ?? chicagoDateStr();
     const summaries: DailyHealthSummary[] = [];
 
+    // Walk backwards from endDate by parsing Chicago date and decrementing
+    const [y, m, d] = endDateStr.split('-').map(Number);
     for (let i = 0; i < days; i++) {
-      const d = new Date(end);
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dt = new Date(Date.UTC(y, m - 1, d - i));
+      const dateStr = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
       const summary = await this.getDailySummary(userId, dateStr);
       summaries.push(summary);
     }
