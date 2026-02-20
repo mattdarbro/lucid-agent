@@ -193,7 +193,7 @@ export class BackgroundJobsService {
   private async dispatchPendingNotifications(): Promise<void> {
     try {
       if (!this.pushNotificationService.isEnabled()) {
-        logger.debug('[DISPATCH] Push notifications not configured, skipping');
+        logger.warn('[DISPATCH] Push notifications not configured — check APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_PATH, APNS_BUNDLE_ID env vars');
         return;
       }
 
@@ -269,6 +269,13 @@ export class BackgroundJobsService {
             notificationId: notification.id,
             userId,
             priority: notification.priority,
+          });
+        } else {
+          logger.warn('[DISPATCH] Thought notification failed to send (no error thrown)', {
+            notificationId: notification.id,
+            userId,
+            priority: notification.priority,
+            apnsEnabled: this.pushNotificationService.isEnabled(),
           });
         }
       } catch (error: any) {
