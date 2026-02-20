@@ -19,20 +19,18 @@ describe('HealthService', () => {
 
   // -----------------------------------------------------------------------
   // getDailySummary — aggregateCumulative is exercised through this
+  //
+  // getDailySummary now makes TWO queries:
+  //   1. Main query: Chicago day bounds (e.g. 06:00Z–05:59Z+1 for CST)
+  //   2. Supplementary: midnight-UTC records for cumulative metrics
+  //      (steps, active_energy, exercise_minutes) that fall before the
+  //      Chicago day start.
   // -----------------------------------------------------------------------
   describe('getDailySummary', () => {
-    it('should use daily_total record and attach samples when granularity metadata is present', async () => {
+    it('should use daily_total from supplementary midnight-UTC query and samples from main query', async () => {
+      // Main query: samples within Chicago day bounds
       (mockPool.query as any).mockResolvedValueOnce({
         rows: [
-          // daily_total
-          {
-            metric_type: 'steps',
-            value: '5900',
-            unit: 'steps',
-            recorded_at: '2026-02-17T00:00:00Z',
-            metadata: { granularity: 'daily_total' },
-          },
-          // individual samples
           {
             metric_type: 'steps',
             value: '1200',
@@ -56,6 +54,18 @@ describe('HealthService', () => {
           },
         ],
       });
+      // Supplementary query: daily_total at midnight UTC
+      (mockPool.query as any).mockResolvedValueOnce({
+        rows: [
+          {
+            metric_type: 'steps',
+            value: '5900',
+            unit: 'steps',
+            recorded_at: '2026-02-17T00:00:00Z',
+            metadata: { granularity: 'daily_total' },
+          },
+        ],
+      });
 
       const summary = await healthService.getDailySummary('user-1', '2026-02-17');
 
@@ -70,6 +80,9 @@ describe('HealthService', () => {
     });
 
     it('should handle daily_total without any samples (no samples sent yet)', async () => {
+      // Main query: nothing within Chicago day bounds
+      (mockPool.query as any).mockResolvedValueOnce({ rows: [] });
+      // Supplementary: daily_total at midnight UTC
       (mockPool.query as any).mockResolvedValueOnce({
         rows: [
           {
@@ -88,23 +101,27 @@ describe('HealthService', () => {
       expect(summary.steps?.samples).toBeUndefined();
     });
 
-    it('should fall back to legacy midnight detection when no granularity metadata', async () => {
+    it('should fall back to legacy midnight detection via supplementary query', async () => {
+      // Main query: stale fragment within Chicago bounds
       (mockPool.query as any).mockResolvedValueOnce({
         rows: [
-          // Legacy midnight-UTC consolidated row (no granularity metadata)
-          {
-            metric_type: 'steps',
-            value: '7500',
-            unit: 'steps',
-            recorded_at: '2026-02-17T00:00:00Z',
-            metadata: {},
-          },
-          // Stale fragment (shouldn't happen after migration 045 but be safe)
           {
             metric_type: 'steps',
             value: '200',
             unit: 'steps',
             recorded_at: '2026-02-17T14:00:00Z',
+            metadata: {},
+          },
+        ],
+      });
+      // Supplementary: legacy midnight-UTC consolidated row (no granularity)
+      (mockPool.query as any).mockResolvedValueOnce({
+        rows: [
+          {
+            metric_type: 'steps',
+            value: '7500',
+            unit: 'steps',
+            recorded_at: '2026-02-17T00:00:00Z',
             metadata: {},
           },
         ],
@@ -118,6 +135,7 @@ describe('HealthService', () => {
     });
 
     it('should fall back to summing when legacy data has no midnight row', async () => {
+      // Main query: fragments within Chicago bounds
       (mockPool.query as any).mockResolvedValueOnce({
         rows: [
           {
@@ -136,6 +154,8 @@ describe('HealthService', () => {
           },
         ],
       });
+      // Supplementary: nothing at midnight UTC
+      (mockPool.query as any).mockResolvedValueOnce({ rows: [] });
 
       const summary = await healthService.getDailySummary('user-1', '2026-02-17');
       expect(summary.steps?.value).toBe(750);
@@ -143,15 +163,9 @@ describe('HealthService', () => {
     });
 
     it('should handle active_energy and exercise_minutes with granularity', async () => {
+      // Main query: samples within Chicago bounds
       (mockPool.query as any).mockResolvedValueOnce({
         rows: [
-          {
-            metric_type: 'active_energy',
-            value: '420',
-            unit: 'kcal',
-            recorded_at: '2026-02-17T00:00:00Z',
-            metadata: { granularity: 'daily_total' },
-          },
           {
             metric_type: 'active_energy',
             value: '150',
@@ -165,6 +179,18 @@ describe('HealthService', () => {
             unit: 'kcal',
             recorded_at: '2026-02-17T17:30:00Z',
             metadata: { granularity: 'sample' },
+          },
+        ],
+      });
+      // Supplementary: daily_totals at midnight UTC
+      (mockPool.query as any).mockResolvedValueOnce({
+        rows: [
+          {
+            metric_type: 'active_energy',
+            value: '420',
+            unit: 'kcal',
+            recorded_at: '2026-02-17T00:00:00Z',
+            metadata: { granularity: 'daily_total' },
           },
           {
             metric_type: 'exercise_minutes',
@@ -182,6 +208,46 @@ describe('HealthService', () => {
       expect(summary.active_energy?.samples).toHaveLength(2);
       expect(summary.exercise_minutes?.value).toBe(45);
       expect(summary.exercise_minutes?.samples).toBeUndefined(); // no samples for exercise
+    });
+
+    it('should not double-count when daily_total appears in both queries', async () => {
+      // Edge case: if somehow the daily_total is in both result sets
+      (mockPool.query as any).mockResolvedValueOnce({
+        rows: [
+          {
+            metric_type: 'steps',
+            value: '5900',
+            unit: 'steps',
+            recorded_at: '2026-02-17T00:00:00Z',
+            metadata: { granularity: 'daily_total' },
+          },
+          {
+            metric_type: 'steps',
+            value: '1200',
+            unit: 'steps',
+            recorded_at: '2026-02-17T08:15:00Z',
+            metadata: { granularity: 'sample' },
+          },
+        ],
+      });
+      // Supplementary also returns the same daily_total
+      (mockPool.query as any).mockResolvedValueOnce({
+        rows: [
+          {
+            metric_type: 'steps',
+            value: '5900',
+            unit: 'steps',
+            recorded_at: '2026-02-17T00:00:00Z',
+            metadata: { granularity: 'daily_total' },
+          },
+        ],
+      });
+
+      const summary = await healthService.getDailySummary('user-1', '2026-02-17');
+
+      // aggregateCumulative uses .find() for daily_total, so first match wins — value is still 5900
+      expect(summary.steps?.value).toBe(5900);
+      expect(summary.steps?.samples).toHaveLength(1);
     });
   });
 

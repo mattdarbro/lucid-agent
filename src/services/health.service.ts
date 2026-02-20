@@ -214,8 +214,7 @@ export class HealthService {
   async getDailySummary(userId: string, date: string): Promise<DailyHealthSummary> {
     // Use Chicago day boundaries so "today" means midnight-to-midnight Central.
     // This ensures evening readings (after 6pm CST / 7pm CDT) and daily totals
-    // (recorded at midnight UTC, which is ~6pm Chicago previous day) land in
-    // the correct Chicago calendar day.
+    // land in the correct Chicago calendar day.
     const { start, end } = chicagoDayBounds(date);
 
     const result = await this.pool.query(
@@ -228,11 +227,29 @@ export class HealthService {
       [userId, start.toISOString(), end.toISOString()]
     );
 
+    // The iOS app records cumulative daily totals (steps, active_energy,
+    // exercise_minutes) at midnight UTC, which is ~6pm Chicago the previous
+    // calendar day — before the Chicago day boundary starts. Fetch any such
+    // records that the main query missed.
+    const midnightUTC = new Date(`${date}T00:00:00Z`);
+    let cumulativeRows: any[] = [];
+    if (midnightUTC < start) {
+      const cumulativeResult = await this.pool.query(
+        `SELECT metric_type, value, unit, recorded_at, metadata
+         FROM health_metrics
+         WHERE user_id = $1
+           AND recorded_at = $2::timestamptz
+           AND metric_type = ANY($3)`,
+        [userId, midnightUTC.toISOString(), Array.from(HealthService.CUMULATIVE_DAILY_METRICS)]
+      );
+      cumulativeRows = cumulativeResult.rows;
+    }
+
     const summary: DailyHealthSummary = { date };
 
     // Group metrics by type
     const byType = new Map<string, Array<{ value: number; unit: string; recorded_at: Date; metadata: Record<string, any> }>>();
-    for (const row of result.rows) {
+    for (const row of [...result.rows, ...cumulativeRows]) {
       const entries = byType.get(row.metric_type) || [];
       entries.push({
         value: parseFloat(row.value),
