@@ -61,64 +61,100 @@ export class HealthService {
   /**
    * Batch-insert metrics from an iOS HealthKit sync.
    * Uses a single transaction for atomicity.
+   *
+   * Metrics are sorted by the unique-constraint columns before upserting so
+   * that concurrent transactions always acquire row locks in the same order,
+   * preventing deadlocks. A retry loop handles the rare case where a deadlock
+   * still occurs (e.g. interleaving with single-metric inserts).
    */
   async batchCreateMetrics(input: BatchHealthMetricsInput): Promise<{
     inserted: number;
     updated: number;
     total: number;
   }> {
-    const client = await this.pool.connect();
-    let inserted = 0;
-    let updated = 0;
+    const maxRetries = 3;
 
-    try {
-      await client.query('BEGIN');
+    // Sort by the unique-index columns (metric_type, recorded_at, source)
+    // so concurrent transactions lock rows in the same deterministic order.
+    const sortedMetrics = [...input.metrics].sort((a, b) => {
+      const cmp1 = a.metric_type.localeCompare(b.metric_type);
+      if (cmp1 !== 0) return cmp1;
+      const timeA = new Date(a.recorded_at).getTime();
+      const timeB = new Date(b.recorded_at).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      return (a.source ?? 'apple_health').localeCompare(b.source ?? 'apple_health');
+    });
 
-      for (const metric of input.metrics) {
-        const result = await client.query(
-          `INSERT INTO health_metrics (user_id, metric_type, value, unit, recorded_at, source, source_device, metadata)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (user_id, metric_type, recorded_at, source)
-           DO UPDATE SET value = EXCLUDED.value, unit = EXCLUDED.unit,
-                         source_device = EXCLUDED.source_device,
-                         metadata = EXCLUDED.metadata,
-                         updated_at = NOW()
-           RETURNING (xmax = 0) AS is_insert`,
-          [
-            input.user_id,
-            metric.metric_type,
-            metric.value,
-            metric.unit,
-            metric.recorded_at,
-            metric.source,
-            metric.source_device || null,
-            metric.metadata || {},
-          ]
-        );
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const client = await this.pool.connect();
+      let inserted = 0;
+      let updated = 0;
 
-        if (result.rows[0]?.is_insert) {
-          inserted++;
-        } else {
-          updated++;
+      try {
+        await client.query('BEGIN');
+
+        for (const metric of sortedMetrics) {
+          const result = await client.query(
+            `INSERT INTO health_metrics (user_id, metric_type, value, unit, recorded_at, source, source_device, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (user_id, metric_type, recorded_at, source)
+             DO UPDATE SET value = EXCLUDED.value, unit = EXCLUDED.unit,
+                           source_device = EXCLUDED.source_device,
+                           metadata = EXCLUDED.metadata,
+                           updated_at = NOW()
+             RETURNING (xmax = 0) AS is_insert`,
+            [
+              input.user_id,
+              metric.metric_type,
+              metric.value,
+              metric.unit,
+              metric.recorded_at,
+              metric.source,
+              metric.source_device || null,
+              metric.metadata || {},
+            ]
+          );
+
+          if (result.rows[0]?.is_insert) {
+            inserted++;
+          } else {
+            updated++;
+          }
         }
+
+        await client.query('COMMIT');
+
+        logger.info('[HEALTH] Batch sync completed', {
+          userId: input.user_id,
+          inserted,
+          updated,
+          total: input.metrics.length,
+        });
+
+        return { inserted, updated, total: input.metrics.length };
+      } catch (error: any) {
+        await client.query('ROLLBACK');
+
+        // Retry on deadlock (PostgreSQL error code 40P01)
+        if (error?.code === '40P01' && attempt < maxRetries) {
+          const delayMs = 50 * Math.pow(2, attempt - 1); // 50ms, 100ms, 200ms
+          logger.warn('[HEALTH] Deadlock detected, retrying batch sync', {
+            userId: input.user_id,
+            attempt,
+            delayMs,
+          });
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+
+        throw error;
+      } finally {
+        client.release();
       }
-
-      await client.query('COMMIT');
-
-      logger.info('[HEALTH] Batch sync completed', {
-        userId: input.user_id,
-        inserted,
-        updated,
-        total: input.metrics.length,
-      });
-
-      return { inserted, updated, total: input.metrics.length };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
     }
+
+    // Unreachable, but satisfies TypeScript
+    throw new Error('Batch sync exceeded max retries');
   }
 
   /**
