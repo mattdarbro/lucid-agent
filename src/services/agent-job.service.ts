@@ -9,6 +9,7 @@ import {
   JobStatus,
 } from '../validation/agent-job.validation';
 import { logger } from '../logger';
+import { chicagoDateStr, chicagoDayBounds, chicagoDateParts } from '../utils/chicago-time';
 
 export class AgentJobService {
   constructor(
@@ -230,25 +231,8 @@ export class AgentJobService {
 
     // Get start and end of the scheduling day in CHICAGO timezone.
     // Jobs are scheduled in Chicago time, so dedup boundaries must match.
-    // Using server-local time here previously caused evening/night jobs
-    // (which fall in the next UTC day) to be missed by the dedup check,
-    // leading to duplicate job creation on server restarts.
-    const userTimezone = 'America/Chicago';
-    const dateInChicago = new Date(date.toLocaleString('en-US', { timeZone: userTimezone }));
-    const chicagoYear = dateInChicago.getFullYear();
-    const chicagoMonth = dateInChicago.getMonth();
-    const chicagoDay = dateInChicago.getDate();
-
-    // Build day boundaries in Chicago time, then convert to UTC for the query
-    const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
-    const chicagoDate = new Date(date.toLocaleString('en-US', { timeZone: userTimezone }));
-    const offsetMs = utcDate.getTime() - chicagoDate.getTime();
-
-    const dayStartChicago = new Date(chicagoYear, chicagoMonth, chicagoDay, 0, 0, 0, 0);
-    const dayEndChicago = new Date(chicagoYear, chicagoMonth, chicagoDay, 23, 59, 59, 999);
-    // Shift to UTC: add the offset so the query matches the stored UTC timestamps
-    const dayStart = new Date(dayStartChicago.getTime() + offsetMs);
-    const dayEnd = new Date(dayEndChicago.getTime() + offsetMs);
+    const dateStr = chicagoDateStr(date);
+    const { start: dayStart, end: dayEnd } = chicagoDayBounds(dateStr);
 
     // Check for existing jobs for this user on this day (in Chicago timezone)
     const { data: existingJobs, error: checkError } = await this.supabase
@@ -299,8 +283,8 @@ export class AgentJobService {
     ];
 
     // Self-review: Thursday only (day 4) at 10pm Chicago time
-    const chicagoNow = new Date(date.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
-    if (chicagoNow.getDay() === 4) {
+    const { dayOfWeek } = chicagoDateParts(date);
+    if (dayOfWeek === 4) {
       allJobs.push({
         user_id: userId,
         job_type: 'self_review',
@@ -309,7 +293,6 @@ export class AgentJobService {
     }
 
     // Investment research: Sunday (0) through Thursday (4) at 10am Chicago time
-    const dayOfWeek = chicagoNow.getDay();
     if (dayOfWeek >= 0 && dayOfWeek <= 4) {
       allJobs.push({
         user_id: userId,
@@ -319,7 +302,7 @@ export class AgentJobService {
     }
 
     // Ability spending: Friday (5) at 2pm Chicago time
-    if (chicagoNow.getDay() === 5) {
+    if (dayOfWeek === 5) {
       allJobs.push({
         user_id: userId,
         job_type: 'ability_spending',
@@ -366,50 +349,21 @@ export class AgentJobService {
   }
 
   /**
-   * Helper to get scheduled time for a specific hour and minute
-   * Uses Central timezone (America/Chicago) for now
-   * TODO: Use user's timezone from database
+   * Helper to get scheduled time for a specific hour and minute in Chicago time.
+   * Uses chicagoDayBounds to get midnight Chicago in UTC, then adds the target offset.
    */
   private getScheduledTime(date: Date, hour: number, minute: number): Date {
-    // Create a date string in the target timezone
-    // This ensures we schedule at the right LOCAL time for the user
-    const userTimezone = 'America/Chicago'; // Central time - hardcoded for now
+    const dateStr = chicagoDateStr(date);
+    const { start: midnightChicago } = chicagoDayBounds(dateStr);
 
-    // Get today's date in the user's timezone
-    const dateInUserTz = new Date(date.toLocaleString('en-US', { timeZone: userTimezone }));
-
-    // Create the scheduled time in user's timezone
-    const year = dateInUserTz.getFullYear();
-    const month = dateInUserTz.getMonth();
-    const day = dateInUserTz.getDate();
-
-    // Create a date string for the target time in user's timezone
-    // Format: "YYYY-MM-DD HH:MM:SS" interpreted in the user's timezone
-    const targetDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
-
-    // Parse this as a date in the user's timezone and convert to UTC
-    // We need to create a date that, when converted to user's timezone, shows the target time
-    const targetInUserTz = new Date(targetDateStr);
-
-    // Get the timezone offset between user's timezone and UTC
-    const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
-    const userDate = new Date(date.toLocaleString('en-US', { timeZone: userTimezone }));
-    const offsetMs = utcDate.getTime() - userDate.getTime();
-
-    // Adjust to get the correct UTC time
-    const scheduled = new Date(targetInUserTz.getTime() + offsetMs);
-
-    // If we're scheduling for early morning (2am night_dream), it should be next day if already past that time
-    if (hour < 12 && scheduled < date) {
-      scheduled.setDate(scheduled.getDate() + 1);
-    }
+    // midnightChicago is midnight Chicago expressed in UTC; add hours/minutes
+    const scheduled = new Date(midnightChicago.getTime() + hour * 3600000 + minute * 60000);
 
     logger.debug('Scheduled job time', {
       hour,
       minute,
-      userTimezone,
+      dateStr,
       scheduledUTC: scheduled.toISOString(),
-      scheduledLocal: scheduled.toLocaleString('en-US', { timeZone: userTimezone }),
     });
 
     return scheduled;

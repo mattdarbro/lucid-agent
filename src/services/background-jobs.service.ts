@@ -13,6 +13,7 @@ import { SelfReviewLoopService } from './self-review-loop.service';
 import { ThoughtNotificationService } from './thought-notification.service';
 import { PushNotificationService } from './push-notification.service';
 import { JobType } from '../validation/agent-job.validation';
+import { chicagoDateParts } from '../utils/chicago-time';
 
 /**
  * BackgroundJobsService
@@ -209,7 +210,7 @@ export class BackgroundJobsService {
       `);
 
       if (result.rows.length === 0) {
-        logger.debug('[DISPATCH] No pending notifications to dispatch');
+        logger.info('[DISPATCH] No pending notifications to dispatch');
         return;
       }
 
@@ -403,15 +404,12 @@ export class BackgroundJobsService {
 
       case 'afternoon_synthesis':
         // Weekly Digest - only runs on Sundays (in Chicago timezone)
-        const nowUtc = new Date();
-        // Convert to Chicago timezone to check the day
-        const chicagoTime = new Date(nowUtc.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
-        const isSunday = chicagoTime.getDay() === 0;
+        const { dayOfWeek: todayDow } = chicagoDateParts(new Date());
+        const isSunday = todayDow === 0;
 
         if (!isSunday) {
           logger.debug('[AL] Skipping weekly digest - not Sunday', {
-            dayOfWeek: chicagoTime.getDay(),
-            chicagoTime: chicagoTime.toISOString(),
+            dayOfWeek: todayDow,
             userId
           });
           return { thoughtProduced: false, libraryEntryId: null };
@@ -433,9 +431,8 @@ export class BackgroundJobsService {
 
       case 'self_review':
         // First Thursday of the month = full review (20 files), other Thursdays = quick (10 files)
-        const now = new Date();
-        const chicagoDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
-        const isFirstThursday = chicagoDate.getDate() <= 7;
+        const { day: chicagoDay } = chicagoDateParts(new Date());
+        const isFirstThursday = chicagoDay <= 7;
         const reviewDepth = isFirstThursday ? 'full' as const : 'quick' as const;
         logger.info(`[SELF-REVIEW] Running ${reviewDepth} review (${isFirstThursday ? 'first Thursday' : 'weekly'})`);
         const selfReviewResult = await this.selfReviewLoopService.runSelfReview(userId, jobId, reviewDepth);

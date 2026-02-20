@@ -2424,9 +2424,10 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
       // Get yesterday's summary and the last 7 days for trend context
       // Use Chicago dates so day boundaries match the user's local day
       const todayChicago = chicagoDateStr();
+      // Subtract one day using a plain Date to get yesterday in Chicago
       const [y, m, d] = todayChicago.split('-').map(Number);
-      const yDate = new Date(Date.UTC(y, m - 1, d - 1));
-      const yesterdayStr = `${yDate.getUTCFullYear()}-${String(yDate.getUTCMonth() + 1).padStart(2, '0')}-${String(yDate.getUTCDate()).padStart(2, '0')}`;
+      const yesterdayDate = new Date(y, m - 1, d - 1);
+      const yesterdayStr = chicagoDateStr(yesterdayDate);
 
       const yesterdaySummary = await this.healthService.getDailySummary(userId, yesterdayStr);
       const weekSummaries = await this.healthService.getMultiDaySummaries(userId, 7);
@@ -2631,9 +2632,10 @@ TITLE: [Brief morning health title]
       // Get today's data and yesterday for comparison
       // Use Chicago dates — at 8:30pm Chicago the UTC date is already tomorrow
       const todayStr = chicagoDateStr();
+      // Subtract one day using a plain Date to get yesterday in Chicago
       const [ey, em, ed] = todayStr.split('-').map(Number);
-      const yDate = new Date(Date.UTC(ey, em - 1, ed - 1));
-      const yesterdayStr = `${yDate.getUTCFullYear()}-${String(yDate.getUTCMonth() + 1).padStart(2, '0')}-${String(yDate.getUTCDate()).padStart(2, '0')}`;
+      const yesterdayDate = new Date(ey, em - 1, ed - 1);
+      const yesterdayStr = chicagoDateStr(yesterdayDate);
 
       const todaySummary = await this.healthService.getDailySummary(userId, todayStr);
       const yesterdaySummary = await this.healthService.getDailySummary(userId, yesterdayStr);
@@ -2783,7 +2785,7 @@ TITLE: [Brief evening health title]
    */
   private async getTodaysMorningHealthReview(userId: string): Promise<any | null> {
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = chicagoDateStr();
       const result = await this.pool.query(
         `SELECT title, content, created_at
          FROM library_entries
