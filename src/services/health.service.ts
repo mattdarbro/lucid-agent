@@ -425,16 +425,72 @@ export class HealthService {
   /**
    * Get the latest metric of each type for a user.
    * Useful for the iOS app to show current values.
+   *
+   * For cumulative metrics (steps, active_energy, exercise_minutes) this
+   * prefers the daily_total row over individual samples so the dashboard
+   * doesn't show misleadingly small numbers (e.g. 2 steps from a single sample).
    */
   async getLatestMetrics(userId: string): Promise<HealthMetric[]> {
-    const result = await this.pool.query(
+    const CUMULATIVE_TYPES = ['steps', 'active_energy', 'exercise_minutes'];
+
+    // For non-cumulative metrics: latest row per type (simple)
+    const nonCumulativeResult = await this.pool.query(
       `SELECT DISTINCT ON (metric_type) *
        FROM health_metrics
        WHERE user_id = $1
+         AND metric_type != ALL($2)
        ORDER BY metric_type, recorded_at DESC`,
-      [userId]
+      [userId, CUMULATIVE_TYPES]
     );
-    return result.rows.map(this.mapRow);
+
+    // For cumulative metrics: prefer today's daily_total, fall back to
+    // today's summary via getDailySummary aggregation logic.
+    const { start, end } = chicagoDayBounds(
+      new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
+    );
+
+    const cumulativeResult = await this.pool.query(
+      `SELECT *
+       FROM health_metrics
+       WHERE user_id = $1
+         AND metric_type = ANY($2)
+         AND recorded_at >= $3::timestamptz
+         AND recorded_at <= $4::timestamptz
+       ORDER BY recorded_at DESC`,
+      [userId, CUMULATIVE_TYPES, start.toISOString(), end.toISOString()]
+    );
+
+    // Group cumulative rows by type and aggregate
+    const cumulativeByType = new Map<string, any[]>();
+    for (const row of cumulativeResult.rows) {
+      const entries = cumulativeByType.get(row.metric_type) || [];
+      entries.push({
+        value: parseFloat(row.value),
+        unit: row.unit,
+        recorded_at: new Date(row.recorded_at),
+        metadata: row.metadata || {},
+      });
+      cumulativeByType.set(row.metric_type, entries);
+    }
+
+    const cumulativeMetrics: HealthMetric[] = [];
+    for (const [metricType, entries] of cumulativeByType) {
+      const { total, incomplete } = this.aggregateCumulative(entries);
+      // Build a synthetic HealthMetric with the aggregated total
+      const representative = cumulativeResult.rows.find(
+        (r: any) => r.metric_type === metricType
+      );
+      if (representative) {
+        const mapped = this.mapRow(representative);
+        mapped.value = total;
+        if (incomplete) {
+          mapped.metadata = { ...mapped.metadata, incomplete: true };
+        }
+        cumulativeMetrics.push(mapped);
+      }
+    }
+
+    return [...nonCumulativeResult.rows.map(this.mapRow), ...cumulativeMetrics];
   }
 
   /**
