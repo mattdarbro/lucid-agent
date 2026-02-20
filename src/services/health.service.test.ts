@@ -142,6 +142,53 @@ describe('HealthService', () => {
       expect(summary.steps?.samples).toBeUndefined();
     });
 
+    it('should flag steps as incomplete when only samples exist (no daily_total)', async () => {
+      (mockPool.query as any).mockResolvedValueOnce({
+        rows: [
+          {
+            metric_type: 'steps',
+            value: '12',
+            unit: 'steps',
+            recorded_at: '2026-02-17T14:00:00Z',
+            metadata: { granularity: 'sample' },
+          },
+          {
+            metric_type: 'steps',
+            value: '5',
+            unit: 'steps',
+            recorded_at: '2026-02-17T14:05:00Z',
+            metadata: { granularity: 'sample' },
+          },
+        ],
+      });
+
+      const summary = await healthService.getDailySummary('user-1', '2026-02-17');
+
+      // Should sum the samples
+      expect(summary.steps?.value).toBe(17);
+      // But flag as incomplete so Lucid knows the daily total hasn't arrived
+      expect(summary.steps?.incomplete).toBe(true);
+      expect(summary.steps?.samples).toHaveLength(2);
+    });
+
+    it('should NOT flag as incomplete when daily_total is present', async () => {
+      (mockPool.query as any).mockResolvedValueOnce({
+        rows: [
+          {
+            metric_type: 'steps',
+            value: '8432',
+            unit: 'steps',
+            recorded_at: '2026-02-17T00:00:00Z',
+            metadata: { granularity: 'daily_total' },
+          },
+        ],
+      });
+
+      const summary = await healthService.getDailySummary('user-1', '2026-02-17');
+      expect(summary.steps?.value).toBe(8432);
+      expect(summary.steps?.incomplete).toBeUndefined();
+    });
+
     it('should handle active_energy and exercise_minutes with granularity', async () => {
       (mockPool.query as any).mockResolvedValueOnce({
         rows: [
@@ -291,6 +338,33 @@ describe('HealthService', () => {
       const text = healthService.formatSummaryForPrompt(summary);
       // All 3 samples fall in 09-12h Chicago bucket
       expect(text).toContain('09-12h: 1,000');
+    });
+
+    it('should label steps as partial sync when incomplete', () => {
+      const summary: DailyHealthSummary = {
+        date: '2026-02-17',
+        steps: {
+          value: 17,
+          recorded_at: new Date('2026-02-17T14:00:00Z'),
+          incomplete: true,
+        },
+      };
+
+      const text = healthService.formatSummaryForPrompt(summary);
+      expect(text).toContain('Steps: 17');
+      expect(text).toContain('partial sync');
+      expect(text).toContain('actual count is higher');
+    });
+
+    it('should NOT label steps as partial when complete', () => {
+      const summary: DailyHealthSummary = {
+        date: '2026-02-17',
+        steps: { value: 8432, recorded_at: new Date('2026-02-17T00:00:00Z') },
+      };
+
+      const text = healthService.formatSummaryForPrompt(summary);
+      expect(text).toContain('Steps: 8,432');
+      expect(text).not.toContain('partial sync');
     });
 
     it('should show no data message for empty summary', () => {

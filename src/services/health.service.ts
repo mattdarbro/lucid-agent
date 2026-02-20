@@ -267,11 +267,12 @@ export class HealthService {
     // Steps: daily total + optional per-sample breakdown for activity patterns
     const steps = byType.get('steps');
     if (steps?.length) {
-      const { total, samples } = this.aggregateCumulative(steps);
+      const { total, samples, incomplete } = this.aggregateCumulative(steps);
       summary.steps = {
         value: total,
         recorded_at: steps[0].recorded_at,
         ...(samples.length > 0 && { samples }),
+        ...(incomplete && { incomplete }),
       };
     }
 
@@ -305,21 +306,23 @@ export class HealthService {
     // Active energy: daily total + optional per-sample breakdown
     const energy = byType.get('active_energy');
     if (energy?.length) {
-      const { total, samples } = this.aggregateCumulative(energy);
+      const { total, samples, incomplete } = this.aggregateCumulative(energy);
       summary.active_energy = {
         value: Math.round(total),
         unit: energy[0].unit,
         ...(samples.length > 0 && { samples }),
+        ...(incomplete && { incomplete }),
       };
     }
 
     // Exercise minutes: daily total + optional per-sample breakdown
     const exercise = byType.get('exercise_minutes');
     if (exercise?.length) {
-      const { total, samples } = this.aggregateCumulative(exercise);
+      const { total, samples, incomplete } = this.aggregateCumulative(exercise);
       summary.exercise_minutes = {
         value: Math.round(total),
         ...(samples.length > 0 && { samples }),
+        ...(incomplete && { incomplete }),
       };
     }
 
@@ -363,7 +366,10 @@ export class HealthService {
       lines.push(`  Weight: ${summary.weight.value} ${summary.weight.unit}`);
     }
     if (summary.steps) {
-      lines.push(`  Steps: ${summary.steps.value.toLocaleString()}`);
+      const stepsLabel = summary.steps.incomplete
+        ? `  Steps: ${summary.steps.value.toLocaleString()} (partial sync — daily total not yet received, actual count is higher)`
+        : `  Steps: ${summary.steps.value.toLocaleString()}`;
+      lines.push(stepsLabel);
       const pattern = this.formatActivityPattern(summary.steps.samples);
       if (pattern) lines.push(`    ${pattern}`);
     }
@@ -377,12 +383,18 @@ export class HealthService {
       lines.push(`  Sleep: ${summary.sleep_duration.hours.toFixed(1)} hours`);
     }
     if (summary.active_energy) {
-      lines.push(`  Active Energy: ${summary.active_energy.value} ${summary.active_energy.unit}`);
+      const energyLabel = summary.active_energy.incomplete
+        ? `  Active Energy: ${summary.active_energy.value} ${summary.active_energy.unit} (partial sync — daily total not yet received)`
+        : `  Active Energy: ${summary.active_energy.value} ${summary.active_energy.unit}`;
+      lines.push(energyLabel);
       const pattern = this.formatActivityPattern(summary.active_energy.samples);
       if (pattern) lines.push(`    ${pattern}`);
     }
     if (summary.exercise_minutes) {
-      lines.push(`  Exercise: ${summary.exercise_minutes.value} minutes`);
+      const exerciseLabel = summary.exercise_minutes.incomplete
+        ? `  Exercise: ${summary.exercise_minutes.value} minutes (partial sync — daily total not yet received)`
+        : `  Exercise: ${summary.exercise_minutes.value} minutes`;
+      lines.push(exerciseLabel);
       const pattern = this.formatActivityPattern(summary.exercise_minutes.samples);
       if (pattern) lines.push(`    ${pattern}`);
     }
@@ -439,7 +451,7 @@ export class HealthService {
    */
   private aggregateCumulative(
     entries: Array<{ value: number; unit: string; recorded_at: Date; metadata: Record<string, any> }>
-  ): { total: number; samples: ActivitySample[] } {
+  ): { total: number; samples: ActivitySample[]; incomplete?: boolean } {
     // New iOS format: use metadata.granularity to distinguish daily_total from samples
     const dailyTotalEntry = entries.find((e) => e.metadata?.granularity === 'daily_total');
     const sampleEntries = entries.filter((e) => e.metadata?.granularity === 'sample');
@@ -448,6 +460,17 @@ export class HealthService {
       return {
         total: dailyTotalEntry.value,
         samples: sampleEntries.map((s) => ({ value: s.value, recorded_at: s.recorded_at })),
+      };
+    }
+
+    // If we have samples but no daily_total yet (partial sync), sum samples
+    // but flag as incomplete so Lucid knows this is a running count.
+    if (sampleEntries.length > 0) {
+      const summed = sampleEntries.reduce((sum, e) => sum + e.value, 0);
+      return {
+        total: summed,
+        samples: sampleEntries.map((s) => ({ value: s.value, recorded_at: s.recorded_at })),
+        incomplete: true,
       };
     }
 

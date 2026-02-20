@@ -637,12 +637,12 @@ export interface DailyHealthSummary {
   date: string; // YYYY-MM-DD
   blood_pressure?: { systolic: number; diastolic: number; recorded_at: Date };
   weight?: { value: number; unit: string; recorded_at: Date };
-  steps?: { value: number; recorded_at: Date; samples?: ActivitySample[] };
+  steps?: { value: number; recorded_at: Date; samples?: ActivitySample[]; incomplete?: boolean };
   heart_rate?: { avg: number; min: number; max: number };
   resting_heart_rate?: { value: number; recorded_at: Date };
   sleep_duration?: { hours: number; recorded_at: Date };
-  active_energy?: { value: number; unit: string; samples?: ActivitySample[] };
-  exercise_minutes?: { value: number; samples?: ActivitySample[] };
+  active_energy?: { value: number; unit: string; samples?: ActivitySample[]; incomplete?: boolean };
+  exercise_minutes?: { value: number; samples?: ActivitySample[]; incomplete?: boolean };
 }
 
 // ============================================================================
