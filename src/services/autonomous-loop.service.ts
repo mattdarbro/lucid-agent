@@ -580,30 +580,6 @@ Write the briefing now:`;
     return mattStatements.join('\n');
   }
 
-  /**
-   * Get yesterday's captured ideas (insights from library)
-   * @deprecated Use seed-related methods instead
-   */
-  private async getYesterdaysCapturedIdeas(userId: string): Promise<any[]> {
-    try {
-      const result = await this.pool.query(
-        `SELECT id, content, created_at
-         FROM library_entries
-         WHERE user_id = $1
-           AND entry_type = 'insight'
-           AND created_at > NOW() - INTERVAL '2 days'
-           AND created_at < NOW() - INTERVAL '6 hours'
-         ORDER BY created_at DESC
-         LIMIT 10`,
-        [userId]
-      );
-      return result.rows;
-    } catch (error: any) {
-      logger.error('[AL] Failed to get yesterday\'s ideas', { error: error.message });
-      return [];
-    }
-  }
-
   // NOTE: Action-related methods removed - shift from productivity to flourishing
   // formatActionsForBriefing, formatCompletedActionsForBriefing removed
 
@@ -1398,6 +1374,16 @@ Remember: Matt executes on Robinhood, so keep symbol names clear and include the
         }
       );
 
+      // Clamp position size to remaining budget to prevent overspending
+      if (recommendation && recommendation.position_size_dollars > budgetRemaining) {
+        logger.warn('[AL] Recommendation position_size_dollars exceeds budget, clamping', {
+          userId,
+          requested: recommendation.position_size_dollars,
+          budgetRemaining,
+        });
+        recommendation.position_size_dollars = budgetRemaining;
+      }
+
       // Plant an investment recommendation seed so portfolio state persists
       if (recommendation && recommendation.action !== 'hold') {
         try {
@@ -2021,10 +2007,10 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
          WHERE user_id = $1
            AND entry_type = 'curiosity'
            AND metadata->>'loop_type' = 'midday_curiosity'
-           AND created_at > NOW() - INTERVAL '${days} days'
+           AND created_at > NOW() - make_interval(days => $2)
          ORDER BY created_at DESC
          LIMIT 20`,
-        [userId]
+        [userId, days]
       );
 
       const topics: string[] = [];
@@ -2163,38 +2149,6 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
    */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  /**
-   * Get completed actions from the past week
-   * @deprecated Actions removed - now using seeds for flourishing, not productivity
-   */
-  private async getWeekCompletedActions(userId: string): Promise<any[]> {
-    // Actions system removed - now using seeds
-    return [];
-  }
-
-  /**
-   * Get captured ideas from the past week
-   * @deprecated Use getWeekSeeds instead
-   */
-  private async getWeekCapturedIdeas(userId: string): Promise<any[]> {
-    try {
-      const result = await this.pool.query(
-        `SELECT id, content, created_at
-         FROM library_entries
-         WHERE user_id = $1
-           AND entry_type = 'insight'
-           AND created_at > NOW() - INTERVAL '7 days'
-         ORDER BY created_at DESC
-         LIMIT 20`,
-        [userId]
-      );
-      return result.rows;
-    } catch (error: any) {
-      logger.error('[AL] Failed to get week ideas', { error: error.message });
-      return [];
-    }
   }
 
   /**
@@ -2338,26 +2292,6 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
   }
 
   /**
-   * Format week's completed actions for digest
-   * @deprecated Actions removed - now using seeds
-   */
-  private formatWeekCompletedActions(actions: any[]): string {
-    if (actions.length === 0) return '';
-    return actions.map((a) => `- ${a.summary || a.content}`).join('\n');
-  }
-
-  /**
-   * Format week's ideas for digest
-   */
-  private formatWeekIdeas(ideas: any[]): string {
-    if (ideas.length === 0) return '';
-
-    return ideas
-      .map((idea) => `• "${idea.content.slice(0, 150)}${idea.content.length > 150 ? '...' : ''}"`)
-      .join('\n');
-  }
-
-  /**
    * Format week's reflections for digest
    */
   private formatWeekReflections(entries: any[]): string {
@@ -2370,14 +2304,6 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
         return `• "${title}": ${preview}${e.content.length > 100 ? '...' : ''}`;
       })
       .join('\n');
-  }
-
-  /**
-   * Parse action row from database
-   * @deprecated Actions removed - now using seeds
-   */
-  private parseActionRow(row: any): any {
-    return row;
   }
 
   /**
