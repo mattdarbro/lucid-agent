@@ -103,7 +103,7 @@ export class PushNotificationService {
   async sendNotification(userId: string, notification: PushNotification): Promise<boolean> {
     try {
       if (!this.apnsService.isEnabled()) {
-        logger.debug('APNs not configured, skipping notification', {
+        logger.warn('APNs not configured, skipping notification — check APNS env vars', {
           userId,
           title: notification.title,
         });
@@ -114,7 +114,7 @@ export class PushNotificationService {
       const tokens = await this.collectDeviceTokens(userId);
 
       if (tokens.length === 0) {
-        logger.debug('No push tokens found for user', { userId });
+        logger.warn('No push tokens found for user — device may not be registered', { userId });
         return false;
       }
 
