@@ -88,14 +88,7 @@ export const config = {
     enabled: !!process.env.GROK_API_KEY,
   },
 
-  // Telegram Notifications
-  telegram: {
-    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
-    chatId: process.env.TELEGRAM_CHAT_ID || '',
-    enabled: !!process.env.TELEGRAM_BOT_TOKEN && !!process.env.TELEGRAM_CHAT_ID,
-  },
-
-  // APNs (Apple Push Notifications) - Optional
+  // APNs (Apple Push Notifications)
   apns: {
     keyId: process.env.APNS_KEY_ID || '',
     teamId: process.env.APNS_TEAM_ID || '',

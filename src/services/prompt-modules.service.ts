@@ -4,6 +4,7 @@ import { logger } from '../logger';
 import { MemoryService } from './memory.service';
 import { LivingDocumentService } from './living-document.service';
 import { ThoughtService } from './thought.service';
+import { LibraryCommentService } from './library-comment.service';
 
 /**
  * Available modules for chat context building (simplified)
@@ -62,12 +63,14 @@ export class PromptModulesService {
   private memoryService: MemoryService;
   private livingDocumentService: LivingDocumentService;
   private thoughtService: ThoughtService;
+  private commentService: LibraryCommentService;
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
     this.memoryService = new MemoryService(pool);
     this.livingDocumentService = new LivingDocumentService(pool);
     this.thoughtService = new ThoughtService(pool, anthropicApiKey);
+    this.commentService = new LibraryCommentService(pool);
   }
 
   /**
@@ -305,6 +308,15 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
         return { fragment: '', libraryEntries: [] };
       }
 
+      // Load comments for these entries
+      const entryIds = result.rows.map((r: any) => r.id);
+      let commentsMap = new Map<string, any[]>();
+      try {
+        commentsMap = await this.commentService.getCommentsForEntries(entryIds, context.userId);
+      } catch (err) {
+        logger.warn('Failed to load comments for library entries', { error: err });
+      }
+
       let fragment = '\n\n📖 RECENT ACTIVITY (your latest Library entries):\n';
       fragment += 'These are the most recent entries in the Library — your thoughts, research, reflections, and autonomous loop results. You produced many of these yourself. Reference them naturally.\n\n';
 
@@ -328,7 +340,23 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
           ? entry.content.slice(0, maxContentLength) + '...[truncated]'
           : entry.content;
 
-        fragment += `${index + 1}. [${type}] "${title}" (${date})\n${content}\n\n`;
+        fragment += `${index + 1}. [${type}] "${title}" (${date})\n${content}\n`;
+
+        // Append comments if any exist
+        const comments = commentsMap.get(entry.id);
+        if (comments && comments.length > 0) {
+          fragment += `   💬 Comments:\n`;
+          for (const c of comments) {
+            const who = c.author_type === 'user' ? 'Matt' : 'Lucid';
+            const commentDate = new Date(c.created_at).toLocaleDateString('en-US', {
+              month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+              timeZone: 'America/Chicago',
+            });
+            fragment += `   - ${who} (${commentDate}): ${c.content}\n`;
+          }
+        }
+
+        fragment += '\n';
       });
 
       return { fragment, libraryEntries: entries };

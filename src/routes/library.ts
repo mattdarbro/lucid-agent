@@ -3,10 +3,14 @@ import { pool } from '../db';
 import { logger } from '../logger';
 import { z } from 'zod';
 import { VectorService } from '../services/vector.service';
+import { LibraryCommentService } from '../services/library-comment.service';
+import { PushNotificationService } from '../services/push-notification.service';
 import { chicagoTimeOfDay } from '../utils/chicago-time';
 
 const router = Router();
 const vectorService = new VectorService();
+const commentService = new LibraryCommentService(pool);
+const pushNotificationService = new PushNotificationService(pool);
 
 /**
  * Validation schemas
@@ -21,6 +25,12 @@ const createEntrySchema = z.object({
 const updateEntrySchema = z.object({
   title: z.string().optional(),
   content: z.string().min(1).optional(),
+});
+
+const createCommentSchema = z.object({
+  user_id: z.string().uuid(),
+  content: z.string().min(1, 'Comment cannot be empty').max(1000, 'Comment too long (max 1000 chars)'),
+  author_type: z.enum(['user', 'lucid']).default('user'),
 });
 
 /**
@@ -45,7 +55,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     let query = `
       SELECT id, user_id, entry_type, title, content, time_of_day,
-             related_conversation_id, metadata, created_at, updated_at
+             related_conversation_id, metadata, comment_count, created_at, updated_at
       FROM library_entries
       WHERE user_id = $1
     `;
@@ -105,7 +115,10 @@ router.get('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Entry not found' });
     }
 
-    res.status(200).json({ entry: result.rows[0] });
+    // Include comments with the entry
+    const { comments } = await commentService.getComments(id, user_id as string);
+
+    res.status(200).json({ entry: { ...result.rows[0], comments } });
   } catch (error: any) {
     logger.error('Error in GET /v1/library/:id:', error);
     res.status(500).json({
@@ -365,7 +378,147 @@ router.get('/search', async (req: Request, res: Response) => {
   }
 });
 
-// Note: /trigger-reflection endpoint removed in system refactor
-// Morning reflections (circadian system) have been removed
+// =============================================================================
+// COMMENTS — focused discussion on library entries
+// =============================================================================
+
+/**
+ * GET /v1/library/:id/comments
+ *
+ * List comments for a library entry (chronological order)
+ */
+router.get('/:id/comments', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { user_id, limit = '50', offset = '0' } = req.query;
+
+    if (!user_id || typeof user_id !== 'string') {
+      return res.status(400).json({ error: 'user_id is required' });
+    }
+
+    const result = await commentService.getComments(
+      id,
+      user_id,
+      parseInt(limit as string, 10),
+      parseInt(offset as string, 10)
+    );
+
+    res.status(200).json({
+      comments: result.comments,
+      total: result.total,
+      limit: parseInt(limit as string, 10),
+      offset: parseInt(offset as string, 10),
+    });
+  } catch (error: any) {
+    logger.error('Error in GET /v1/library/:id/comments:', error);
+    res.status(500).json({
+      error: 'Failed to fetch comments',
+      details: error.message,
+    });
+  }
+});
+
+/**
+ * POST /v1/library/:id/comments
+ *
+ * Add a comment to a library entry.
+ * Both Matt (author_type: 'user') and Lucid (author_type: 'lucid') can comment.
+ *
+ * When a user comments, a push notification is NOT sent (they wrote it).
+ * When Lucid comments, a push notification IS sent to the user's devices.
+ */
+router.post('/:id/comments', async (req: Request, res: Response) => {
+  try {
+    const { id: entryId } = req.params;
+    const body = createCommentSchema.parse(req.body);
+
+    const comment = await commentService.addComment(
+      entryId,
+      body.user_id,
+      body.author_type,
+      body.content
+    );
+
+    // If Lucid commented, push-notify the user so they know
+    if (body.author_type === 'lucid' && pushNotificationService.isEnabled()) {
+      // Look up the entry title for the notification
+      const entry = await pool.query(
+        'SELECT title FROM library_entries WHERE id = $1',
+        [entryId]
+      );
+      const entryTitle = entry.rows[0]?.title || 'a library entry';
+      const truncated = body.content.length > 200
+        ? body.content.substring(0, 197) + '...'
+        : body.content;
+
+      pushNotificationService.sendNotification(body.user_id, {
+        title: `Re: ${entryTitle}`,
+        body: truncated,
+        data: {
+          type: 'library_comment',
+          entryId,
+          commentId: comment.id,
+          authorType: 'lucid',
+        },
+        category: 'LUCID_COMMENT',
+        threadId: `library-${entryId}`,
+      }).catch((err: any) => {
+        logger.warn('Failed to send comment notification', { error: err.message });
+      });
+    }
+
+    res.status(201).json({ comment });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors.map((err: any) => ({
+          field: err.path.join('.'),
+          message: err.message,
+        })),
+      });
+    }
+
+    if (error.message === 'Library entry not found') {
+      return res.status(404).json({ error: 'Library entry not found' });
+    }
+
+    logger.error('Error in POST /v1/library/:id/comments:', error);
+    res.status(500).json({
+      error: 'Failed to add comment',
+      details: error.message,
+    });
+  }
+});
+
+/**
+ * DELETE /v1/library/:id/comments/:commentId
+ *
+ * Delete a comment
+ */
+router.delete('/:id/comments/:commentId', async (req: Request, res: Response) => {
+  try {
+    const { commentId } = req.params;
+    const { user_id } = req.query;
+
+    if (!user_id || typeof user_id !== 'string') {
+      return res.status(400).json({ error: 'user_id is required' });
+    }
+
+    const deleted = await commentService.deleteComment(commentId, user_id);
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+
+    res.status(204).send();
+  } catch (error: any) {
+    logger.error('Error in DELETE /v1/library/:id/comments/:commentId:', error);
+    res.status(500).json({
+      error: 'Failed to delete comment',
+      details: error.message,
+    });
+  }
+});
 
 export default router;
