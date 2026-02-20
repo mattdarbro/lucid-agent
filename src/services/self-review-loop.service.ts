@@ -4,7 +4,7 @@ import { logger } from '../logger';
 import { config } from '../config';
 import { VectorService } from './vector.service';
 import { GitHubService } from './github.service';
-import { TelegramNotificationService } from './telegram-notification.service';
+import { PushNotificationService } from './push-notification.service';
 
 type PermaCategory = 'positive_emotions' | 'engagement' | 'relationships' | 'meaning' | 'achievement';
 
@@ -33,7 +33,7 @@ interface Improvement {
  */
 const SOUL_FILES: Record<string, string> = {
   'src/services/autonomous-loop.service.ts': 'Core thinking loop — how Lucid processes thoughts through Notice → Connect → Question → Synthesize. This IS how Lucid thinks.',
-  'src/services/telegram-notification.service.ts': 'Lucid\'s voice when reaching out proactively. Tone and phrasing here define how Lucid sounds when he initiates contact.',
+  'src/services/push-notification.service.ts': 'Lucid\'s voice when reaching out proactively. How notifications are structured and delivered to Matt\'s devices.',
   'src/services/background-jobs.service.ts': 'The circadian rhythm — when and how Lucid\'s autonomous processes run. This is Lucid\'s daily cycle.',
   'src/services/agent-job.service.ts': 'Scheduling of Lucid\'s thinking patterns — morning reflection, midday curiosity, evening consolidation. The rhythm of when Lucid thinks.',
   'src/config.ts': 'Core configuration including Lucid\'s identity (agent name), circadian schedule, and feature flags. Changes here affect everything.',
@@ -77,7 +77,7 @@ export class SelfReviewLoopService {
   private anthropic: Anthropic;
   private vectorService: VectorService;
   private githubService: GitHubService;
-  private telegramService: TelegramNotificationService;
+  private pushNotificationService: PushNotificationService;
   private readonly model = 'claude-opus-4-6';
 
   constructor(pool: Pool) {
@@ -87,7 +87,7 @@ export class SelfReviewLoopService {
     });
     this.vectorService = new VectorService();
     this.githubService = new GitHubService();
-    this.telegramService = new TelegramNotificationService();
+    this.pushNotificationService = new PushNotificationService(pool);
   }
 
   async runSelfReview(userId: string, jobId?: string, depth: 'quick' | 'full' = 'quick'): Promise<SelfReviewResult> {
@@ -194,15 +194,17 @@ export class SelfReviewLoopService {
       // ====== STEP 6: NOTIFY ======
       if (result.prsOpened.length > 0) {
         const prList = result.prsOpened.map(pr => `• #${pr.number}: ${pr.title}`).join('\n');
-        await this.telegramService.sendNotification({
-          title: 'Self-Review Complete',
-          body: `${result.prsOpened.length} PR(s) opened for Friday review:\n${prList}`,
-        });
+        await this.pushNotificationService.sendSelfReviewNotification(
+          userId,
+          'Self-Review Complete',
+          `${result.prsOpened.length} PR(s) opened for Friday review:\n${prList}`
+        );
       } else {
-        await this.telegramService.sendNotification({
-          title: 'Self-Review Complete',
-          body: 'No PRs this week — everything looks solid.',
-        });
+        await this.pushNotificationService.sendSelfReviewNotification(
+          userId,
+          'Self-Review Complete',
+          'No PRs this week — everything looks solid.'
+        );
       }
 
       result.success = true;

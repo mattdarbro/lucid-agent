@@ -6,7 +6,7 @@ import { MessageService } from './message.service';
 import { WebSearchService, WebSearchResult } from './web-search.service';
 import { AlphaVantageService } from './alpha-vantage.service';
 import { GrokService } from './grok.service';
-import { TelegramNotificationService } from './telegram-notification.service';
+import { PushNotificationService } from './push-notification.service';
 import { LibraryEntryType, Action, InvestmentRecommendationData } from '../types/database';
 import { SeedService } from './seed.service';
 import { HealthService } from './health.service';
@@ -50,7 +50,7 @@ export class AutonomousLoopService {
   private webSearchService: WebSearchService;
   private alphaVantageService: AlphaVantageService;
   private grokService: GrokService;
-  private telegramService: TelegramNotificationService;
+  private pushNotificationService: PushNotificationService;
   private seedService: SeedService;
   private healthService: HealthService;
   private readonly model = 'claude-sonnet-4-20250514';
@@ -65,7 +65,7 @@ export class AutonomousLoopService {
     this.webSearchService = new WebSearchService();
     this.alphaVantageService = new AlphaVantageService();
     this.grokService = new GrokService();
-    this.telegramService = new TelegramNotificationService();
+    this.pushNotificationService = new PushNotificationService(pool);
     this.seedService = new SeedService(pool);
     this.healthService = new HealthService(pool);
   }
@@ -256,9 +256,9 @@ TITLE: [What this seed became]
         title,
       });
 
-      // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendSeedGrownNotification(title, content);
+      // Send push notification
+      if (this.pushNotificationService.isEnabled()) {
+        await this.pushNotificationService.sendSeedGrownNotification(userId, title, content);
       }
 
       return result;
@@ -459,9 +459,9 @@ Write the briefing now:`;
         recentSeeds: recentlyPlantedSeeds.length,
       });
 
-      // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendSeedBriefingNotification(briefingContent);
+      // Send push notification
+      if (this.pushNotificationService.isEnabled()) {
+        await this.pushNotificationService.sendSeedBriefingNotification(userId, briefingContent);
       }
 
       return result;
@@ -782,9 +782,9 @@ Write the weekly seed reflection now:`;
         seedsGrown: grownSeeds.length,
       });
 
-      // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendWeeklySeedReflection(digestContent);
+      // Send push notification
+      if (this.pushNotificationService.isEnabled()) {
+        await this.pushNotificationService.sendWeeklySeedReflection(userId, digestContent);
       }
 
       return result;
@@ -1097,9 +1097,9 @@ Write the research summary now:`;
         topicsResearched: searchResults.length,
       });
 
-      // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendResearchNotification(title, synthesisContent);
+      // Send push notification
+      if (this.pushNotificationService.isEnabled()) {
+        await this.pushNotificationService.sendResearchNotification(userId, title, synthesisContent);
       }
 
       return result;
@@ -1128,7 +1128,7 @@ Write the research summary now:`;
    * 2. SCAN - Gather market data (Alpha Vantage) + social sentiment (Grok) + web research
    * 3. ANALYZE - Claude synthesizes all data sources into investment thesis
    * 4. RECOMMEND - Specific buy/hold recommendation with reasoning
-   * 5. SAVE - Store to Library and notify via Telegram
+   * 5. SAVE - Store to Library and send push notification
    */
   async runInvestmentResearch(userId: string, jobId?: string): Promise<LoopResult> {
     const result: LoopResult = {
@@ -1344,7 +1344,7 @@ If the market data suggests waiting is better than buying, use action "hold" and
       }
 
       // Step 4: RECOMMEND - Format final conversational recommendation
-      const recommendPrompt = `You are Lucid. Take your analysis and write a clear, conversational investment recommendation for Matt. This will be sent via Telegram.
+      const recommendPrompt = `You are Lucid. Take your analysis and write a clear, conversational investment recommendation for Matt. This will be sent as a push notification.
 
 Your analysis:
 ${result.steps.question}
@@ -1447,9 +1447,10 @@ Remember: Matt executes on Robinhood, so keep symbol names clear and include the
         } : null,
       });
 
-      // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendInvestmentRecommendation(
+      // Send push notification
+      if (this.pushNotificationService.isEnabled()) {
+        await this.pushNotificationService.sendInvestmentRecommendation(
+          userId,
           result.steps.synthesis,
           budgetRemaining,
           budgetTotal
@@ -1480,7 +1481,7 @@ Remember: Matt executes on Robinhood, so keep symbol names clear and include the
    * 1. ASSESS - What can Lucid do now? What's limited? What would help?
    * 2. RESEARCH - Search for tools/APIs/services (via web + Grok)
    * 3. PROPOSE - Specific spending proposal with cost/benefit
-   * 4. SAVE - Store to Library and notify via Telegram
+   * 4. SAVE - Store to Library and send push notification
    */
   async runAbilitySpending(userId: string, jobId?: string): Promise<LoopResult> {
     const result: LoopResult = {
@@ -1527,7 +1528,7 @@ YOUR CURRENT TOOLS AND ABILITIES:
 - Library (persistent knowledge store with semantic search)
 - Seed system (holding and growing ideas)
 - Fact extraction from conversations
-- Telegram notifications to Matt
+- Push notifications to Matt
 - Alpha Vantage for market data (${this.alphaVantageService.isAvailable() ? 'active' : 'not yet configured'})
 - Grok/X for social research (${this.grokService.isAvailable() ? 'active' : 'not yet configured'})
 
@@ -1707,9 +1708,10 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
         budgetRemaining,
       });
 
-      // Send Telegram notification
-      if (this.telegramService.isEnabled()) {
-        await this.telegramService.sendSpendingProposal(
+      // Send push notification
+      if (this.pushNotificationService.isEnabled()) {
+        await this.pushNotificationService.sendSpendingProposal(
+          userId,
           result.steps.synthesis,
           budgetRemaining,
           budgetTotal
@@ -2568,15 +2570,16 @@ TITLE: [Brief morning health title]
         title,
       });
 
-      // Send Telegram notification if blood pressure is elevated
-      if (this.telegramService.isEnabled() && yesterdaySummary.blood_pressure) {
+      // Send push notification if blood pressure is elevated
+      if (this.pushNotificationService.isEnabled() && yesterdaySummary.blood_pressure) {
         const { systolic, diastolic } = yesterdaySummary.blood_pressure;
         if (systolic >= 140 || diastolic >= 90) {
-          await this.telegramService.sendNotification({
-            title: 'Health Alert',
-            body: `Matt's BP was ${systolic}/${diastolic} yesterday.\n\n${title}`,
-            data: { type: 'health_alert', metric: 'blood_pressure' },
-          });
+          await this.pushNotificationService.sendHealthAlert(
+            userId,
+            'Health Alert',
+            `Matt's BP was ${systolic}/${diastolic} yesterday.\n\n${title}`,
+            'blood_pressure'
+          );
         }
       }
 

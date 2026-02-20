@@ -10,6 +10,8 @@ import { AgentJobService } from './agent-job.service';
 import { AutonomousLoopService } from './autonomous-loop.service';
 import { ResearchExecutorService } from './research-executor.service';
 import { SelfReviewLoopService } from './self-review-loop.service';
+import { ThoughtNotificationService } from './thought-notification.service';
+import { PushNotificationService } from './push-notification.service';
 import { JobType } from '../validation/agent-job.validation';
 
 /**
@@ -33,10 +35,13 @@ export class BackgroundJobsService {
   private autonomousLoopService: AutonomousLoopService;
   private researchExecutorService: ResearchExecutorService;
   private selfReviewLoopService: SelfReviewLoopService;
+  private thoughtNotificationService: ThoughtNotificationService;
+  private pushNotificationService: PushNotificationService;
   private factExtractionJob: cron.ScheduledTask | null = null;
   private autonomousLoopJob: cron.ScheduledTask | null = null;
   private dailyJobScheduler: cron.ScheduledTask | null = null;
   private researchExecutorJob: cron.ScheduledTask | null = null;
+  private notificationDispatchJob: cron.ScheduledTask | null = null;
   private isRunning: boolean = false;
   private isRunningAutonomousLoops: boolean = false;
 
@@ -51,6 +56,8 @@ export class BackgroundJobsService {
     this.autonomousLoopService = new AutonomousLoopService(pool);
     this.researchExecutorService = new ResearchExecutorService(pool, supabase);
     this.selfReviewLoopService = new SelfReviewLoopService(pool);
+    this.thoughtNotificationService = new ThoughtNotificationService(pool);
+    this.pushNotificationService = new PushNotificationService(pool);
   }
 
   /**
@@ -66,6 +73,7 @@ export class BackgroundJobsService {
     this.startAutonomousLoopJob();
     this.startDailyJobScheduler();
     this.startResearchExecutorJob();
+    this.startNotificationDispatchJob();
     this.isRunning = true;
     logger.info('[BACKGROUND] Background jobs started');
   }
@@ -89,6 +97,10 @@ export class BackgroundJobsService {
     if (this.researchExecutorJob) {
       this.researchExecutorJob.stop();
       this.researchExecutorJob = null;
+    }
+    if (this.notificationDispatchJob) {
+      this.notificationDispatchJob.stop();
+      this.notificationDispatchJob = null;
     }
     this.isRunning = false;
     logger.info('[BACKGROUND] Background jobs stopped');
@@ -149,6 +161,122 @@ export class BackgroundJobsService {
       }
     } catch (error: any) {
       logger.error('[RESEARCH] Research executor job failed', { error: error.message });
+    }
+  }
+
+  /**
+   * Start the notification dispatch job
+   * Runs every 3 minutes to send pending thought notifications via APNs
+   */
+  private startNotificationDispatchJob(): void {
+    this.notificationDispatchJob = cron.schedule('*/3 * * * *', async () => {
+      try {
+        await this.dispatchPendingNotifications();
+      } catch (err: any) {
+        logger.error('[BACKGROUND] Unhandled error in notification dispatch cron', { error: err.message });
+      }
+    });
+
+    logger.info('[BACKGROUND] Notification dispatch job scheduled (every 3 minutes)');
+  }
+
+  /**
+   * Dispatch pending thought notifications to users via APNs
+   *
+   * For each user with pending notifications:
+   * 1. Check user's check-in preferences (rate limits, quiet hours)
+   * 2. Filter by preferred time of day
+   * 3. Send via PushNotificationService
+   * 4. Mark as sent
+   * 5. Expire old notifications
+   */
+  private async dispatchPendingNotifications(): Promise<void> {
+    try {
+      if (!this.pushNotificationService.isEnabled()) {
+        logger.debug('[DISPATCH] Push notifications not configured, skipping');
+        return;
+      }
+
+      // First, expire old notifications
+      await this.thoughtNotificationService.expireOldNotifications();
+
+      // Find all users with pending notifications
+      const result = await this.pool.query(`
+        SELECT DISTINCT user_id
+        FROM thought_notifications
+        WHERE status = 'pending'
+          AND (expires_at IS NULL OR expires_at > NOW())
+      `);
+
+      if (result.rows.length === 0) {
+        logger.debug('[DISPATCH] No pending notifications to dispatch');
+        return;
+      }
+
+      for (const row of result.rows) {
+        try {
+          await this.dispatchForUser(row.user_id);
+        } catch (error: any) {
+          logger.error('[DISPATCH] Failed to dispatch for user', {
+            userId: row.user_id,
+            error: error.message,
+          });
+        }
+      }
+    } catch (error: any) {
+      logger.error('[DISPATCH] Notification dispatch failed', { error: error.message });
+    }
+  }
+
+  /**
+   * Dispatch pending notifications for a single user
+   */
+  private async dispatchForUser(userId: string): Promise<void> {
+    // Check rate limits: don't send more than 5 notifications per hour
+    const recentSent = await this.pool.query(
+      `SELECT COUNT(*) as count FROM thought_notifications
+       WHERE user_id = $1 AND status = 'sent' AND sent_at > NOW() - INTERVAL '1 hour'`,
+      [userId]
+    );
+
+    const recentCount = parseInt(recentSent.rows[0].count);
+    if (recentCount >= 5) {
+      logger.debug('[DISPATCH] Rate limit reached for user', { userId, recentCount });
+      return;
+    }
+
+    // Get pending notifications (highest priority first, max 3 per cycle)
+    const maxToSend = Math.min(3, 5 - recentCount);
+    const pending = await this.thoughtNotificationService.getPendingNotifications(userId, maxToSend);
+
+    if (pending.length === 0) {
+      return;
+    }
+
+    for (const notification of pending) {
+      try {
+        const sent = await this.pushNotificationService.sendThoughtNotification(
+          userId,
+          notification.id,
+          notification.question,
+          notification.context,
+          notification.priority
+        );
+
+        if (sent) {
+          await this.thoughtNotificationService.markAsSent(notification.id);
+          logger.info('[DISPATCH] Thought notification sent', {
+            notificationId: notification.id,
+            userId,
+            priority: notification.priority,
+          });
+        }
+      } catch (error: any) {
+        logger.error('[DISPATCH] Failed to send notification', {
+          notificationId: notification.id,
+          error: error.message,
+        });
+      }
     }
   }
 

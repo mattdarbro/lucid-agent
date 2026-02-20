@@ -31,7 +31,7 @@ import { ResearchQueueService } from './research-queue.service';
 import { LivingDocumentService } from './living-document.service';
 import { SeedService } from './seed.service';
 import { PushNotificationService } from './push-notification.service';
-import { TelegramNotificationService } from './telegram-notification.service';
+
 import { HealthService } from './health.service';
 import { logger } from '../logger';
 
@@ -68,7 +68,6 @@ export const seedService = new SeedService(pool);
 
 // Notification services
 export const pushNotificationService = new PushNotificationService(pool);
-export const telegramNotificationService = new TelegramNotificationService();
 
 // Health metrics
 export const healthService = new HealthService(pool);
@@ -101,7 +100,6 @@ export const services = {
   seed: seedService,
   // Notifications
   pushNotification: pushNotificationService,
-  telegram: telegramNotificationService,
   // Health metrics
   health: healthService,
 };
