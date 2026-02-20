@@ -245,13 +245,16 @@ export class ProfileService {
     const agentsEnabled = profile.agents?.enabled ?? false;
     const result = featureEnabled && agentsEnabled;
 
-    logger.debug('areAgentsEnabled check', {
-      userId,
-      profileId: profile.id,
-      featureEnabled,
-      agentsEnabled,
-      result,
-    });
+    if (!result) {
+      logger.warn('areAgentsEnabled: BLOCKED', {
+        userId,
+        profileId: profile.id,
+        'features.autonomousAgents': featureEnabled,
+        'agents.enabled': agentsEnabled,
+      });
+    } else {
+      logger.info('areAgentsEnabled: OK', { userId, profileId: profile.id });
+    }
 
     return result;
   }
