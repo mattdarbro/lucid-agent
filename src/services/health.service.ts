@@ -6,7 +6,7 @@ import {
   BatchHealthMetricsInput,
   QueryHealthMetricsInput,
 } from '../validation/health.validation';
-import { chicagoDayBounds, chicagoDateStr } from '../utils/chicago-time';
+import { chicagoDayBounds, chicagoDateStr, chicagoDateParts } from '../utils/chicago-time';
 
 /**
  * HealthService
@@ -476,17 +476,18 @@ export class HealthService {
    * time-of-day patterns (e.g. "most steps in the afternoon").
    *
    * Returns a compact one-liner like:
-   *   "By time (UTC): 06-09h: 1,200 | 09-12h: 890 | 15-18h: 1,320"
+   *   "By time: 06-09h: 1,200 | 09-12h: 890 | 15-18h: 1,320"
    *
+   * Hours are in Chicago timezone so the pattern matches the user's day.
    * Returns empty string when there are fewer than 2 samples.
    */
   private formatActivityPattern(samples?: ActivitySample[]): string {
     if (!samples || samples.length < 2) return '';
 
-    // Bucket into 3-hour windows (0-3, 3-6, ..., 21-24)
+    // Bucket into 3-hour windows (0-3, 3-6, ..., 21-24) in Chicago time
     const buckets = new Map<number, number>();
     for (const s of samples) {
-      const hour = s.recorded_at.getUTCHours();
+      const { hour } = chicagoDateParts(s.recorded_at);
       const bucketStart = Math.floor(hour / 3) * 3;
       buckets.set(bucketStart, (buckets.get(bucketStart) || 0) + s.value);
     }
@@ -501,7 +502,7 @@ export class HealthService {
       });
 
     if (parts.length === 0) return '';
-    return `By time (UTC): ${parts.join(' | ')}`;
+    return `By time: ${parts.join(' | ')}`;
   }
 
   private mapRow(row: any): HealthMetric {

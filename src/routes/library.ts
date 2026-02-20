@@ -3,6 +3,7 @@ import { pool } from '../db';
 import { logger } from '../logger';
 import { z } from 'zod';
 import { VectorService } from '../services/vector.service';
+import { chicagoTimeOfDay } from '../utils/chicago-time';
 
 const router = Router();
 const vectorService = new VectorService();
@@ -21,17 +22,6 @@ const updateEntrySchema = z.object({
   title: z.string().optional(),
   content: z.string().min(1).optional(),
 });
-
-/**
- * Helper to get current time of day
- */
-function getCurrentTimeOfDay(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'morning';
-  if (hour < 17) return 'afternoon';
-  if (hour < 21) return 'evening';
-  return 'night';
-}
 
 /**
  * GET /v1/library
@@ -140,7 +130,7 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const body = createEntrySchema.parse(req.body);
 
-    const timeOfDay = body.time_of_day || getCurrentTimeOfDay();
+    const timeOfDay = body.time_of_day || chicagoTimeOfDay();
 
     // Generate embedding for semantic search
     let embedding: number[] | null = null;

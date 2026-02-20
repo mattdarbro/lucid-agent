@@ -119,6 +119,19 @@ function chicagoLocalToUTC(
 }
 
 /**
+ * Return the current time-of-day label in Chicago timezone.
+ * Used for tagging library entries, thoughts, etc. with the correct
+ * period of the user's day rather than the server's.
+ */
+export function chicagoTimeOfDay(date: Date = new Date()): string {
+  const { hour } = chicagoDateParts(date);
+  if (hour < 12) return 'morning';
+  if (hour < 17) return 'afternoon';
+  if (hour < 21) return 'evening';
+  return 'night';
+}
+
+/**
  * Get the UTC offset for Chicago at a given instant, in milliseconds.
  * Returns a positive value (e.g. 21600000 for CST = UTC-6, 18000000 for CDT = UTC-5).
  */

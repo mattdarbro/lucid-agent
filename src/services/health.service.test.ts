@@ -190,15 +190,19 @@ describe('HealthService', () => {
   // -----------------------------------------------------------------------
   describe('formatSummaryForPrompt', () => {
     it('should include activity pattern when samples exist', () => {
+      // Timestamps are UTC; Chicago is UTC-6 in Feb (CST).
+      // 14:15Z = 08:15 Chicago → 06-09h bucket
+      // 18:30Z = 12:30 Chicago → 12-15h bucket
+      // 22:45Z = 16:45 Chicago → 15-18h bucket
       const summary: DailyHealthSummary = {
         date: '2026-02-17',
         steps: {
           value: 5900,
-          recorded_at: new Date('2026-02-17T00:00:00Z'),
+          recorded_at: new Date('2026-02-17T06:00:00Z'),
           samples: [
-            { value: 1200, recorded_at: new Date('2026-02-17T08:15:00Z') },
-            { value: 2300, recorded_at: new Date('2026-02-17T12:30:00Z') },
-            { value: 2400, recorded_at: new Date('2026-02-17T16:45:00Z') },
+            { value: 1200, recorded_at: new Date('2026-02-17T14:15:00Z') },
+            { value: 2300, recorded_at: new Date('2026-02-17T18:30:00Z') },
+            { value: 2400, recorded_at: new Date('2026-02-17T22:45:00Z') },
           ],
         },
       };
@@ -206,8 +210,8 @@ describe('HealthService', () => {
       const text = healthService.formatSummaryForPrompt(summary);
 
       expect(text).toContain('Steps: 5,900');
-      expect(text).toContain('By time (UTC):');
-      // 08:15 → bucket 06-09h, 12:30 → 12-15h, 16:45 → 15-18h
+      expect(text).toContain('By time:');
+      // Chicago hours: 08:15, 12:30, 16:45
       expect(text).toContain('06-09h: 1,200');
       expect(text).toContain('12-15h: 2,300');
       expect(text).toContain('15-18h: 2,400');
@@ -240,21 +244,22 @@ describe('HealthService', () => {
     });
 
     it('should show pattern for active energy and exercise minutes too', () => {
+      // 13:00Z = 07:00 Chicago, 23:30Z = 17:30 Chicago
       const summary: DailyHealthSummary = {
         date: '2026-02-17',
         active_energy: {
           value: 420,
           unit: 'kcal',
           samples: [
-            { value: 150, recorded_at: new Date('2026-02-17T07:00:00Z') },
-            { value: 270, recorded_at: new Date('2026-02-17T17:30:00Z') },
+            { value: 150, recorded_at: new Date('2026-02-17T13:00:00Z') },
+            { value: 270, recorded_at: new Date('2026-02-17T23:30:00Z') },
           ],
         },
         exercise_minutes: {
           value: 45,
           samples: [
-            { value: 20, recorded_at: new Date('2026-02-17T07:00:00Z') },
-            { value: 25, recorded_at: new Date('2026-02-17T17:30:00Z') },
+            { value: 20, recorded_at: new Date('2026-02-17T13:00:00Z') },
+            { value: 25, recorded_at: new Date('2026-02-17T23:30:00Z') },
           ],
         },
       };
@@ -263,26 +268,28 @@ describe('HealthService', () => {
 
       expect(text).toContain('Active Energy: 420 kcal');
       expect(text).toContain('Exercise: 45 minutes');
-      // Both should have By time patterns
-      expect(text.match(/By time \(UTC\)/g)).toHaveLength(2);
+      // Both should have By time patterns (now Chicago-based)
+      expect(text.match(/By time:/g)).toHaveLength(2);
     });
 
     it('should bucket samples in the same 3-hour window together', () => {
+      // 15:00Z = 09:00 Chicago, 16:30Z = 10:30 Chicago, 17:00Z = 11:00 Chicago
+      // All three fall in 09-12h Chicago bucket
       const summary: DailyHealthSummary = {
         date: '2026-02-17',
         steps: {
           value: 1000,
-          recorded_at: new Date('2026-02-17T00:00:00Z'),
+          recorded_at: new Date('2026-02-17T06:00:00Z'),
           samples: [
-            { value: 200, recorded_at: new Date('2026-02-17T09:00:00Z') },
-            { value: 300, recorded_at: new Date('2026-02-17T10:30:00Z') },
-            { value: 500, recorded_at: new Date('2026-02-17T11:00:00Z') },
+            { value: 200, recorded_at: new Date('2026-02-17T15:00:00Z') },
+            { value: 300, recorded_at: new Date('2026-02-17T16:30:00Z') },
+            { value: 500, recorded_at: new Date('2026-02-17T17:00:00Z') },
           ],
         },
       };
 
       const text = healthService.formatSummaryForPrompt(summary);
-      // All 3 samples fall in 09-12h bucket
+      // All 3 samples fall in 09-12h Chicago bucket
       expect(text).toContain('09-12h: 1,000');
     });
 
