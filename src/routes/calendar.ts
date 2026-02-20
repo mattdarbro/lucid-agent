@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { logger } from '../logger';
+import { chicagoDateStr } from '../utils/chicago-time';
 
 const router = Router();
 
@@ -284,7 +285,7 @@ router.get('/today/:user_id', async (req: Request, res: Response) => {
     );
 
     res.json({
-      date: new Date().toISOString().split('T')[0],
+      date: chicagoDateStr(),
       timezone: userTimezone,
       events: result.rows,
       count: result.rows.length

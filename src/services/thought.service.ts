@@ -4,6 +4,7 @@ import { logger } from '../logger';
 import { MemoryService } from './memory.service';
 import { VectorService } from './vector.service';
 import { OrbitsService } from './orbits.service';
+import { chicagoTimeOfDay } from '../utils/chicago-time';
 
 /**
  * Subject of the thought - who it's about
@@ -599,14 +600,10 @@ Your conversational response (do NOT include the library link - it will be added
   }
 
   /**
-   * Get current time of day
+   * Get current time of day in Chicago timezone
    */
   private getCurrentTimeOfDay(): string {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'morning';
-    if (hour < 17) return 'afternoon';
-    if (hour < 21) return 'evening';
-    return 'night';
+    return chicagoTimeOfDay();
   }
 
   /**

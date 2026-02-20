@@ -10,6 +10,7 @@ import { TelegramNotificationService } from './telegram-notification.service';
 import { LibraryEntryType, Action, InvestmentRecommendationData } from '../types/database';
 import { SeedService } from './seed.service';
 import { HealthService } from './health.service';
+import { chicagoDateStr } from '../utils/chicago-time';
 
 /**
  * Result from running an autonomous loop
@@ -2419,9 +2420,11 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
       }
 
       // Get yesterday's summary and the last 7 days for trend context
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      // Use Chicago dates so day boundaries match the user's local day
+      const todayChicago = chicagoDateStr();
+      const [y, m, d] = todayChicago.split('-').map(Number);
+      const yDate = new Date(Date.UTC(y, m - 1, d - 1));
+      const yesterdayStr = `${yDate.getUTCFullYear()}-${String(yDate.getUTCMonth() + 1).padStart(2, '0')}-${String(yDate.getUTCDate()).padStart(2, '0')}`;
 
       const yesterdaySummary = await this.healthService.getDailySummary(userId, yesterdayStr);
       const weekSummaries = await this.healthService.getMultiDaySummaries(userId, 7);
@@ -2623,10 +2626,11 @@ TITLE: [Brief morning health title]
       }
 
       // Get today's data and yesterday for comparison
-      const todayStr = new Date().toISOString().split('T')[0];
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      // Use Chicago dates — at 8:30pm Chicago the UTC date is already tomorrow
+      const todayStr = chicagoDateStr();
+      const [ey, em, ed] = todayStr.split('-').map(Number);
+      const yDate = new Date(Date.UTC(ey, em - 1, ed - 1));
+      const yesterdayStr = `${yDate.getUTCFullYear()}-${String(yDate.getUTCMonth() + 1).padStart(2, '0')}-${String(yDate.getUTCDate()).padStart(2, '0')}`;
 
       const todaySummary = await this.healthService.getDailySummary(userId, todayStr);
       const yesterdaySummary = await this.healthService.getDailySummary(userId, yesterdayStr);

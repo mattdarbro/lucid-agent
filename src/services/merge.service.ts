@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { logger } from '../logger';
 import { VectorService } from './vector.service';
+import { chicagoTimeOfDay } from '../utils/chicago-time';
 
 /**
  * Exported user data structure
@@ -496,13 +497,9 @@ I carry forward everything we have built together - from both paths now merged i
   }
 
   /**
-   * Helper to get current time of day
+   * Get current time of day in Chicago timezone
    */
   private getCurrentTimeOfDay(): string {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'morning';
-    if (hour < 17) return 'afternoon';
-    if (hour < 21) return 'evening';
-    return 'night';
+    return chicagoTimeOfDay();
   }
 }

@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../logger';
 import { VectorService } from './vector.service';
+import { chicagoTimeOfDay } from '../utils/chicago-time';
 
 /**
  * Versus session structure
@@ -463,13 +464,9 @@ Write in first person as Lucid (not Lu or Cid). Be thorough but concise (300-500
   }
 
   /**
-   * Get current time of day
+   * Get current time of day in Chicago timezone
    */
   private getCurrentTimeOfDay(): string {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'morning';
-    if (hour < 17) return 'afternoon';
-    if (hour < 21) return 'evening';
-    return 'night';
+    return chicagoTimeOfDay();
   }
 }

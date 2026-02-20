@@ -6,6 +6,7 @@ import {
   BatchHealthMetricsInput,
   QueryHealthMetricsInput,
 } from '../validation/health.validation';
+import { chicagoDayBounds, chicagoDateStr, chicagoDateParts } from '../utils/chicago-time';
 
 /**
  * HealthService
@@ -61,64 +62,100 @@ export class HealthService {
   /**
    * Batch-insert metrics from an iOS HealthKit sync.
    * Uses a single transaction for atomicity.
+   *
+   * Metrics are sorted by the unique-constraint columns before upserting so
+   * that concurrent transactions always acquire row locks in the same order,
+   * preventing deadlocks. A retry loop handles the rare case where a deadlock
+   * still occurs (e.g. interleaving with single-metric inserts).
    */
   async batchCreateMetrics(input: BatchHealthMetricsInput): Promise<{
     inserted: number;
     updated: number;
     total: number;
   }> {
-    const client = await this.pool.connect();
-    let inserted = 0;
-    let updated = 0;
+    const maxRetries = 3;
 
-    try {
-      await client.query('BEGIN');
+    // Sort by the unique-index columns (metric_type, recorded_at, source)
+    // so concurrent transactions lock rows in the same deterministic order.
+    const sortedMetrics = [...input.metrics].sort((a, b) => {
+      const cmp1 = a.metric_type.localeCompare(b.metric_type);
+      if (cmp1 !== 0) return cmp1;
+      const timeA = new Date(a.recorded_at).getTime();
+      const timeB = new Date(b.recorded_at).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      return (a.source ?? 'apple_health').localeCompare(b.source ?? 'apple_health');
+    });
 
-      for (const metric of input.metrics) {
-        const result = await client.query(
-          `INSERT INTO health_metrics (user_id, metric_type, value, unit, recorded_at, source, source_device, metadata)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (user_id, metric_type, recorded_at, source)
-           DO UPDATE SET value = EXCLUDED.value, unit = EXCLUDED.unit,
-                         source_device = EXCLUDED.source_device,
-                         metadata = EXCLUDED.metadata,
-                         updated_at = NOW()
-           RETURNING (xmax = 0) AS is_insert`,
-          [
-            input.user_id,
-            metric.metric_type,
-            metric.value,
-            metric.unit,
-            metric.recorded_at,
-            metric.source,
-            metric.source_device || null,
-            metric.metadata || {},
-          ]
-        );
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const client = await this.pool.connect();
+      let inserted = 0;
+      let updated = 0;
 
-        if (result.rows[0]?.is_insert) {
-          inserted++;
-        } else {
-          updated++;
+      try {
+        await client.query('BEGIN');
+
+        for (const metric of sortedMetrics) {
+          const result = await client.query(
+            `INSERT INTO health_metrics (user_id, metric_type, value, unit, recorded_at, source, source_device, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (user_id, metric_type, recorded_at, source)
+             DO UPDATE SET value = EXCLUDED.value, unit = EXCLUDED.unit,
+                           source_device = EXCLUDED.source_device,
+                           metadata = EXCLUDED.metadata,
+                           updated_at = NOW()
+             RETURNING (xmax = 0) AS is_insert`,
+            [
+              input.user_id,
+              metric.metric_type,
+              metric.value,
+              metric.unit,
+              metric.recorded_at,
+              metric.source,
+              metric.source_device || null,
+              metric.metadata || {},
+            ]
+          );
+
+          if (result.rows[0]?.is_insert) {
+            inserted++;
+          } else {
+            updated++;
+          }
         }
+
+        await client.query('COMMIT');
+
+        logger.info('[HEALTH] Batch sync completed', {
+          userId: input.user_id,
+          inserted,
+          updated,
+          total: input.metrics.length,
+        });
+
+        return { inserted, updated, total: input.metrics.length };
+      } catch (error: any) {
+        await client.query('ROLLBACK');
+
+        // Retry on deadlock (PostgreSQL error code 40P01)
+        if (error?.code === '40P01' && attempt < maxRetries) {
+          const delayMs = 50 * Math.pow(2, attempt - 1); // 50ms, 100ms, 200ms
+          logger.warn('[HEALTH] Deadlock detected, retrying batch sync', {
+            userId: input.user_id,
+            attempt,
+            delayMs,
+          });
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+
+        throw error;
+      } finally {
+        client.release();
       }
-
-      await client.query('COMMIT');
-
-      logger.info('[HEALTH] Batch sync completed', {
-        userId: input.user_id,
-        inserted,
-        updated,
-        total: input.metrics.length,
-      });
-
-      return { inserted, updated, total: input.metrics.length };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
     }
+
+    // Unreachable, but satisfies TypeScript
+    throw new Error('Batch sync exceeded max retries');
   }
 
   /**
@@ -175,9 +212,11 @@ export class HealthService {
    * Aggregates all metrics for a given day into a structured snapshot.
    */
   async getDailySummary(userId: string, date: string): Promise<DailyHealthSummary> {
-    // Explicit UTC so day boundaries match iOS-synced timestamps (recorded_at at midnight UTC)
-    const dayStart = `${date}T00:00:00Z`;
-    const dayEnd = `${date}T23:59:59.999Z`;
+    // Use Chicago day boundaries so "today" means midnight-to-midnight Central.
+    // This ensures evening readings (after 6pm CST / 7pm CDT) and daily totals
+    // (recorded at midnight UTC, which is ~6pm Chicago previous day) land in
+    // the correct Chicago calendar day.
+    const { start, end } = chicagoDayBounds(date);
 
     const result = await this.pool.query(
       `SELECT metric_type, value, unit, recorded_at, metadata
@@ -186,7 +225,7 @@ export class HealthService {
          AND recorded_at >= $2::timestamptz
          AND recorded_at <= $3::timestamptz
        ORDER BY recorded_at DESC`,
-      [userId, dayStart, dayEnd]
+      [userId, start.toISOString(), end.toISOString()]
     );
 
     const summary: DailyHealthSummary = { date };
@@ -295,13 +334,15 @@ export class HealthService {
     days: number,
     endDate?: string
   ): Promise<DailyHealthSummary[]> {
-    const end = endDate ? new Date(endDate) : new Date();
+    // Compute date strings in Chicago timezone so day boundaries are consistent
+    const endDateStr = endDate ?? chicagoDateStr();
     const summaries: DailyHealthSummary[] = [];
 
+    // Walk backwards from endDate by parsing Chicago date and decrementing
+    const [y, m, d] = endDateStr.split('-').map(Number);
     for (let i = 0; i < days; i++) {
-      const d = new Date(end);
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dt = new Date(Date.UTC(y, m - 1, d - i));
+      const dateStr = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
       const summary = await this.getDailySummary(userId, dateStr);
       summaries.push(summary);
     }
@@ -435,17 +476,18 @@ export class HealthService {
    * time-of-day patterns (e.g. "most steps in the afternoon").
    *
    * Returns a compact one-liner like:
-   *   "By time (UTC): 06-09h: 1,200 | 09-12h: 890 | 15-18h: 1,320"
+   *   "By time: 06-09h: 1,200 | 09-12h: 890 | 15-18h: 1,320"
    *
+   * Hours are in Chicago timezone so the pattern matches the user's day.
    * Returns empty string when there are fewer than 2 samples.
    */
   private formatActivityPattern(samples?: ActivitySample[]): string {
     if (!samples || samples.length < 2) return '';
 
-    // Bucket into 3-hour windows (0-3, 3-6, ..., 21-24)
+    // Bucket into 3-hour windows (0-3, 3-6, ..., 21-24) in Chicago time
     const buckets = new Map<number, number>();
     for (const s of samples) {
-      const hour = s.recorded_at.getUTCHours();
+      const { hour } = chicagoDateParts(s.recorded_at);
       const bucketStart = Math.floor(hour / 3) * 3;
       buckets.set(bucketStart, (buckets.get(bucketStart) || 0) + s.value);
     }
@@ -460,7 +502,7 @@ export class HealthService {
       });
 
     if (parts.length === 0) return '';
-    return `By time (UTC): ${parts.join(' | ')}`;
+    return `By time: ${parts.join(' | ')}`;
   }
 
   private mapRow(row: any): HealthMetric {
