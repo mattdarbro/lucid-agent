@@ -337,7 +337,10 @@ export class BackgroundJobsService {
           // Check if user has autonomous agents enabled
           const profile = await this.profileService.getUserProfile(job.user_id);
           if (!profile.features.autonomousAgents) {
-            logger.debug(`[AL] Skipping job ${job.id} - autonomous agents disabled for user`);
+            logger.warn(`[AL] Skipping job ${job.id} — autonomousAgents disabled in user profile`, {
+              jobType: job.job_type,
+              userId: job.user_id,
+            });
             await this.agentJobService.markJobAsSkipped(job.id, 'Autonomous agents disabled');
             continue;
           }
@@ -539,7 +542,7 @@ export class BackgroundJobsService {
           const agentsEnabled = await this.profileService.areAgentsEnabled(row.user_id);
 
           if (!agentsEnabled) {
-            logger.debug(`[SCHEDULER] Skipping user ${row.user_id} - agents not enabled`);
+            logger.warn(`[SCHEDULER] Skipping user ${row.user_id} — agents not enabled (check profile.features.autonomousAgents AND profile.agents.enabled)`);
             continue;
           }
 
