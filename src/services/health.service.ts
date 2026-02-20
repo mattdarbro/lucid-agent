@@ -19,8 +19,8 @@ import { chicagoDayBounds, chicagoDateStr, chicagoDateParts } from '../utils/chi
  */
 export class HealthService {
   /**
-   * Metrics where the iOS app sends pre-aggregated daily totals (one row per day
-   * at midnight UTC) instead of individual HealthKit samples.
+   * Metrics where the iOS app sends pre-aggregated daily totals
+   * instead of individual HealthKit samples.
    */
   private static readonly CUMULATIVE_DAILY_METRICS = new Set([
     'steps',
@@ -31,10 +31,42 @@ export class HealthService {
   constructor(private pool: Pool) {}
 
   /**
+   * Normalize a cumulative daily-total timestamp to Chicago midnight.
+   *
+   * The iOS app may record daily totals at the start of the calendar date
+   * in the device's timezone, which can fall outside Chicago day boundaries.
+   * This shifts daily_total recorded_at values to midnight Chicago so they
+   * always land within the correct Chicago-day query window.
+   *
+   * Only applies to cumulative metrics with granularity: "daily_total".
+   * Non-daily-total records (individual samples) are left untouched.
+   */
+  private normalizeDailyTotalTimestamp(
+    metricType: string,
+    recordedAt: Date | string,
+    metadata?: Record<string, any>
+  ): Date | string {
+    if (!HealthService.CUMULATIVE_DAILY_METRICS.has(metricType)) return recordedAt;
+    if (metadata?.granularity !== 'daily_total') return recordedAt;
+
+    // Extract the calendar date from the timestamp and pin to Chicago midnight.
+    // The iOS app means "this is the total for this calendar date" — we store it
+    // at the start of that date in Chicago time so getDailySummary picks it up.
+    const d = new Date(recordedAt);
+    const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    const { start } = chicagoDayBounds(dateStr);
+    return start;
+  }
+
+  /**
    * Store a single health metric. Upserts on the dedup index
    * (user_id, metric_type, recorded_at, source) so re-syncs are safe.
    */
   async createMetric(input: CreateHealthMetricInput): Promise<HealthMetric> {
+    const normalizedAt = this.normalizeDailyTotalTimestamp(
+      input.metric_type, input.recorded_at, input.metadata
+    );
+
     const result = await this.pool.query(
       `INSERT INTO health_metrics (user_id, metric_type, value, unit, recorded_at, source, source_device, metadata)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -49,7 +81,7 @@ export class HealthService {
         input.metric_type,
         input.value,
         input.unit,
-        input.recorded_at,
+        normalizedAt,
         input.source,
         input.source_device || null,
         input.metadata || {},
@@ -95,6 +127,10 @@ export class HealthService {
         await client.query('BEGIN');
 
         for (const metric of sortedMetrics) {
+          const normalizedAt = this.normalizeDailyTotalTimestamp(
+            metric.metric_type, metric.recorded_at, metric.metadata
+          );
+
           const result = await client.query(
             `INSERT INTO health_metrics (user_id, metric_type, value, unit, recorded_at, source, source_device, metadata)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -109,7 +145,7 @@ export class HealthService {
               metric.metric_type,
               metric.value,
               metric.unit,
-              metric.recorded_at,
+              normalizedAt,
               metric.source,
               metric.source_device || null,
               metric.metadata || {},
@@ -213,8 +249,8 @@ export class HealthService {
    */
   async getDailySummary(userId: string, date: string): Promise<DailyHealthSummary> {
     // Use Chicago day boundaries so "today" means midnight-to-midnight Central.
-    // This ensures evening readings (after 6pm CST / 7pm CDT) and daily totals
-    // land in the correct Chicago calendar day.
+    // Daily totals for cumulative metrics are normalized to Chicago midnight at
+    // ingestion time, so a single query with Chicago bounds captures everything.
     const { start, end } = chicagoDayBounds(date);
 
     const result = await this.pool.query(
@@ -227,29 +263,11 @@ export class HealthService {
       [userId, start.toISOString(), end.toISOString()]
     );
 
-    // The iOS app records cumulative daily totals (steps, active_energy,
-    // exercise_minutes) at midnight UTC, which is ~6pm Chicago the previous
-    // calendar day — before the Chicago day boundary starts. Fetch any such
-    // records that the main query missed.
-    const midnightUTC = new Date(`${date}T00:00:00Z`);
-    let cumulativeRows: any[] = [];
-    if (midnightUTC < start) {
-      const cumulativeResult = await this.pool.query(
-        `SELECT metric_type, value, unit, recorded_at, metadata
-         FROM health_metrics
-         WHERE user_id = $1
-           AND recorded_at = $2::timestamptz
-           AND metric_type = ANY($3)`,
-        [userId, midnightUTC.toISOString(), Array.from(HealthService.CUMULATIVE_DAILY_METRICS)]
-      );
-      cumulativeRows = cumulativeResult.rows;
-    }
-
     const summary: DailyHealthSummary = { date };
 
     // Group metrics by type
     const byType = new Map<string, Array<{ value: number; unit: string; recorded_at: Date; metadata: Record<string, any> }>>();
-    for (const row of [...result.rows, ...cumulativeRows]) {
+    for (const row of result.rows) {
       const entries = byType.get(row.metric_type) || [];
       entries.push({
         value: parseFloat(row.value),
@@ -474,10 +492,10 @@ export class HealthService {
       return { total: entries[0].value, samples: [] };
     }
 
-    // Look for a daily total row (midnight UTC from old iOS format)
+    // Look for a daily total row (Chicago midnight — normalized at ingestion)
     const midnightEntries = entries.filter((e) => {
-      const d = e.recorded_at;
-      return d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0;
+      const { hour, minute } = chicagoDateParts(e.recorded_at);
+      return hour === 0 && minute === 0;
     });
 
     if (midnightEntries.length === 1) {
