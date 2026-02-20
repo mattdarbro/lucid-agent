@@ -342,12 +342,20 @@ export class ChatService {
           totalOutputTokens += response.usage.output_tokens;
         }
 
-        // Check if we got a final text response (stop_reason is 'end_turn')
-        if (response.stop_reason === 'end_turn') {
+        // Check if we got a final text response (stop_reason is 'end_turn' or 'max_tokens')
+        if (response.stop_reason === 'end_turn' || response.stop_reason === 'max_tokens') {
           // Extract text from the response
           const textContent = response.content.find((c: any) => c.type === 'text');
           if (textContent && textContent.type === 'text') {
             assistantResponse = textContent.text;
+          }
+
+          if (response.stop_reason === 'max_tokens') {
+            logger.warn('Response hit max_tokens limit — may be truncated', {
+              conversation_id: input.conversation_id,
+              max_tokens: maxTokens,
+              response_length: assistantResponse.length,
+            });
           }
           break;
         }
@@ -555,7 +563,7 @@ export class ChatService {
     }
 
     // Otherwise just truncate at word boundary
-    logger.debug('Response exceeded word limit, truncating', {
+    logger.warn('Response exceeded word limit, truncating at word boundary', {
       original_words: words.length,
       max_words: maxWords,
     });

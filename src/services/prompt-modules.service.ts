@@ -150,7 +150,9 @@ export class PromptModulesService {
 
 You have access to tools for checking calendar events, reminders, and schedules. Use them when the user asks about their calendar, tasks, or availability. The tools will automatically use the correct user_id.
 
-You can also search the web for current information. When the conversation touches on topics that would benefit from recent data—news, research, current events, or things that change over time—gently offer to search. Say something like "Would you like me to look that up?" Full findings go to the Library; share a concise summary in the Room.`;
+You can also search the web for current information. When the conversation touches on topics that would benefit from recent data—news, research, current events, or things that change over time—gently offer to search. Say something like "Would you like me to look that up?" Full findings go to the Library; share a concise summary in the Room.
+
+BREVITY: Keep Room responses to 50-150 words. Be concise and conversational—2-4 sentences. If you need more space to think deeply, use the Library tools to create an entry and share the key insight here with a link. The Room is for presence, not essays.`;
 
     if (userName) {
       fragment += `\n\nYou are speaking with ${userName}.`;
