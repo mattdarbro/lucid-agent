@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { logger } from '../logger';
-import { ApnsService, ApnsNotification } from './apns.service';
+import { DispatchService, DispatchNotification } from './dispatch.service';
 import { DeviceService } from './device.service';
 
 /**
@@ -10,7 +10,7 @@ export interface PushNotification {
   title: string;
   body: string;
   data?: Record<string, any>;
-  /** APNs category for actionable notifications (e.g., 'LUCID_MESSAGE') */
+  /** Category for actionable notifications (e.g., 'LUCID_MESSAGE') */
   category?: string;
   /** Thread ID for grouping related notifications */
   threadId?: string;
@@ -19,18 +19,18 @@ export interface PushNotification {
 /**
  * PushNotificationService
  *
- * Handles push notifications for Lucid via APNs.
- * Sends to all active devices for a user via the DeviceService.
+ * Handles push notifications for Lucid via the Dispatch messaging API.
+ * Dispatch handles APNs delivery internally — no direct Apple integration needed.
  *
  * This is the single entry point for all outbound notifications from Lucid.
  * Autonomous loops, research completion, health alerts — everything goes through here.
  */
 export class PushNotificationService {
-  private apnsService: ApnsService;
+  private dispatchService: DispatchService;
   private deviceService: DeviceService;
 
   constructor(private pool: Pool) {
-    this.apnsService = new ApnsService();
+    this.dispatchService = new DispatchService();
     this.deviceService = new DeviceService(pool);
   }
 
@@ -38,7 +38,7 @@ export class PushNotificationService {
    * Check if push notifications are available
    */
   isEnabled(): boolean {
-    return this.apnsService.isEnabled();
+    return this.dispatchService.isEnabled();
   }
 
   /**
@@ -95,30 +95,22 @@ export class PushNotificationService {
   }
 
   /**
-   * Send a push notification to all of a user's active devices via APNs
+   * Send a push notification via Dispatch.
    *
-   * Collects push tokens from both the user_devices table (multi-device)
-   * and the legacy users.push_token column, then sends to all of them.
+   * Dispatch handles device delivery internally — we just send the message
+   * content and Dispatch takes care of APNs push delivery to registered devices.
    */
   async sendNotification(userId: string, notification: PushNotification): Promise<boolean> {
     try {
-      if (!this.apnsService.isEnabled()) {
-        logger.warn('APNs not configured, skipping notification — check APNS env vars', {
+      if (!this.dispatchService.isEnabled()) {
+        logger.warn('Dispatch not configured, skipping notification — check DISPATCH_API_URL, DISPATCH_APP_KEY, DISPATCH_SENDER_ID env vars', {
           userId,
           title: notification.title,
         });
         return false;
       }
 
-      // Collect all device tokens for this user
-      const tokens = await this.collectDeviceTokens(userId);
-
-      if (tokens.length === 0) {
-        logger.warn('No push tokens found for user — device may not be registered', { userId });
-        return false;
-      }
-
-      const apnsNotification: ApnsNotification = {
+      const dispatchNotification: DispatchNotification = {
         title: notification.title,
         body: notification.body,
         data: notification.data,
@@ -126,17 +118,15 @@ export class PushNotificationService {
         threadId: notification.threadId,
       };
 
-      const result = await this.apnsService.sendToDevices(tokens, apnsNotification);
+      const sent = await this.dispatchService.sendMessage(dispatchNotification);
 
       logger.info('Push notification dispatched', {
         userId,
         title: notification.title,
-        devices: tokens.length,
-        sent: result.sent,
-        failed: result.failed,
+        sent,
       });
 
-      return result.sent > 0;
+      return sent;
     } catch (error: any) {
       logger.error('Failed to send push notification:', {
         userId,
@@ -319,32 +309,5 @@ export class PushNotificationService {
       category: 'LUCID_THOUGHT',
       threadId: 'thoughts',
     });
-  }
-
-  /**
-   * Collect all active push tokens for a user from both device table and legacy user column
-   */
-  private async collectDeviceTokens(userId: string): Promise<string[]> {
-    const tokens = new Set<string>();
-
-    try {
-      // Get tokens from multi-device table
-      const deviceTokens = await this.deviceService.getDevicePushTokens(userId);
-      for (const dt of deviceTokens) {
-        if (dt.pushToken) {
-          tokens.add(dt.pushToken);
-        }
-      }
-
-      // Also check legacy push_token on users table
-      const legacyToken = await this.getPushToken(userId);
-      if (legacyToken) {
-        tokens.add(legacyToken);
-      }
-    } catch (error: any) {
-      logger.error('Failed to collect device tokens', { userId, error: error.message });
-    }
-
-    return Array.from(tokens);
   }
 }

@@ -88,13 +88,12 @@ export const config = {
     enabled: !!process.env.GROK_API_KEY,
   },
 
-  // APNs (Apple Push Notifications)
-  apns: {
-    keyId: process.env.APNS_KEY_ID || '',
-    teamId: process.env.APNS_TEAM_ID || '',
-    keyPath: process.env.APNS_KEY_PATH || '',
-    bundleId: process.env.APNS_BUNDLE_ID || '',
-    enabled: !!process.env.APNS_KEY_ID && !!process.env.APNS_TEAM_ID,
+  // Dispatch (push notification relay — handles APNs delivery internally)
+  dispatch: {
+    apiUrl: process.env.DISPATCH_API_URL || '',
+    appKey: process.env.DISPATCH_APP_KEY || '',
+    senderId: process.env.DISPATCH_SENDER_ID || '',
+    enabled: !!process.env.DISPATCH_API_URL && !!process.env.DISPATCH_APP_KEY && !!process.env.DISPATCH_SENDER_ID,
   },
 } as const;
 
