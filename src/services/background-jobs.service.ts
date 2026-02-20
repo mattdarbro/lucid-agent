@@ -167,7 +167,7 @@ export class BackgroundJobsService {
 
   /**
    * Start the notification dispatch job
-   * Runs every 3 minutes to send pending thought notifications via APNs
+   * Runs every 3 minutes to send pending thought notifications via Dispatch
    */
   private startNotificationDispatchJob(): void {
     this.notificationDispatchJob = cron.schedule('*/3 * * * *', async () => {
@@ -182,7 +182,7 @@ export class BackgroundJobsService {
   }
 
   /**
-   * Dispatch pending thought notifications to users via APNs
+   * Dispatch pending thought notifications to users via Dispatch API
    *
    * For each user with pending notifications:
    * 1. Check user's check-in preferences (rate limits, quiet hours)
@@ -194,7 +194,7 @@ export class BackgroundJobsService {
   private async dispatchPendingNotifications(): Promise<void> {
     try {
       if (!this.pushNotificationService.isEnabled()) {
-        logger.warn('[DISPATCH] Push notifications not configured — check APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_PATH, APNS_BUNDLE_ID env vars');
+        logger.warn('[DISPATCH] Push notifications not configured — check DISPATCH_API_URL, DISPATCH_APP_KEY, DISPATCH_SENDER_ID env vars');
         return;
       }
 
@@ -276,7 +276,7 @@ export class BackgroundJobsService {
             notificationId: notification.id,
             userId,
             priority: notification.priority,
-            apnsEnabled: this.pushNotificationService.isEnabled(),
+            dispatchEnabled: this.pushNotificationService.isEnabled(),
           });
         }
       } catch (error: any) {
