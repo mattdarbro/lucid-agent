@@ -210,7 +210,7 @@ export class BackgroundJobsService {
       `);
 
       if (result.rows.length === 0) {
-        logger.info('[DISPATCH] No pending notifications to dispatch');
+        logger.debug('[DISPATCH] No pending notifications to dispatch');
         return;
       }
 
