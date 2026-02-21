@@ -131,6 +131,16 @@ export class HealthService {
             metric.metric_type, metric.recorded_at, metric.metadata
           );
 
+          if (metric.metric_type === 'steps') {
+            logger.info('[HEALTH] Syncing step data', {
+              userId: input.user_id,
+              value: metric.value,
+              rawRecordedAt: new Date(metric.recorded_at).toISOString(),
+              normalizedAt: normalizedAt instanceof Date ? normalizedAt.toISOString() : normalizedAt,
+              granularity: metric.metadata?.granularity ?? 'none',
+            });
+          }
+
           const result = await client.query(
             `INSERT INTO health_metrics (user_id, metric_type, value, unit, recorded_at, source, source_device, metadata)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -303,6 +313,13 @@ export class HealthService {
     const steps = byType.get('steps');
     if (steps?.length) {
       const { total, samples } = this.aggregateCumulative(steps);
+      logger.info('[HEALTH] getDailySummary step aggregation', {
+        date,
+        rowCount: steps.length,
+        total,
+        granularities: steps.map((s) => s.metadata?.granularity ?? 'none'),
+        rawValues: steps.map((s) => s.value),
+      });
       summary.steps = {
         value: total,
         recorded_at: steps[0].recorded_at,

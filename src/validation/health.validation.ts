@@ -23,6 +23,23 @@ export const healthMetricSourceSchema = z.enum([
   'withings',
 ]);
 
+/**
+ * Fold a top-level `granularity` field into `metadata.granularity`.
+ *
+ * Dispatch (iOS) sends granularity as a peer of metric_type/value/etc.,
+ * but the health service reads it from metadata.  This transform bridges
+ * the two conventions so either placement works.
+ */
+function foldGranularity<T extends { granularity?: string; metadata?: Record<string, any> }>(
+  data: T
+): Omit<T, 'granularity'> {
+  const { granularity, ...rest } = data;
+  if (granularity && !rest.metadata?.granularity) {
+    (rest as any).metadata = { ...rest.metadata, granularity };
+  }
+  return rest;
+}
+
 // Single metric submitted from the iOS app
 export const createHealthMetricSchema = z.object({
   user_id: z.string().uuid(),
@@ -32,8 +49,9 @@ export const createHealthMetricSchema = z.object({
   recorded_at: z.coerce.date(),
   source: healthMetricSourceSchema.default('apple_health'),
   source_device: z.string().max(200).optional(),
+  granularity: z.string().optional(),
   metadata: z.record(z.any()).optional(),
-});
+}).transform(foldGranularity);
 
 // Batch sync: iOS app sends multiple metrics at once
 export const batchHealthMetricsSchema = z.object({
@@ -46,8 +64,9 @@ export const batchHealthMetricsSchema = z.object({
       recorded_at: z.coerce.date(),
       source: healthMetricSourceSchema.default('apple_health'),
       source_device: z.string().max(200).optional(),
+      granularity: z.string().optional(),
       metadata: z.record(z.any()).optional(),
-    })
+    }).transform(foldGranularity)
   ).min(1).max(500),
 });
 
