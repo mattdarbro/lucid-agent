@@ -301,8 +301,10 @@ export interface InvestmentRecommendationData {
   stop_loss: number;
   price_target: number;
   position_size_dollars: number;
+  hold_period: string;
   reasoning: string;
   risk_notes: string;
+  exit_plan: string;
   data_sources: {
     alpha_vantage: boolean;
     grok: boolean;
