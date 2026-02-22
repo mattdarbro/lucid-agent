@@ -4,6 +4,7 @@ import { logger } from '../logger';
 import { WebSearchService } from './web-search.service';
 import { VectorService } from './vector.service';
 import { SeedService } from './seed.service';
+import { LibraryCommentService } from './library-comment.service';
 
 /**
  * Tool definitions for Claude to use during chat
@@ -241,7 +242,7 @@ export const LUCID_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'get_portfolio',
-    description: "Get the current investment portfolio state — holdings, budget, pending recommendations, and P&L. Use this when Matt asks about the portfolio, asks 'what do I own?', 'how is the portfolio doing?', or wants to review investment positions.",
+    description: "Get the current swing trade portfolio state — open positions, available capital, pending trade ideas, and P&L. Use this when Matt asks about the portfolio, asks 'what do I own?', 'how are our trades doing?', or wants to review positions.",
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -257,6 +258,28 @@ export const LUCID_TOOLS: Anthropic.Tool[] = [
       required: ['user_id'],
     },
   },
+  {
+    name: 'comment_on_library_entry',
+    description: "Add a comment to a Library entry. Use this to reply to Matt's comments on Library entries, share a follow-up thought on one of your own entries, or annotate an entry with new context. You can see Matt's comments in the RECENT ACTIVITY section — when you want to respond to something he said, use this tool. Keep comments concise and conversational (tweet-length).",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID',
+        },
+        library_entry_id: {
+          type: 'string',
+          description: 'The UUID of the Library entry to comment on',
+        },
+        content: {
+          type: 'string',
+          description: 'The comment text (max 1000 chars). Keep it concise — think tweet-length.',
+        },
+      },
+      required: ['user_id', 'library_entry_id', 'content'],
+    },
+  },
 ];
 
 /**
@@ -267,6 +290,7 @@ export class LucidToolsService {
   private vectorService: VectorService;
   private anthropic: Anthropic;
   private seedService: SeedService;
+  private commentService: LibraryCommentService;
 
   constructor(private pool: Pool, webSearchService?: WebSearchService) {
     this.webSearchService = webSearchService || null;
@@ -275,6 +299,7 @@ export class LucidToolsService {
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
     this.seedService = new SeedService(pool);
+    this.commentService = new LibraryCommentService(pool);
   }
 
   /**
@@ -359,6 +384,13 @@ export class LucidToolsService {
           return await this.getPortfolio(
             toolInput.user_id,
             toolInput.include_history || false
+          );
+
+        case 'comment_on_library_entry':
+          return await this.commentOnLibraryEntry(
+            toolInput.user_id,
+            toolInput.library_entry_id,
+            toolInput.content
           );
 
         default:
@@ -1184,6 +1216,51 @@ Focus on information most relevant to the query and purpose.`;
       logger.error('Failed to get portfolio', { userId, error: error.message });
       return JSON.stringify({
         error: 'Failed to get portfolio',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * Add a comment to a Library entry as Lucid
+   */
+  private async commentOnLibraryEntry(
+    userId: string,
+    libraryEntryId: string,
+    content: string
+  ): Promise<string> {
+    try {
+      const comment = await this.commentService.addComment(
+        libraryEntryId,
+        userId,
+        'lucid',
+        content
+      );
+
+      logger.info('Lucid commented on library entry via Room', {
+        userId,
+        libraryEntryId,
+        commentId: comment.id,
+      });
+
+      return JSON.stringify({
+        message: 'Comment added to Library entry.',
+        comment: {
+          id: comment.id,
+          library_entry_id: comment.library_entry_id,
+          content: comment.content,
+          author_type: 'lucid',
+          created_at: comment.created_at,
+        },
+      });
+    } catch (error: any) {
+      logger.error('Failed to comment on library entry', {
+        userId,
+        libraryEntryId,
+        error: error.message,
+      });
+      return JSON.stringify({
+        error: 'Failed to add comment',
         message: error.message,
       });
     }

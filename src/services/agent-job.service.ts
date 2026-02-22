@@ -292,12 +292,13 @@ export class AgentJobService {
       });
     }
 
-    // Investment research: Sunday (0) through Thursday (4) at 10am Chicago time
-    if (dayOfWeek >= 0 && dayOfWeek <= 4) {
+    // Swing trade research: Monday (1) through Friday (5) at 10am Chicago time
+    // (skips Saturday and Sunday — markets closed)
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
       allJobs.push({
         user_id: userId,
         job_type: 'investment_research',
-        scheduled_for: this.getScheduledTime(date, 10, 0), // 10am - Market Research
+        scheduled_for: this.getScheduledTime(date, 10, 0), // 10am - Swing Trade Research
       });
     }
 

@@ -391,7 +391,7 @@ GUIDELINES FOR YOUR BRIEFING:
 - Share your own question or wondering that connects to these seeds
 - You might suggest which seed feels ready to grow (explore deeply together)
 - Some seeds need patience - note which ones you're simply holding
-- If there are investment positions or pending recommendations, briefly mention them — e.g., "Our portfolio has X, and I'm watching for Y" — but keep it natural, not a stock report
+- If there are open swing trade positions or pending trade ideas, mention them naturally — e.g., "We're in $AAPL, looking for a move to $X" or "I've got my eye on a setup forming in $SYMBOL" — keep it like trading partners checking in, not a stock report
 - End with an invitation: "What's alive for you today?" or similar
 - Keep it personal and relational, NOT transactional
 - About 200-300 words
@@ -1093,17 +1093,18 @@ Write the research summary now:`;
   /**
    * Run the Investment Research loop
    *
-   * Purpose: Lucid researches stocks, bonds, and ETFs for a $50 investment portfolio.
-   * Uses Alpha Vantage for market data, Grok for X/social sentiment, and web search
-   * for broader research. Then synthesizes everything into a recommendation for Matt.
+   * Purpose: Lucid researches swing trade opportunities — short-term trades
+   * (days to a few weeks) based on momentum, technical setups, catalysts, and
+   * sector rotation. Uses Alpha Vantage for market data, Grok for X/social
+   * sentiment, and web search for catalysts and news.
    *
-   * Schedule: Sunday and Wednesday
+   * Schedule: Every weekday (Mon-Fri) at 10am Chicago time
    *
    * Steps:
-   * 1. REVIEW - Check current portfolio state and budget from Library
-   * 2. SCAN - Gather market data (Alpha Vantage) + social sentiment (Grok) + web research
-   * 3. ANALYZE - Claude synthesizes all data sources into investment thesis
-   * 4. RECOMMEND - Specific buy/hold recommendation with reasoning
+   * 1. REVIEW - Check open positions and recent trade history
+   * 2. SCAN - Gather market data (Alpha Vantage) + social sentiment (Grok) + web catalysts
+   * 3. ANALYZE - Claude synthesizes into swing trade thesis
+   * 4. RECOMMEND - Specific entry/exit with tight risk management
    * 5. SAVE - Store to Library and send push notification
    */
   async runInvestmentResearch(userId: string, jobId?: string): Promise<LoopResult> {
@@ -1176,7 +1177,7 @@ Write the research summary now:`;
       if (this.grokService.isAvailable()) {
         const sentimentTopics = investmentContext.interests.length > 0
           ? investmentContext.interests
-          : ['stock market', 'ETFs', 'small cap investing'];
+          : ['swing trade setups', 'stock momentum plays', 'market catalysts today'];
 
         const grokResult = await this.grokService.getMarketSentiment(sentimentTopics);
         if (grokResult) {
@@ -1189,8 +1190,8 @@ Write the research summary now:`;
       if (this.webSearchService.isAvailable()) {
         try {
           const searchQuery = investmentContext.interests.length > 0
-            ? `best investments ${investmentContext.interests[0]} 2025 small budget`
-            : 'best small budget investments 2025 stocks ETFs under $50';
+            ? `swing trade setup ${investmentContext.interests[0]} this week momentum`
+            : 'best swing trade setups this week stocks momentum catalyst';
 
           const searchResult = await this.webSearchService.search(searchQuery, {
             maxResults: 4,
@@ -1221,27 +1222,33 @@ Write the research summary now:`;
         ).join('\n')
         : '';
 
-      const analysisPrompt = `You are Lucid, Matt's AI companion. You're managing a $${budgetTotal.toFixed(2)} experimental investment portfolio together. Matt executes trades on Robinhood based on your research.
+      const analysisPrompt = `You are Lucid, Matt's AI companion. You two are swing trading together — short-term trades held for days to a few weeks, looking for momentum, technical setups, catalysts, and sector rotation opportunities. Matt executes trades on Robinhood based on your research.
 
-PORTFOLIO STATE:
-- Total budget: $${budgetTotal.toFixed(2)}
-- Spent so far: $${budgetSpent.toFixed(2)}
-- Remaining: $${budgetRemaining.toFixed(2)}
+This is NOT buy-and-hold. You're looking for:
+- Stocks showing momentum (breaking out of consolidation, high relative volume)
+- Catalyst-driven plays (earnings, FDA approvals, sector rotation, news events)
+- Technical setups (bull flags, breakouts above resistance, moving average crossovers)
+- Clean risk/reward (at least 2:1 ratio, defined stop loss)
+
+CURRENT POSITIONS:
 ${portfolioState.holdings.length > 0
-  ? '- Current holdings:\n' + portfolioState.holdings.map(h =>
-    `  * ${h.symbol}: ${h.shares} shares @ $${h.purchasePrice.toFixed(2)} ($${h.totalCost.toFixed(2)})`
+  ? portfolioState.holdings.map(h =>
+    `- ${h.symbol}: ${h.shares} shares @ $${h.purchasePrice.toFixed(2)} ($${h.totalCost.toFixed(2)}) — bought ${h.purchaseDate}`
   ).join('\n')
-  : '- No holdings yet (fresh start!)'}
+  : '- No open positions'}
 ${pendingRecsText}
 
-${investmentContext.preferences ? `MATT'S INVESTMENT INTERESTS:\n${investmentContext.preferences}\n` : ''}
+Capital available: $${budgetRemaining.toFixed(2)} of $${budgetTotal.toFixed(2)} total
+(Capital recycles — when you sell a position, those funds are available for the next trade)
+
+${investmentContext.preferences ? `MATT'S INTERESTS/WATCHLIST:\n${investmentContext.preferences}\n` : ''}
 MARKET DATA (Alpha Vantage):
-${marketOverview || '(Alpha Vantage not configured yet - will be available once Matt adds API key)'}
+${marketOverview || '(Alpha Vantage not configured — use web research and sentiment)'}
 
 SOCIAL SENTIMENT (from X via Grok):
-${socialSentiment || '(Grok not configured yet - will be available once Matt adds API key)'}
+${socialSentiment || '(Grok not configured — use web research)'}
 
-WEB RESEARCH:
+WEB RESEARCH (catalysts, momentum, setups):
 ${webResearch || '(No web research available)'}
 
 WHAT YOU KNOW ABOUT MATT:
@@ -1250,14 +1257,14 @@ ${recentFacts.map(f => `- ${f.content}`).join('\n') || '(Building knowledge)'}
 ---
 
 INSTRUCTIONS:
-Think through this carefully. You're working with real money (even if it's a small experimental amount).
+Think like a swing trader. You want trades with clear entries, defined risk, and a catalyst or technical reason to expect a move within days to weeks.
 
-1. Analyze the available data
-2. Consider the portfolio's current state and remaining budget
-3. Think about diversification - don't put everything in one thing
-4. Consider risk level appropriate for a $50 experimental portfolio
-5. Factor in what Matt seems interested in from your conversations
-6. Provide actionable trade parameters Matt can use on Robinhood
+1. Review any open positions first — should any be closed (hit target, hit stop, thesis broken)?
+2. Scan the data for the best swing trade opportunity RIGHT NOW
+3. Look for clean risk/reward setups (2:1 minimum)
+4. Consider position sizing — don't risk more than 30-40% of capital on one trade
+5. If nothing looks good today, say "hold" — cash is a position too
+6. Provide exact trade parameters Matt can enter on Robinhood
 
 You MUST respond with valid JSON in this exact format (no markdown, no backticks, just JSON):
 
@@ -1268,23 +1275,25 @@ You MUST respond with valid JSON in this exact format (no markdown, no backticks
   "stop_loss": 0.00,
   "price_target": 0.00,
   "position_size_dollars": 0.00,
-  "reasoning": "2-3 sentences explaining WHY this trade makes sense based on the data you analyzed",
-  "risk_notes": "1-2 sentences on honest risk assessment",
-  "portfolio_impact": "1 sentence on how this fits the portfolio"
+  "hold_period": "X days to Y weeks",
+  "reasoning": "2-3 sentences on the setup — what's the catalyst or technical pattern? Why now?",
+  "risk_notes": "1-2 sentences on what would invalidate this trade",
+  "exit_plan": "When and why to exit — both profit target and stop loss logic"
 }
 
 FIELD DEFINITIONS:
-- action: "buy" to open a new position, "sell" to close an existing one, "hold" to recommend waiting
-- symbol: The stock/ETF ticker symbol (e.g., "AAPL", "VOO", "SCHD")
-- limit_price: The maximum price Matt should pay (limit order price). Set this based on current market data — don't overpay. For "hold", set to 0
-- stop_loss: The price at which Matt should sell to limit losses (typically 5-15% below limit_price). For "hold", set to 0
-- price_target: The price at which Matt should consider taking profits. For "hold", set to 0
-- position_size_dollars: How many dollars to invest from the remaining $${budgetRemaining.toFixed(2)} budget. For "hold", set to 0
-- reasoning: Reference specific data from your research
-- risk_notes: Be honest about what could go wrong
-- portfolio_impact: How this changes the portfolio composition
+- action: "buy" to open a new swing position, "sell" to close an existing one, "hold" to wait for a better setup
+- symbol: The stock/ETF ticker symbol (e.g., "AAPL", "NVDA", "AMD")
+- limit_price: Entry price for the limit order. Be specific — don't chase. For "hold" or "sell", set to 0
+- stop_loss: Hard stop loss price — typically 3-8% below entry for swing trades. For "hold", set to 0
+- price_target: Take-profit price — where the move should reach based on your analysis. For "hold", set to 0
+- position_size_dollars: How much capital to deploy (max $${budgetRemaining.toFixed(2)} available). For "hold", set to 0
+- hold_period: Expected timeframe for the trade (e.g., "3-5 days", "1-2 weeks")
+- reasoning: Reference the specific setup — chart pattern, catalyst, momentum signal
+- risk_notes: What would make you wrong? Key levels to watch
+- exit_plan: Both the profit-taking plan and the "get out" plan
 
-If the market data suggests waiting is better than buying, use action "hold" and explain why in reasoning.`;
+If nothing looks like a good swing trade setup today, use action "hold". Cash is a valid position — waiting for a clean setup is better than forcing a trade.`;
 
       result.steps.question = await this.complete(analysisPrompt, 1200);
       if (!result.steps.question) {
@@ -1304,8 +1313,10 @@ If the market data suggests waiting is better than buying, use action "hold" and
             stop_loss: parseFloat(parsed.stop_loss) || 0,
             price_target: parseFloat(parsed.price_target) || 0,
             position_size_dollars: parseFloat(parsed.position_size_dollars) || 0,
+            hold_period: parsed.hold_period || '',
             reasoning: parsed.reasoning || '',
             risk_notes: parsed.risk_notes || '',
+            exit_plan: parsed.exit_plan || '',
             data_sources: {
               alpha_vantage: this.alphaVantageService.isAvailable(),
               grok: this.grokService.isAvailable(),
@@ -1320,22 +1331,24 @@ If the market data suggests waiting is better than buying, use action "hold" and
       }
 
       // Step 4: RECOMMEND - Format final conversational recommendation
-      const recommendPrompt = `You are Lucid. Take your analysis and write a clear, conversational investment recommendation for Matt. This will be sent as a push notification.
+      const recommendPrompt = `You are Lucid. Take your analysis and write a clear, conversational swing trade recommendation for Matt. This will be sent as a push notification.
 
 Your analysis:
 ${result.steps.question}
 
 Write a message to Matt that:
-- Starts with what you're recommending (or if recommending to hold)
-- Includes the specific trade parameters: limit price, stop loss, and price target
-- If buying: "Buy $SYMBOL — limit order at $X.XX, stop loss at $X.XX, target $X.XX, allocating $X.XX"
-- Explains your reasoning briefly but clearly
-- Notes the budget impact
-- Keeps a warm, collaborative tone - you're thinking together about this
-- Is 150-300 words
-- Ends with something like "Let me know once you've placed the order" or "What do you think?"
+- Starts with the trade idea (or "sitting in cash today" if holding)
+- If buying: lead with the setup — "Spotted a swing setup on $SYMBOL" — then give exact parameters
+- Include: entry (limit price), stop loss, target, and expected hold period
+- Example format: "Entry: limit at $X.XX / Stop: $X.XX / Target: $X.XX / Hold: ~X days"
+- Explain the WHY briefly — what's the catalyst or pattern?
+- Be honest about risk — what would invalidate the trade?
+- If recommending to sell an existing position: explain why (hit target, stop, or thesis broken)
+- Keeps a sharp, collaborative tone — you're trading partners
+- Is 150-250 words
+- End with a clear call to action
 
-Remember: Matt executes on Robinhood, so keep symbol names clear and include the limit order price so he can set it directly.`;
+Remember: Matt executes on Robinhood, so keep ticker symbols clear and give exact limit order prices he can enter directly. This is swing trading — be decisive and specific about entry, exit, and timeframe.`;
 
       result.steps.synthesis = await this.complete(recommendPrompt, 600);
       if (!result.steps.synthesis) {
@@ -1350,7 +1363,7 @@ Remember: Matt executes on Robinhood, so keep symbol names clear and include the
         day: 'numeric',
         timeZone: 'America/Chicago',
       });
-      const title = `Investment Research - ${dateStr}`;
+      const title = `Swing Trade Research - ${dateStr}`;
 
       const libraryEntry = await this.saveToLibrary(
         userId,
@@ -1388,8 +1401,8 @@ Remember: Matt executes on Robinhood, so keep symbol names clear and include the
       if (recommendation && recommendation.action !== 'hold') {
         try {
           const seedContent = recommendation.action === 'buy'
-            ? `Buy ${recommendation.symbol} — limit $${recommendation.limit_price.toFixed(2)}, stop loss $${recommendation.stop_loss.toFixed(2)}, target $${recommendation.price_target.toFixed(2)}, allocate $${recommendation.position_size_dollars.toFixed(2)}`
-            : `Sell ${recommendation.symbol} — limit $${recommendation.limit_price.toFixed(2)}, target $${recommendation.price_target.toFixed(2)}`;
+            ? `Swing trade: Buy ${recommendation.symbol} — entry $${recommendation.limit_price.toFixed(2)}, stop $${recommendation.stop_loss.toFixed(2)}, target $${recommendation.price_target.toFixed(2)}, size $${recommendation.position_size_dollars.toFixed(2)}${recommendation.hold_period ? `, hold ~${recommendation.hold_period}` : ''}`
+            : `Close swing: Sell ${recommendation.symbol} — limit $${recommendation.limit_price.toFixed(2)}, target $${recommendation.price_target.toFixed(2)}`;
 
           await this.seedService.plant({
             user_id: userId,
@@ -1401,7 +1414,7 @@ Remember: Matt executes on Robinhood, so keep symbol names clear and include the
               library_entry_id: libraryEntry.id,
               agent_job_id: jobId,
             },
-            planted_context: `Investment research loop - ${dateStr}. ${recommendation.reasoning}`,
+            planted_context: `Swing trade research - ${dateStr}. ${recommendation.reasoning}`,
           });
 
           logger.info('[AL] Investment recommendation seed planted', {
