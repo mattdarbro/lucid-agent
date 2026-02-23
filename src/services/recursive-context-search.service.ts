@@ -684,52 +684,9 @@ Is this context sufficient to answer the query? If not, what specific informatio
       }
     }
 
-    // Pattern 4: Long conversation threshold
-    // If the conversation is very long, recent 20 messages might not have enough context
-    const LONG_CONVERSATION_THRESHOLD = 100;
-    if (conversationLength > LONG_CONVERSATION_THRESHOLD) {
-      // Only trigger if the message seems to need context (questions, references)
-      const needsContextPatterns = [
-        /\?$/, // Ends with question mark
-        /^(what|why|how|when|where|who|which|can you|could you|do you|did you|have you|will you)/i,
-        /about (that|this|it|the)/i,
-      ];
-
-      for (const pattern of needsContextPatterns) {
-        if (pattern.test(message)) {
-          logger.debug('Recursive search triggered by long conversation + question', {
-            conversationLength,
-            threshold: LONG_CONVERSATION_THRESHOLD,
-          });
-          return {
-            shouldSearch: true,
-            reason: `long conversation (${conversationLength} messages) with question`
-          };
-        }
-      }
-    }
-
-    // Pattern 5: Multi-day conversations
-    // If conversation spans multiple days, user might reference earlier days
-    if (daysSinceFirstMessage && daysSinceFirstMessage > 1) {
-      const multiDayPatterns = [
-        /yesterday/i,
-        /today/i,
-        /this morning/i,
-        /earlier today/i,
-      ];
-
-      for (const pattern of multiDayPatterns) {
-        if (pattern.test(message)) {
-          logger.debug('Recursive search triggered by multi-day reference', {
-            daysSinceFirstMessage,
-          });
-          return { shouldSearch: true, reason: 'multi-day conversation time reference' };
-        }
-      }
-    }
-
     // Default: don't use recursive search
+    // Removed: long conversation auto-trigger and multi-day auto-trigger
+    // These caused false positives on common phrases like "today" and any question in long chats
     return { shouldSearch: false, reason: 'no trigger patterns detected' };
   }
 }

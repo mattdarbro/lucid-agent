@@ -87,7 +87,8 @@ CREATE TABLE conversations (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   ended_at TIMESTAMPTZ,
-  last_fact_extraction_at TIMESTAMPTZ -- When facts were last extracted from this conversation
+  last_fact_extraction_at TIMESTAMPTZ, -- When facts were last extracted from this conversation
+  last_library_review_at TIMESTAMPTZ  -- When conversation was last reviewed for Library entries
 );
 
 CREATE INDEX idx_conversations_user ON conversations(user_id);

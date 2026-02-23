@@ -12,6 +12,7 @@ import { ResearchExecutorService } from './research-executor.service';
 import { SelfReviewLoopService } from './self-review-loop.service';
 import { ThoughtNotificationService } from './thought-notification.service';
 import { PushNotificationService } from './push-notification.service';
+import { ConversationReviewService } from './conversation-review.service';
 import { JobType } from '../validation/agent-job.validation';
 import { chicagoDateParts } from '../utils/chicago-time';
 
@@ -38,11 +39,13 @@ export class BackgroundJobsService {
   private selfReviewLoopService: SelfReviewLoopService;
   private thoughtNotificationService: ThoughtNotificationService;
   private pushNotificationService: PushNotificationService;
+  private conversationReviewService: ConversationReviewService;
   private factExtractionJob: cron.ScheduledTask | null = null;
   private autonomousLoopJob: cron.ScheduledTask | null = null;
   private dailyJobScheduler: cron.ScheduledTask | null = null;
   private researchExecutorJob: cron.ScheduledTask | null = null;
   private notificationDispatchJob: cron.ScheduledTask | null = null;
+  private conversationReviewJob: cron.ScheduledTask | null = null;
   private isRunning: boolean = false;
   private isRunningAutonomousLoops: boolean = false;
 
@@ -59,6 +62,7 @@ export class BackgroundJobsService {
     this.selfReviewLoopService = new SelfReviewLoopService(pool);
     this.thoughtNotificationService = new ThoughtNotificationService(pool);
     this.pushNotificationService = new PushNotificationService(pool);
+    this.conversationReviewService = new ConversationReviewService(pool);
   }
 
   /**
@@ -75,6 +79,7 @@ export class BackgroundJobsService {
     this.startDailyJobScheduler();
     this.startResearchExecutorJob();
     this.startNotificationDispatchJob();
+    this.startConversationReviewJob();
     this.isRunning = true;
     logger.info('[BACKGROUND] Background jobs started');
   }
@@ -102,6 +107,10 @@ export class BackgroundJobsService {
     if (this.notificationDispatchJob) {
       this.notificationDispatchJob.stop();
       this.notificationDispatchJob = null;
+    }
+    if (this.conversationReviewJob) {
+      this.conversationReviewJob.stop();
+      this.conversationReviewJob = null;
     }
     this.isRunning = false;
     logger.info('[BACKGROUND] Background jobs stopped');
@@ -886,6 +895,23 @@ export class BackgroundJobsService {
     }
 
     logger.info(`[BACKGROUND] Created ${createdCount}/${extractedFacts.length} facts from conversation ${conversationId}`);
+  }
+
+  /**
+   * Start the conversation review job
+   * Reviews idle conversations and generates Library entries async
+   * Runs every 30 minutes, reviews conversations idle for 30+ minutes
+   */
+  private startConversationReviewJob(): void {
+    this.conversationReviewJob = cron.schedule('*/30 * * * *', async () => {
+      try {
+        await this.conversationReviewService.reviewIdleConversations();
+      } catch (err: any) {
+        logger.error('[BACKGROUND] Unhandled error in conversation review cron', { error: err.message });
+      }
+    });
+
+    logger.info('[BACKGROUND] Conversation review job scheduled (every 30 minutes)');
   }
 
   /**
