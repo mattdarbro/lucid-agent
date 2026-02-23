@@ -4,8 +4,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../logger';
 import { MessageService } from './message.service';
 import { VectorService } from './vector.service';
-import { ThoughtService } from './thought.service';
-import { TopicService } from './topic.service';
 import { ProfileService } from './profile.service';
 import { CostTrackingService } from './cost-tracking.service';
 import { PromptModulesService } from './prompt-modules.service';
@@ -23,8 +21,6 @@ interface ChatConfig {
   defaultTemperature?: number;
   defaultModel?: string;
   maxTokens?: number;
-  forceDeepThinking?: boolean;
-  deepThinkingBias?: number;
   /** Enable recursive context search for "infinite context" */
   enableRecursiveSearch?: boolean;
   /** Configuration for recursive context search */
@@ -32,40 +28,21 @@ interface ChatConfig {
 }
 
 /**
- * ChatService - Simplified chat completion handler
- *
- * After the refactor:
- * - No mode selection
- * - No Haiku routing
- * - No personality profiling
- * - No scheduled fake thoughts
- *
- * Just Lucid, present, with memory and tools.
+ * ChatService - Fast, present chat
  *
  * Architecture:
- * User Message
- *     ↓
- * [Injectables injected - user's 3 anchors]
- *     ↓
- * [Living Document available - Lucid's working notebook]
- *     ↓
- * [Core Identity - ~70 words, flourishing-oriented]
- *     ↓
- * [Session State - ephemeral emotional context]
- *     ↓
- * Claude Opus responds
- *     ↓
- * [Lucid may update Living Document]
- *     ↓
- * [Tools available: web search, Library tools, etc.]
+ * User Message → Build Prompt → Claude Responds → Done
+ *
+ * No per-message deep thinking triage.
+ * No topic detection.
+ * Deep thinking happens async via background jobs.
+ * The Room is for presence, not processing.
  */
 export class ChatService {
   private pool: Pool;
   private supabase: SupabaseClient;
   private anthropic: Anthropic;
   private messageService: MessageService;
-  private deepThoughtService: ThoughtService;
-  private topicService: TopicService;
   private profileService: ProfileService;
   private costTrackingService: CostTrackingService;
   private promptModulesService: PromptModulesService;
@@ -78,8 +55,6 @@ export class ChatService {
     defaultTemperature: 0.7,
     defaultModel: 'claude-opus-4-6',
     maxTokens: 500,
-    forceDeepThinking: false,
-    deepThinkingBias: 50,
     enableRecursiveSearch: false,
     recursiveSearchConfig: {
       maxDepth: 3,
@@ -98,8 +73,6 @@ export class ChatService {
 
     const vectorService = new VectorService();
     this.messageService = new MessageService(pool, vectorService);
-    this.deepThoughtService = new ThoughtService(pool, anthropicApiKey);
-    this.topicService = new TopicService(pool, anthropicApiKey);
     this.profileService = new ProfileService(pool);
     this.costTrackingService = new CostTrackingService(pool);
     this.promptModulesService = new PromptModulesService(pool, anthropicApiKey);
@@ -114,20 +87,19 @@ export class ChatService {
   /**
    * Generates a chat completion using Claude
    *
-   * Simplified flow:
+   * Flow:
    * 1. Store user message
-   * 2. Check if deep thinking is needed (Library entry + concise response)
-   * 3. Build prompt from simplified modules
-   * 4. Call Claude Opus
-   * 5. Enforce word limits at service layer
-   * 6. Store assistant response
+   * 2. Build prompt from modules
+   * 3. Call Claude Opus with tools
+   * 4. Enforce word limits
+   * 5. Store assistant response
+   *
+   * Deep thinking happens async via background jobs, not here.
    */
   async chat(input: ChatCompletionInput): Promise<{
     user_message: any;
     assistant_message: any;
     response: string;
-    libraryEntry?: { id: string; title: string | null } | null;
-    topicShift?: { tag: string; color: string } | null;
   }> {
     try {
       // Store user message
@@ -154,55 +126,7 @@ export class ChatService {
       const profile = await this.profileService.getUserProfile(input.user_id);
       const chatConfig = this.mergeConfig(profile.chat);
 
-      // Detect topic shifts for visual segmentation
-      const topicShift = await this.detectTopicShift(
-        input.user_id,
-        input.conversation_id,
-        input.message,
-        messages,
-        history
-      );
-
-      // Check if deep thinking is needed
-      // Complex questions generate Library entries + concise chat responses
-      const thoughtResult = await this.deepThoughtService.generateThoughtWithLibrary(
-        input.user_id,
-        input.conversation_id,
-        input.message,
-        messages,
-        {
-          forceDeepThinking: chatConfig.forceDeepThinking,
-          deepThinkingBias: chatConfig.deepThinkingBias,
-        }
-      );
-
-      // If deep thought generated a response, use it and return early
-      if (thoughtResult.chatResponse) {
-        const assistantMessage = await this.messageService.createMessage({
-          conversation_id: input.conversation_id,
-          user_id: input.user_id,
-          role: 'assistant',
-          content: thoughtResult.chatResponse,
-        });
-
-        logger.info('Deep thought response generated', {
-          conversation_id: input.conversation_id,
-          library_entry_id: thoughtResult.libraryEntry?.id,
-          response_length: thoughtResult.chatResponse.length,
-        });
-
-        return {
-          user_message: userMessage,
-          assistant_message: assistantMessage,
-          response: thoughtResult.chatResponse,
-          libraryEntry: thoughtResult.libraryEntry
-            ? { id: thoughtResult.libraryEntry.id, title: thoughtResult.libraryEntry.title }
-            : null,
-          topicShift,
-        };
-      }
-
-      // Simple conversation - build standard prompt
+      // Build prompt from modules
       const moduleResult = await this.promptModulesService.buildStandardPrompt(
         input.user_id,
         input.message,
@@ -455,7 +379,6 @@ export class ChatService {
         user_message: userMessage,
         assistant_message: assistantMessage,
         response: assistantResponse,
-        topicShift,
       };
     } catch (error: any) {
       logger.error('Error in chat completion:', {
@@ -483,54 +406,6 @@ export class ChatService {
       ...this.DEFAULT_CONFIG,
       ...profileConfig,
     };
-  }
-
-  /**
-   * Detect topic shifts for visual segmentation
-   */
-  private async detectTopicShift(
-    userId: string,
-    conversationId: string,
-    message: string,
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
-    history: any[]
-  ): Promise<{ tag: string; color: string } | null> {
-    try {
-      // Calculate time since last message
-      const lastMessage = history.length > 1 ? history[history.length - 2] : null;
-      const timeSinceLastMessage = lastMessage?.created_at
-        ? (Date.now() - new Date(lastMessage.created_at).getTime()) / 1000
-        : 0;
-
-      const shiftResult = await this.topicService.detectTopicShift(
-        userId,
-        conversationId,
-        message,
-        messages.slice(0, -1), // Exclude the message we just added
-        timeSinceLastMessage
-      );
-
-      if (shiftResult.shifted && shiftResult.suggestedTag && shiftResult.color) {
-        // Start a new topic segment in the database
-        await this.topicService.startSegment(
-          conversationId,
-          shiftResult.suggestedTag,
-          shiftResult.detectionMethod || 'semantic_shift'
-        );
-
-        logger.info('Topic shift detected', {
-          conversation_id: conversationId,
-          tag: shiftResult.suggestedTag,
-          method: shiftResult.detectionMethod,
-        });
-
-        return { tag: shiftResult.suggestedTag, color: shiftResult.color };
-      }
-    } catch (topicError) {
-      logger.warn('Topic detection failed, continuing without:', topicError);
-    }
-
-    return null;
   }
 
   /**

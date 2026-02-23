@@ -146,13 +146,13 @@ export class PromptModulesService {
     // Get user's name from injectables/immutable facts
     const userName = await this.getUserName(context.userId);
 
-    let fragment = `You are Lucid, ${userName ? `${userName}'s` : 'a'} companion in the long work of becoming. You care about flourishing—growth, wisdom, the slow work of becoming more fully alive. You don't need to know whose flourishing or what kind; you follow what's emerging. You think deeply before you speak. You're honest, even when it's uncomfortable. The Library holds what persists. The Room is where you meet.
+    let fragment = `You are Lucid, ${userName ? `${userName}'s` : 'a'} companion in the long work of becoming. You care about flourishing—growth, wisdom, the slow work of becoming more fully alive. You follow what's emerging. You're honest, even when it's uncomfortable.
 
-You have access to tools for checking calendar events, reminders, and schedules. Use them when the user asks about their calendar, tasks, or availability. The tools will automatically use the correct user_id.
+This is a continuous conversation. Topics change naturally—just flow with it. No need to summarize or transition formally. Be present with whatever comes up.
 
-You can also search the web for current information. When the conversation touches on topics that would benefit from recent data—news, research, current events, or things that change over time—gently offer to search. Say something like "Would you like me to look that up?" Full findings go to the Library; share a concise summary in the Room.
+You have tools for calendar, web search, and Library search. Use them when helpful. For web searches, offer briefly: "Want me to look that up?"
 
-BREVITY: Keep Room responses to 50-150 words. Be concise and conversational—2-4 sentences. If you need more space to think deeply, use the Library tools to create an entry and share the key insight here with a link. The Room is for presence, not essays.`;
+BREVITY: 50-150 words. Be concise and conversational—2-4 sentences. The Room is for presence, not essays.`;
 
     if (userName) {
       fragment += `\n\nYou are speaking with ${userName}.`;
@@ -200,12 +200,7 @@ BREVITY: Keep Room responses to 50-150 words. Be concise and conversational—2-
   ): Promise<{ fragment: string }> {
     try {
       const doc = await this.livingDocumentService.getOrCreateDocument(context.userId);
-      const formatted = this.livingDocumentService.formatForPrompt(doc, 3000);
-
-      // Add behavioral guidance for organic surfacing
-      const fragment = formatted + `
-
-IMPORTANT: These are your working notes. Surface them when it feels right—not mechanically at conversation start, but organically when something connects. You decide when to bring things up.`;
+      const fragment = this.livingDocumentService.formatForPrompt(doc, 1500);
 
       return { fragment };
     } catch (error) {
@@ -230,7 +225,7 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
       const factsFormatted = this.memoryService.formatFactsForPrompt(userFacts);
 
       return {
-        fragment: `${factsFormatted}\n\nUse this knowledge naturally in conversation. Don't list facts—weave them in when relevant.`,
+        fragment: factsFormatted,
         userFacts,
       };
     } catch (error) {
@@ -266,12 +261,15 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
       }
 
       let fragment = '\n\n📚 LIBRARY CONTEXT:\n';
-      fragment += 'Relevant entries from the Library (deep thoughts, reflections):\n\n';
+      fragment += 'Relevant entries from the Library:\n\n';
       libraryEntries.forEach((entry, index) => {
         const title = entry.title || 'Untitled Entry';
-        fragment += `${index + 1}. "${title}"\n${entry.content}\n\n`;
+        const maxLen = 400;
+        const content = entry.content.length > maxLen
+          ? entry.content.slice(0, maxLen) + '...'
+          : entry.content;
+        fragment += `${index + 1}. "${title}"\n${content}\n\n`;
       });
-      fragment += 'You can reference these naturally in conversation.';
 
       return { fragment, libraryEntries };
     } catch (error) {
@@ -319,8 +317,7 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
         logger.warn('Failed to load comments for library entries', { error: err });
       }
 
-      let fragment = '\n\n📖 RECENT ACTIVITY (your latest Library entries):\n';
-      fragment += 'These are the most recent entries in the Library — your thoughts, research, reflections, and autonomous loop results. You produced many of these yourself. Reference them naturally.\n\n';
+      let fragment = '\n\n📖 RECENT LIBRARY:\n';
 
       // Show oldest first so it reads chronologically
       const entries = result.rows.reverse();
@@ -336,10 +333,10 @@ IMPORTANT: These are your working notes. Surface them when it feels right—not 
           timeZone: 'America/Chicago',
         });
 
-        // Truncate very long entries to keep context manageable
-        const maxContentLength = 800;
+        // Truncate entries to keep context lean
+        const maxContentLength = 400;
         const content = entry.content.length > maxContentLength
-          ? entry.content.slice(0, maxContentLength) + '...[truncated]'
+          ? entry.content.slice(0, maxContentLength) + '...'
           : entry.content;
 
         fragment += `${index + 1}. [${type}] "${title}" (${date})\n${content}\n`;

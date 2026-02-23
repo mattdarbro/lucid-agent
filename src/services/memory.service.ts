@@ -28,20 +28,13 @@ export class MemoryService {
   async getRelevantFacts(userId: string, limit: number = 10): Promise<FactWithEvidence[]> {
     try {
       // Get most confident and recently mentioned facts
-      // Include evidence to provide richer context
       const result: QueryResult<FactWithEvidence> = await this.pool.query(
-        `SELECT f.*,
-                COALESCE(
-                  array_agg(e.excerpt) FILTER (WHERE e.excerpt IS NOT NULL),
-                  ARRAY[]::text[]
-                ) as evidence_list
-         FROM facts f
-         LEFT JOIN evidence e ON e.fact_id = f.id
-         WHERE f.user_id = $1
-           AND f.is_active = true
-           AND f.confidence >= 0.5
-         GROUP BY f.id
-         ORDER BY f.confidence DESC, f.last_mentioned_at DESC NULLS LAST
+        `SELECT *
+         FROM facts
+         WHERE user_id = $1
+           AND is_active = true
+           AND confidence >= 0.5
+         ORDER BY confidence DESC, last_mentioned_at DESC NULLS LAST
          LIMIT $2`,
         [userId, limit]
       );
@@ -112,79 +105,11 @@ export class MemoryService {
       return '';
     }
 
-    // Group facts by category for better organization
-    const factsByCategory = new Map<string, FactWithEvidence[]>();
+    const factsList = facts
+      .map((f) => `- ${f.content}`)
+      .join('\n');
 
-    for (const fact of facts) {
-      const category = fact.category || 'other';
-      if (!factsByCategory.has(category)) {
-        factsByCategory.set(category, []);
-      }
-      factsByCategory.get(category)!.push(fact);
-    }
-
-    // Build formatted output
-    const sections: string[] = [];
-
-    // Priority order for categories (most important first)
-    const categoryOrder = [
-      'personal',
-      'preference',
-      'goal',
-      'relationship',
-      'experience',
-      'skill',
-      'habit',
-      'belief',
-      'health',
-      'other',
-    ];
-
-    for (const category of categoryOrder) {
-      const categoryFacts = factsByCategory.get(category);
-      if (!categoryFacts || categoryFacts.length === 0) continue;
-
-      const formattedFacts = categoryFacts
-        .map((f) => {
-          // Format confidence as a descriptor
-          const confidenceDesc =
-            f.confidence >= 0.9
-              ? 'certain'
-              : f.confidence >= 0.7
-                ? 'confident'
-                : 'possible';
-          return `  - ${f.content} (${confidenceDesc})`;
-        })
-        .join('\n');
-
-      sections.push(`${this.formatCategoryName(category)}:\n${formattedFacts}`);
-    }
-
-    if (sections.length === 0) {
-      return '';
-    }
-
-    return `\n\n🧠 WHAT YOU KNOW ABOUT THIS USER:\n${sections.join('\n\n')}`;
-  }
-
-  /**
-   * Formats a category name for display
-   */
-  private formatCategoryName(category: string): string {
-    const categoryNames: Record<string, string> = {
-      personal: 'Personal Information',
-      preference: 'Preferences & Interests',
-      goal: 'Goals & Aspirations',
-      relationship: 'Relationships',
-      experience: 'Experiences & Background',
-      skill: 'Skills & Abilities',
-      habit: 'Habits & Routines',
-      belief: 'Beliefs & Values',
-      health: 'Health & Wellness',
-      other: 'Other',
-    };
-
-    return categoryNames[category] || category.charAt(0).toUpperCase() + category.slice(1);
+    return `\n\n🧠 WHAT YOU KNOW:\n${factsList}`;
   }
 
   /**

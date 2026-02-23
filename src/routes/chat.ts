@@ -83,8 +83,6 @@ router.post('/', validateBody(chatCompletionSchema), async (req: Request, res: R
       assistant_message: result.assistant_message,
       response: result.response,
       conversation_id: input.conversation_id,
-      library_entry: result.libraryEntry ?? null,
-      topic_shift: result.topicShift ?? null,
     });
   } catch (error: any) {
     const anthropicStatus = getAnthropicErrorStatus(error);
