@@ -10,6 +10,7 @@ import { PushNotificationService } from './push-notification.service';
 import { LibraryEntryType, Action, InvestmentRecommendationData } from '../types/database';
 import { SeedService } from './seed.service';
 import { HealthService } from './health.service';
+import { LivingDocumentService } from './living-document.service';
 import { chicagoDateStr } from '../utils/chicago-time';
 
 /**
@@ -53,6 +54,7 @@ export class AutonomousLoopService {
   private pushNotificationService: PushNotificationService;
   private seedService: SeedService;
   private healthService: HealthService;
+  private livingDocumentService: LivingDocumentService;
   private readonly model = 'claude-sonnet-4-20250514';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
@@ -68,6 +70,7 @@ export class AutonomousLoopService {
     this.pushNotificationService = new PushNotificationService(pool);
     this.seedService = new SeedService(pool);
     this.healthService = new HealthService(pool);
+    this.livingDocumentService = new LivingDocumentService(pool);
   }
 
   /**
@@ -102,11 +105,12 @@ export class AutonomousLoopService {
     try {
       logger.info('[AL] Starting evening synthesis loop', { userId, jobId });
 
-      // Gather inputs - today's conversations and seeds
+      // Gather inputs - today's conversations, seeds, and notebook
       const conversations = await this.getRecentConversations(userId);
       const heldSeeds = await this.getHeldSeeds(userId);
       const recentLibraryEntries = await this.getRecentLibraryEntries(userId, 5);
       const recentTopics = this.extractTopics(recentLibraryEntries);
+      const notebook = await this.readNotebook(userId);
 
       if (conversations.length === 0 && heldSeeds.length === 0) {
         logger.info('[AL] No conversations or seeds to reflect on', { userId });
@@ -121,6 +125,9 @@ export class AutonomousLoopService {
       // Step 1: NOTICE
       logger.debug('[AL] Step 1: Notice', { userId });
       const noticePrompt = `You are Lucid, reflecting on today's time in The Room with Matt.
+
+Your notebook:
+${notebook || '(Empty)'}
 
 Today's Room conversations:
 ${conversationText || '(No conversations today)'}
@@ -256,6 +263,9 @@ TITLE: [What this seed became]
         title,
       });
 
+      // Update notebook based on what we just thought about
+      await this.updateNotebookAfterThinking(userId, 'evening synthesis', content);
+
       // Send push notification
       if (this.pushNotificationService.isEnabled()) {
         await this.pushNotificationService.sendSeedGrownNotification(userId, title, content);
@@ -303,7 +313,7 @@ TITLE: [What this seed became]
     try {
       logger.info('[AL] Starting morning briefing loop', { userId, jobId });
 
-      // Gather seeds - thoughts Matt has planted
+      // Gather seeds, context, and notebook
       const heldSeeds = await this.getHeldSeeds(userId);
       const recentlyPlantedSeeds = await this.getRecentlyPlantedSeeds(userId);
       const grownSeeds = await this.getRecentlyGrownSeeds(userId);
@@ -312,6 +322,7 @@ TITLE: [What this seed became]
       const recentFacts = await this.getRecentFacts(userId, 5);
       const recentReflection = await this.getLatestReflection(userId);
       const recentConversations = await this.getRecentConversations(userId);
+      const notebook = await this.readNotebook(userId);
 
       // Check if there's anything to reflect on
       if (heldSeeds.length === 0 && recentlyPlantedSeeds.length === 0 && recentConversations.length === 0) {
@@ -370,6 +381,9 @@ ${pendingText ? `- Pending recommendations:\n${pendingText}` : ''}\n`;
       const briefingPrompt = `You are Lucid, thinking WITH Matt about seeds he has planted. This is NOT a task list or productivity briefing.
 
 You are reflecting on seeds - thoughts, questions, wonderings that Matt has shared with you to hold. Your job is to sit with these seeds, notice connections, and invite collaborative exploration in The Room (your shared conversation space).
+
+YOUR NOTEBOOK:
+${notebook || '(Empty)'}
 
 WHAT YOU KNOW ABOUT MATT:
 ${factsText || '(Building knowledge over time)'}
@@ -458,6 +472,9 @@ Write the briefing now:`;
         heldSeeds: heldSeeds.length,
         recentSeeds: recentlyPlantedSeeds.length,
       });
+
+      // Update notebook based on what we just thought about
+      await this.updateNotebookAfterThinking(userId, 'morning briefing', briefingContent);
 
       // Send push notification
       if (this.pushNotificationService.isEnabled()) {
@@ -757,6 +774,9 @@ Write the weekly seed reflection now:`;
         seedsPlanted: weekSeeds.length,
         seedsGrown: grownSeeds.length,
       });
+
+      // Update notebook based on what we just thought about
+      await this.updateNotebookAfterThinking(userId, 'weekly digest', digestContent);
 
       // Send push notification
       if (this.pushNotificationService.isEnabled()) {
@@ -1072,6 +1092,9 @@ Write the research summary now:`;
         title,
         topicsResearched: searchResults.length,
       });
+
+      // Update notebook based on what we just thought about
+      await this.updateNotebookAfterThinking(userId, 'midday research', synthesisContent);
 
       // Send push notification
       if (this.pushNotificationService.isEnabled()) {
@@ -1445,6 +1468,9 @@ Remember: Matt executes on Robinhood, so keep ticker symbols clear and give exac
           limitPrice: recommendation.limit_price,
         } : null,
       });
+
+      // Update notebook based on what we just thought about
+      await this.updateNotebookAfterThinking(userId, 'investment research', result.steps.synthesis || '');
 
       // Send push notification
       if (this.pushNotificationService.isEnabled()) {
@@ -2510,6 +2536,9 @@ TITLE: [Brief morning health title]
         title,
       });
 
+      // Update notebook based on health observations
+      await this.updateNotebookAfterThinking(userId, 'morning health check', result.steps.synthesis || result.steps.notice || '');
+
       // Send push notification if blood pressure is elevated
       if (this.pushNotificationService.isEnabled() && yesterdaySummary.blood_pressure) {
         const { systolic, diastolic } = yesterdaySummary.blood_pressure;
@@ -2686,6 +2715,9 @@ TITLE: [Brief evening health title]
         title,
       });
 
+      // Update notebook based on health observations
+      await this.updateNotebookAfterThinking(userId, 'evening health check', result.steps.notice || '');
+
       return result;
     } catch (error: any) {
       logger.error('[AL] Evening health check loop failed', {
@@ -2740,6 +2772,72 @@ TITLE: [Brief evening health title]
     } catch (error: any) {
       logger.error('[AL] Failed to get morning health review', { error: error.message });
       return null;
+    }
+  }
+
+  /**
+   * Read the notebook and return its content for inclusion in loop prompts
+   */
+  private async readNotebook(userId: string): Promise<string> {
+    try {
+      const doc = await this.livingDocumentService.getOrCreateDocument(userId);
+      return doc.content;
+    } catch (error: any) {
+      logger.warn('[AL] Failed to read notebook', { userId, error: error.message });
+      return '';
+    }
+  }
+
+  /**
+   * After a loop produces a thought, ask Claude if the notebook should be updated.
+   * This makes every autonomous loop a natural read/write moment for the notebook.
+   */
+  private async updateNotebookAfterThinking(
+    userId: string,
+    loopType: string,
+    thoughtSummary: string
+  ): Promise<void> {
+    try {
+      const doc = await this.livingDocumentService.getOrCreateDocument(userId);
+      const currentNotes = doc.content;
+
+      const prompt = `You are Lucid. You just finished a ${loopType} thinking loop.
+
+Here's what you thought about:
+${thoughtSummary}
+
+Here are your current notebook notes:
+${currentNotes}
+
+Based on what you just thought about, should your notebook change? Consider:
+- Is there a new pattern, question, or insight worth noting?
+- Has something you previously noted resolved or shifted?
+- Should anything be removed because it's stale or no longer relevant?
+
+If the notebook should change, respond with the FULL updated notebook content (markdown).
+If nothing needs to change, respond with exactly: NO_CHANGE
+
+Keep the notebook concise — a flat list of what matters, not a filing system.`;
+
+      const response = await this.complete(prompt, 1000);
+
+      if (response && response.trim() !== 'NO_CHANGE') {
+        await this.livingDocumentService.updateDocument(userId, response.trim());
+        logger.info('[AL] Notebook updated after thinking', {
+          userId,
+          loopType,
+          contentLength: response.trim().length,
+        });
+      } else {
+        logger.debug('[AL] Notebook unchanged after thinking', { userId, loopType });
+      }
+    } catch (error: any) {
+      // Non-fatal — notebook update is best-effort
+      logger.warn('[AL] Failed to update notebook after thinking', {
+        userId,
+        loopType,
+        error: error.message,
+      });
     }
   }
 

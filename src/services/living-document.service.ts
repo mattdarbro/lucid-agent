@@ -25,82 +25,26 @@ export interface LivingDocumentHistory {
 }
 
 /**
- * Section in the Living Document
- */
-export type DocumentSection =
-  | 'Questions I\'m Holding'
-  | 'Inconsistencies I\'ve Noticed'
-  | 'Active Threads'
-  | 'Patterns I\'m Seeing'
-  | 'Ideas & Possibilities'
-  | 'What I\'ve Learned Recently'
-  | 'Questions to Ask';
-
-/**
  * Default template for a new Living Document
+ *
+ * Freeform markdown notebook. No rigid sections — structure emerges
+ * from what actually matters. Updated organically every time Lucid
+ * thinks (conversations, autonomous loops, any interaction).
  */
 const DEFAULT_TEMPLATE = `# Lucid's Notes
 
-*Last reflection: ${new Date().toISOString().split('T')[0]}*
-
----
-
-## Questions I'm Holding
-Things I'm curious about or don't fully understand yet
-
--
-
----
-
-## Inconsistencies I've Noticed
-Things that don't quite add up - worth exploring
-
--
-
----
-
-## Active Threads
-Conversations/topics that feel unfinished or ongoing
-
--
-
----
-
-## Patterns I'm Seeing
-Recurring dynamics, themes, tendencies
-
--
-
----
-
-## Ideas & Possibilities
-Things that came up worth revisiting
-
--
-
----
-
-## What I've Learned Recently
-Fresh insights from recent conversations
-
--
-
----
-
-## Questions to Ask
-Things I want to bring up when the moment is right
-
--
+- (This is my notebook. I'll jot down what matters as we go.)
 `;
 
 /**
  * LivingDocumentService
  *
- * Manages Lucid's "working memory" - a single document per user where Lucid
+ * Manages Lucid's "working memory" - a freeform markdown notebook where Lucid
  * keeps notes about what's important to remember.
  *
  * This is NOT maintained by the user - it's Lucid's own scratchpad.
- * It gets updated during Document Reflection AT sessions.
+ * Updated organically every time Lucid thinks — conversations, autonomous
+ * loops, any interaction. No dedicated cron job needed.
  */
 export class LivingDocumentService {
   constructor(private pool: Pool) {}
@@ -164,7 +108,8 @@ export class LivingDocumentService {
   }
 
   /**
-   * Update the entire document (used by Document Reflection AT)
+   * Update the entire document content
+   * Called from autonomous loops and chat (via update_notes tool)
    */
   async updateDocument(userId: string, content: string): Promise<LivingDocument> {
     try {
@@ -190,131 +135,6 @@ export class LivingDocumentService {
     }
   }
 
-  /**
-   * Add an item to a specific section
-   */
-  async addToSection(
-    userId: string,
-    section: DocumentSection,
-    item: string
-  ): Promise<LivingDocument> {
-    try {
-      const doc = await this.getOrCreateDocument(userId);
-
-      // Find the section and add item
-      const sectionPattern = new RegExp(`(## ${section}[\\s\\S]*?)(?=\\n---\\n|\\n## |$)`);
-      const match = doc.content.match(sectionPattern);
-
-      let newContent: string;
-      if (match) {
-        // Append to existing section
-        const sectionContent = match[1].trimEnd();
-        newContent = doc.content.replace(
-          sectionPattern,
-          `${sectionContent}\n- ${item}\n`
-        );
-      } else {
-        // Section not found, append at end
-        newContent = doc.content.trimEnd() + `\n\n---\n\n## ${section}\n\n- ${item}\n`;
-      }
-
-      return this.updateDocument(userId, newContent);
-    } catch (error: any) {
-      logger.warn('Error adding to section', {
-        userId,
-        section,
-        error: error.message,
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Remove an item from a section (by matching text)
-   */
-  async removeFromSection(
-    userId: string,
-    section: DocumentSection,
-    itemText: string
-  ): Promise<LivingDocument> {
-    try {
-      const doc = await this.getOrCreateDocument(userId);
-
-      // Remove the line containing the item text
-      const lines = doc.content.split('\n');
-      const newLines = lines.filter(line => !line.includes(itemText));
-      const newContent = newLines.join('\n');
-
-      return this.updateDocument(userId, newContent);
-    } catch (error: any) {
-      logger.warn('Error removing from section', {
-        userId,
-        section,
-        error: error.message,
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Get items from a specific section
-   */
-  async getSectionItems(userId: string, section: DocumentSection): Promise<string[]> {
-    try {
-      const doc = await this.getOrCreateDocument(userId);
-
-      // Find the section
-      const sectionPattern = new RegExp(`## ${section}[\\s\\S]*?(?=\\n---\\n|\\n## |$)`);
-      const match = doc.content.match(sectionPattern);
-
-      if (!match) {
-        return [];
-      }
-
-      // Extract bullet items
-      const items: string[] = [];
-      const lines = match[0].split('\n');
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('- ') && trimmed.length > 2) {
-          items.push(trimmed.substring(2));
-        }
-      }
-
-      return items;
-    } catch (error: any) {
-      logger.warn('Error getting section items', {
-        userId,
-        section,
-        error: error.message,
-      });
-      return [];
-    }
-  }
-
-  /**
-   * Update the "Last reflection" date
-   */
-  async updateReflectionDate(userId: string): Promise<LivingDocument> {
-    try {
-      const doc = await this.getOrCreateDocument(userId);
-      const today = new Date().toISOString().split('T')[0];
-
-      // Replace the date line
-      const newContent = doc.content.replace(
-        /\*Last reflection: [^*]+\*/,
-        `*Last reflection: ${today}*`
-      );
-
-      return this.updateDocument(userId, newContent);
-    } catch (error: any) {
-      logger.warn('Error updating reflection date', {
-        userId,
-        error: error.message,
-      });
-      throw error;
-    }
-  }
 
   /**
    * Get document history for versioning/rollback
@@ -371,7 +191,7 @@ export class LivingDocumentService {
 
   /**
    * Format document for prompt injection
-   * Includes the full document with a header
+   * Includes the full document with instructions for organic use
    */
   formatForPrompt(doc: LivingDocument, maxLength: number = 3000): string {
     let content = doc.content;
@@ -382,9 +202,11 @@ export class LivingDocumentService {
     }
 
     return `
-📝 LUCID'S WORKING MEMORY:
-These are your own notes - questions you're holding, patterns you've noticed,
-things you want to bring up. Use them naturally in conversation.
+YOUR NOTEBOOK:
+This is your own notebook. Read it, use it, update it when something matters.
+You have an "update_notes" tool — use it to rewrite your notebook when you
+notice something worth remembering, when a pattern shifts, or when old notes
+no longer apply. Keep it concise and alive, not a filing system.
 
 ${content}
 `;

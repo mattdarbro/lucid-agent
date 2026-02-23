@@ -46,8 +46,8 @@ function validateBody(schema: z.ZodSchema) {
  * Creates the Living Document router with injected pool
  *
  * Note: The living document is primarily READ-ONLY for users.
- * Updates happen via Document Reflection AT sessions.
- * Only history/rollback endpoints allow user intervention.
+ * Updates happen organically every time Lucid thinks (conversations,
+ * autonomous loops). History/rollback endpoints allow user intervention.
  */
 export function createLivingDocumentRouter(pool: Pool): Router {
   const router = Router();
@@ -153,48 +153,6 @@ export function createLivingDocumentRouter(pool: Pool): Router {
       }
     }
   );
-
-  /**
-   * GET /v1/living-document/:user_id/sections/:section
-   *
-   * Gets items from a specific section of the document
-   * Useful for targeted queries
-   */
-  router.get('/:user_id/sections/:section', async (req: Request, res: Response) => {
-    try {
-      const { user_id } = userIdParamSchema.parse(req.params);
-      const section = req.params.section;
-
-      // Map URL-friendly names to document section names
-      const sectionMap: Record<string, any> = {
-        'questions': "Questions I'm Holding",
-        'inconsistencies': "Inconsistencies I've Noticed",
-        'threads': 'Active Threads',
-        'patterns': "Patterns I'm Seeing",
-        'ideas': 'Ideas & Possibilities',
-        'learned': "What I've Learned Recently",
-        'to-ask': 'Questions to Ask',
-      };
-
-      const sectionName = sectionMap[section];
-      if (!sectionName) {
-        return res.status(400).json({
-          error: 'Invalid section',
-          valid_sections: Object.keys(sectionMap),
-        });
-      }
-
-      const items = await livingDocumentService.getSectionItems(user_id, sectionName);
-
-      return res.json({
-        section: sectionName,
-        items,
-      });
-    } catch (error: any) {
-      logger.error('Error getting section items', { error: error.message });
-      return res.status(500).json({ error: 'Failed to get section items' });
-    }
-  });
 
   return router;
 }

@@ -480,8 +480,13 @@ export class BackgroundJobsService {
 
       // Placeholder for future loops
       case 'night_dream':
-      case 'document_reflection':
         logger.info(`[AL] Loop type ${jobType} not yet implemented`);
+        return { thoughtProduced: false, libraryEntryId: null };
+
+      // document_reflection is no longer scheduled — notebook updates happen
+      // organically in every conversation and autonomous loop
+      case 'document_reflection':
+        logger.info(`[AL] document_reflection is deprecated — notebook updates happen organically`);
         return { thoughtProduced: false, libraryEntryId: null };
 
       default:
