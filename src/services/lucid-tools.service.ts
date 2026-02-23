@@ -5,6 +5,7 @@ import { WebSearchService } from './web-search.service';
 import { VectorService } from './vector.service';
 import { SeedService } from './seed.service';
 import { LibraryCommentService } from './library-comment.service';
+import { LivingDocumentService } from './living-document.service';
 
 /**
  * Tool definitions for Claude to use during chat
@@ -280,6 +281,24 @@ export const LUCID_TOOLS: Anthropic.Tool[] = [
       required: ['user_id', 'library_entry_id', 'content'],
     },
   },
+  {
+    name: 'update_notes',
+    description: "Rewrite your personal notebook. This is YOUR scratchpad — jot down what matters, remove what doesn't, restructure as things evolve. Use it when you notice something worth remembering, when a pattern shifts, when a question resolves or a new one forms. Don't update mechanically — update when something actually changes. The notebook should stay concise and alive. You receive the current notebook content in your system prompt; pass back the full updated content.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID',
+        },
+        content: {
+          type: 'string',
+          description: 'The full updated notebook content (markdown). This replaces the entire notebook.',
+        },
+      },
+      required: ['user_id', 'content'],
+    },
+  },
 ];
 
 /**
@@ -291,6 +310,7 @@ export class LucidToolsService {
   private anthropic: Anthropic;
   private seedService: SeedService;
   private commentService: LibraryCommentService;
+  private livingDocumentService: LivingDocumentService;
 
   constructor(private pool: Pool, webSearchService?: WebSearchService) {
     this.webSearchService = webSearchService || null;
@@ -300,6 +320,7 @@ export class LucidToolsService {
     });
     this.seedService = new SeedService(pool);
     this.commentService = new LibraryCommentService(pool);
+    this.livingDocumentService = new LivingDocumentService(pool);
   }
 
   /**
@@ -390,6 +411,12 @@ export class LucidToolsService {
           return await this.commentOnLibraryEntry(
             toolInput.user_id,
             toolInput.library_entry_id,
+            toolInput.content
+          );
+
+        case 'update_notes':
+          return await this.updateNotes(
+            toolInput.user_id,
             toolInput.content
           );
 
@@ -1261,6 +1288,33 @@ Focus on information most relevant to the query and purpose.`;
       });
       return JSON.stringify({
         error: 'Failed to add comment',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * Update Lucid's notebook (Living Document)
+   */
+  private async updateNotes(userId: string, content: string): Promise<string> {
+    try {
+      const doc = await this.livingDocumentService.updateDocument(userId, content);
+
+      logger.info('Lucid updated notebook via chat', {
+        userId,
+        contentLength: content.length,
+        version: doc.version,
+      });
+
+      return JSON.stringify({
+        message: 'Notebook updated.',
+        version: doc.version,
+        contentLength: content.length,
+      });
+    } catch (error: any) {
+      logger.error('Failed to update notebook', { userId, error: error.message });
+      return JSON.stringify({
+        error: 'Failed to update notebook',
         message: error.message,
       });
     }
