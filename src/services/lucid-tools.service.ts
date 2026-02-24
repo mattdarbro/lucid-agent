@@ -785,9 +785,17 @@ export class LucidToolsService {
       });
     } catch (error: any) {
       logger.error('Web search failed', { userId, query, error: error.message });
+
+      const isTemporary = error.message?.includes('temporarily unavailable') ||
+        error.message?.includes('timed out') ||
+        error.message?.includes('timeout');
+
       return JSON.stringify({
-        error: 'Search failed',
-        message: `I wasn't able to complete the search: ${error.message}`,
+        error: isTemporary ? 'Search temporarily unavailable' : 'Search failed',
+        message: isTemporary
+          ? `The web search took too long to respond and timed out. This is a temporary issue — the service is still operational. You can try again in a moment, or we can continue our conversation without it.`
+          : `I wasn't able to complete the search: ${error.message}`,
+        retryable: isTemporary,
       });
     }
   }

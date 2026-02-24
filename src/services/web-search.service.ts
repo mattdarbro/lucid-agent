@@ -15,6 +15,36 @@ export interface WebSearchResult {
   executedAt: Date;
 }
 
+// Timeout per search depth
+const TIMEOUT_MS: Record<string, number> = {
+  basic: 45_000,    // 45 seconds for basic
+  advanced: 60_000, // 60 seconds for advanced (deeper crawl)
+};
+
+const MAX_RETRIES = 3;
+const BASE_BACKOFF_MS = 2_000; // 2s, 4s, 8s
+
+/**
+ * Returns true for errors that are worth retrying (timeouts, network issues).
+ */
+function isTransientError(error: Error): boolean {
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes('timed out') ||
+    msg.includes('timeout') ||
+    msg.includes('econnreset') ||
+    msg.includes('econnrefused') ||
+    msg.includes('enotfound') ||
+    msg.includes('socket hang up') ||
+    msg.includes('network') ||
+    msg.includes('fetch failed') ||
+    msg.includes('aborted') ||
+    msg.includes('503') ||
+    msg.includes('502') ||
+    msg.includes('429')
+  );
+}
+
 /**
  * WebSearchService
  *
@@ -51,7 +81,48 @@ export class WebSearchService {
   }
 
   /**
-   * Search the web for information
+   * Execute a single search attempt with a timeout guard.
+   * Cleans up the timer on both success and failure to avoid leaks.
+   */
+  private async executeSearch(
+    query: string,
+    maxResults: number,
+    includeAnswer: boolean,
+    searchDepth: 'basic' | 'advanced',
+  ): Promise<any> {
+    const timeoutMs = TIMEOUT_MS[searchDepth] ?? TIMEOUT_MS.basic;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`Web search timed out after ${timeoutMs / 1000}s`)),
+        timeoutMs,
+      );
+    });
+
+    try {
+      const response = await Promise.race([
+        this.client!.search({
+          query,
+          max_results: maxResults,
+          include_answer: includeAnswer,
+          search_depth: searchDepth,
+          include_domains: [],
+          exclude_domains: [],
+        }),
+        timeoutPromise,
+      ]);
+      return response;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Search the web for information.
+   * Retries transient failures (timeouts, network errors) up to MAX_RETRIES
+   * times with exponential backoff.
    */
   async search(query: string, options?: {
     maxResults?: number;
@@ -66,52 +137,66 @@ export class WebSearchService {
     const includeAnswer = options?.includeAnswer ?? true;
     const searchDepth = options?.searchDepth || 'basic';
 
-    try {
-      logger.info('Executing web search', { query, maxResults, searchDepth });
+    let lastError: Error | undefined;
 
-      // Wrap Tavily call with a timeout to prevent hanging requests
-      const SEARCH_TIMEOUT_MS = 30000; // 30 seconds
-      const searchPromise = this.client.search({
-        query,
-        max_results: maxResults,
-        include_answer: includeAnswer,
-        search_depth: searchDepth,
-        include_domains: [], // Could restrict to specific domains if needed
-        exclude_domains: [], // Could exclude specific domains
-      });
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        logger.info('Executing web search', { query, maxResults, searchDepth, attempt });
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Web search timed out after 30s')), SEARCH_TIMEOUT_MS)
-      );
+        const response = await this.executeSearch(query, maxResults, includeAnswer, searchDepth);
 
-      const response = await Promise.race([searchPromise, timeoutPromise]);
+        const results: SearchResult[] = (response.results || []).map((result: any) => ({
+          title: result.title,
+          url: result.url,
+          content: result.content,
+          score: parseFloat(result.score) || 0,
+        }));
 
-      const results: SearchResult[] = (response.results || []).map((result: any) => ({
-        title: result.title,
-        url: result.url,
-        content: result.content,
-        score: parseFloat(result.score) || 0,
-      }));
+        logger.info('Web search completed', {
+          query,
+          resultsCount: results.length,
+          hasAnswer: !!response.answer,
+          attempt,
+        });
 
-      logger.info('Web search completed', {
-        query,
-        resultsCount: results.length,
-        hasAnswer: !!response.answer,
-      });
+        return {
+          query,
+          results,
+          answer: response.answer,
+          executedAt: new Date(),
+        };
+      } catch (error: any) {
+        lastError = error;
 
-      return {
-        query,
-        results,
-        answer: response.answer,
-        executedAt: new Date(),
-      };
-    } catch (error: any) {
-      logger.error('Web search failed', {
-        query,
-        error: error.message,
-      });
-      throw new Error(`Web search failed: ${error.message}`);
+        const transient = isTransientError(error);
+
+        logger.warn('Web search attempt failed', {
+          query,
+          attempt,
+          maxRetries: MAX_RETRIES,
+          error: error.message,
+          transient,
+        });
+
+        // Only retry on transient errors and if we have attempts left
+        if (!transient || attempt >= MAX_RETRIES) {
+          break;
+        }
+
+        // Exponential backoff: 2s, 4s, 8s
+        const backoffMs = BASE_BACKOFF_MS * Math.pow(2, attempt - 1);
+        logger.info('Retrying web search after backoff', { query, attempt, backoffMs });
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
     }
+
+    // All attempts exhausted
+    logger.error('Web search failed after all retries', {
+      query,
+      attempts: MAX_RETRIES,
+      error: lastError?.message,
+    });
+    throw new Error(`Web search temporarily unavailable: ${lastError?.message}`);
   }
 
   /**
