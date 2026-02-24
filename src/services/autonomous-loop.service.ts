@@ -1118,17 +1118,20 @@ Write the research summary now:`;
    *
    * Purpose: Lucid researches swing trade opportunities — short-term trades
    * (days to a few weeks) based on momentum, technical setups, catalysts, and
-   * sector rotation. Uses Alpha Vantage for market data, Grok for X/social
-   * sentiment, and web search for catalysts and news.
+   * sector rotation. Uses a multi-step research pipeline that mirrors how a
+   * real trader discovers setups.
    *
    * Schedule: Every weekday (Mon-Fri) at 10am Chicago time
    *
-   * Steps:
-   * 1. REVIEW - Check open positions and recent trade history
-   * 2. SCAN - Gather market data (Alpha Vantage) + social sentiment (Grok) + web catalysts
-   * 3. ANALYZE - Claude synthesizes into swing trade thesis
-   * 4. RECOMMEND - Specific entry/exit with tight risk management
-   * 5. SAVE - Store to Library and send push notification
+   * Pipeline:
+   * 1. REVIEW   - Check open positions and recent trade history
+   * 2. MARKET   - S&P trend, VIX, sector rotation, broad market health
+   * 3. CATALYST - Earnings this week, FDA dates, macro events, news
+   * 4. MOMENTUM - What's moving with volume; social sentiment (Grok/X)
+   * 5. SCREEN   - Claude narrows to top 2-3 candidates from all data
+   * 6. DEEP DIVE - Targeted searches on each candidate
+   * 7. THESIS   - Structured trade rec with entry/risk/target
+   * 8. SAVE     - Store to Library and send push notification
    */
   async runInvestmentResearch(userId: string, jobId?: string): Promise<LoopResult> {
     const result: LoopResult = {
@@ -1147,13 +1150,14 @@ Write the research summary now:`;
     try {
       logger.info('[AL] Starting investment research loop', { userId, jobId });
 
-      // Step 1: REVIEW - Get current portfolio state
+      // ---------------------------------------------------------------
+      // Step 1: REVIEW — Portfolio state & context
+      // ---------------------------------------------------------------
       const portfolioState = await this.getPortfolioState(userId);
       const recentFacts = await this.getRecentFacts(userId, 10);
       const heldSeeds = await this.getHeldSeeds(userId);
       const recentConversations = await this.getRecentConversations(userId);
 
-      // Extract any investment-related context from conversations and seeds
       const investmentContext = this.extractInvestmentContext(
         recentFacts,
         heldSeeds,
@@ -1171,18 +1175,47 @@ Write the research summary now:`;
         return result;
       }
 
-      // Step 2: SCAN - Gather data from multiple sources
-      logger.debug('[AL] Investment: Scanning market data', { userId });
+      // Helper: run a web search and return formatted text, swallowing errors
+      const safeSearch = async (
+        label: string,
+        query: string,
+        maxResults = 5,
+        depth: 'basic' | 'advanced' = 'basic',
+      ): Promise<string> => {
+        if (!this.webSearchService.isAvailable()) return '';
+        try {
+          const res = await this.webSearchService.search(query, {
+            maxResults,
+            includeAnswer: true,
+            searchDepth: depth,
+          });
+          let text = res.answer || '';
+          if (res.results.length > 0) {
+            text += '\n' + res.results
+              .slice(0, 3)
+              .map(r => `- "${r.title}": ${r.content.slice(0, 250)}`)
+              .join('\n');
+          }
+          logger.info(`[AL] Investment ${label} search completed`, { query, results: res.results.length });
+          return text;
+        } catch (err: any) {
+          logger.warn(`[AL] Investment ${label} search failed`, { query, error: err.message });
+          return '';
+        }
+      };
 
-      // Alpha Vantage: Market overview
+      // ---------------------------------------------------------------
+      // Step 2: MARKET CONTEXT — Broad market health
+      // ---------------------------------------------------------------
+      logger.info('[AL] Investment: Step 2 — Market context', { userId });
+
+      // Alpha Vantage: Top movers + held position quotes
       let marketOverview = '';
       if (this.alphaVantageService.isAvailable()) {
         const overview = await this.alphaVantageService.getMarketOverview();
         if (overview) {
           marketOverview = this.formatMarketOverview(overview);
         }
-
-        // Get quotes for any currently held positions
         if (portfolioState.holdings.length > 0) {
           const symbols = portfolioState.holdings.map(h => h.symbol);
           const quotes = await this.alphaVantageService.getQuotes(symbols);
@@ -1195,7 +1228,44 @@ Write the research summary now:`;
         }
       }
 
-      // Grok: Social sentiment
+      // Web searches: S&P trend and sector rotation (run in parallel)
+      const [spTrend, sectorRotation] = await Promise.all([
+        safeSearch('SP500', 'S&P 500 market trend today technical analysis support resistance'),
+        safeSearch('sectors', 'stock sector rotation today which sectors leading lagging'),
+      ]);
+
+      const marketContext = [marketOverview, spTrend, sectorRotation].filter(Boolean).join('\n\n');
+      result.steps.notice = marketContext || '(Market data unavailable)';
+
+      // Small delay between search batches to be respectful of rate limits
+      await this.sleep(1000);
+
+      // ---------------------------------------------------------------
+      // Step 3: CATALYST SCAN — What's driving moves this week
+      // ---------------------------------------------------------------
+      logger.info('[AL] Investment: Step 3 — Catalyst scan', { userId });
+
+      const [earningsCatalysts, newsCatalysts] = await Promise.all([
+        safeSearch('earnings', 'most important earnings reports this week stocks to watch'),
+        safeSearch('catalysts', 'stock market catalysts this week FDA approval macro events IPO'),
+      ]);
+
+      const catalystData = [earningsCatalysts, newsCatalysts].filter(Boolean).join('\n\n');
+
+      await this.sleep(1000);
+
+      // ---------------------------------------------------------------
+      // Step 4: MOMENTUM & SENTIMENT — What's actually moving
+      // ---------------------------------------------------------------
+      logger.info('[AL] Investment: Step 4 — Momentum & sentiment', { userId });
+
+      // Web search for momentum stocks
+      const momentumData = await safeSearch(
+        'momentum',
+        'stocks unusual volume breakout today high relative volume momentum',
+      );
+
+      // Grok: Social sentiment from X/Twitter
       let socialSentiment = '';
       if (this.grokService.isAvailable()) {
         const sentimentTopics = investmentContext.interests.length > 0
@@ -1208,37 +1278,129 @@ Write the research summary now:`;
         }
       }
 
-      // Web search: Broader investment research
-      let webResearch = '';
-      if (this.webSearchService.isAvailable()) {
+      result.steps.connect = socialSentiment || '(Social sentiment unavailable)';
+
+      // ---------------------------------------------------------------
+      // Step 5: SCREEN — Claude narrows to top candidates
+      // ---------------------------------------------------------------
+      logger.info('[AL] Investment: Step 5 — Screening candidates', { userId });
+
+      const screeningPrompt = `You are a swing trading research assistant. Based on the market data below, identify the TOP 2-3 specific stock tickers that deserve a deep-dive for a potential swing trade (days to weeks).
+
+MARKET OVERVIEW:
+${marketContext || '(Not available)'}
+
+CATALYSTS THIS WEEK:
+${catalystData || '(Not available)'}
+
+MOMENTUM & VOLUME:
+${momentumData || '(Not available)'}
+
+SOCIAL SENTIMENT (X/Twitter):
+${socialSentiment || '(Not available)'}
+
+${investmentContext.preferences ? `MATT'S WATCHLIST/INTERESTS:\n${investmentContext.preferences}\n` : ''}
+CURRENT POSITIONS (avoid doubling down):
+${portfolioState.holdings.map(h => h.symbol).join(', ') || 'None'}
+
+Pick 2-3 tickers with the strongest combination of:
+1. A clear catalyst or technical setup
+2. Volume confirmation (unusual activity)
+3. Clean risk/reward potential (2:1 minimum)
+4. Social buzz or institutional interest
+
+Respond with JSON only (no markdown):
+{
+  "candidates": [
+    {
+      "symbol": "TICKER",
+      "reason": "One sentence — why this one stands out",
+      "search_query": "A specific search query to deep-dive on this stock's setup and catalyst"
+    }
+  ],
+  "market_bias": "bullish" | "bearish" | "neutral",
+  "market_note": "One sentence on overall market conditions and whether to be aggressive or cautious"
+}`;
+
+      const screeningResponse = await this.complete(screeningPrompt, 600);
+
+      let candidates: Array<{ symbol: string; reason: string; search_query: string }> = [];
+      let marketBias = 'neutral';
+      let marketNote = '';
+
+      if (screeningResponse) {
         try {
-          const searchQuery = investmentContext.interests.length > 0
-            ? `swing trade setup ${investmentContext.interests[0]} this week momentum`
-            : 'best swing trade setups this week stocks momentum catalyst';
-
-          const searchResult = await this.webSearchService.search(searchQuery, {
-            maxResults: 4,
-            includeAnswer: true,
-            searchDepth: 'basic',
-          });
-
-          webResearch = searchResult.answer || '';
-          if (searchResult.results.length > 0) {
-            webResearch += '\n\nSources:\n' + searchResult.results
-              .slice(0, 3)
-              .map(r => `- "${r.title}": ${r.content.slice(0, 200)}...`)
-              .join('\n');
+          const jsonMatch = screeningResponse.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            candidates = (parsed.candidates || []).slice(0, 3);
+            marketBias = parsed.market_bias || 'neutral';
+            marketNote = parsed.market_note || '';
           }
-        } catch (err: any) {
-          logger.warn('[AL] Web search failed during investment research', { error: err.message });
+        } catch (parseErr: any) {
+          logger.warn('[AL] Failed to parse screening response', { error: parseErr.message });
         }
       }
 
-      // Step 3: ANALYZE - Have Claude synthesize everything with structured output
-      result.steps.notice = marketOverview || '(Market data unavailable)';
-      result.steps.connect = socialSentiment || '(Social sentiment unavailable)';
+      if (candidates.length === 0) {
+        logger.info('[AL] No candidates identified — market may not be offering setups', { userId });
+        // Still proceed — Claude can recommend "hold" in the final analysis
+      }
 
-      // Format pending recommendations for context
+      await this.sleep(1000);
+
+      // ---------------------------------------------------------------
+      // Step 6: DEEP DIVE — Targeted research on each candidate
+      // ---------------------------------------------------------------
+      logger.info('[AL] Investment: Step 6 — Deep dive on candidates', {
+        userId,
+        candidates: candidates.map(c => c.symbol),
+      });
+
+      const deepDives: Array<{ symbol: string; reason: string; research: string }> = [];
+
+      // Run deep dives in parallel (2-3 concurrent searches)
+      const deepDivePromises = candidates.map(async (candidate) => {
+        const research = await safeSearch(
+          `deepdive-${candidate.symbol}`,
+          candidate.search_query,
+          5,
+          'advanced',
+        );
+
+        // Also ask Grok specifically about this ticker if available
+        let grokInsight = '';
+        if (this.grokService.isAvailable()) {
+          const grokResult = await this.grokService.researchInvestmentTopic(
+            `${candidate.symbol} swing trade setup`,
+            candidate.reason,
+          );
+          if (grokResult) {
+            grokInsight = grokResult.content;
+          }
+        }
+
+        return {
+          symbol: candidate.symbol,
+          reason: candidate.reason,
+          research: [research, grokInsight].filter(Boolean).join('\n\n'),
+        };
+      });
+
+      const deepDiveResults = await Promise.all(deepDivePromises);
+      deepDives.push(...deepDiveResults);
+
+      const deepDiveText = deepDives.length > 0
+        ? deepDives.map(d =>
+          `### ${d.symbol}\nWhy: ${d.reason}\n\n${d.research || '(No additional data found)'}`
+        ).join('\n\n---\n\n')
+        : '(No candidates to deep-dive)';
+
+      // ---------------------------------------------------------------
+      // Step 7: THESIS — Claude synthesizes into structured recommendation
+      // ---------------------------------------------------------------
+      logger.info('[AL] Investment: Step 7 — Building trade thesis', { userId });
+
       const pendingRecsText = portfolioState.pendingRecommendations.length > 0
         ? '- Pending recommendations (not yet executed):\n' + portfolioState.pendingRecommendations.map(r =>
           `  * ${r.action.toUpperCase()} ${r.symbol}: limit $${r.limitPrice.toFixed(2)}, target $${r.priceTarget.toFixed(2)}, stop $${r.stopLoss.toFixed(2)} (suggested $${r.positionSize.toFixed(2)})`
@@ -1247,12 +1409,27 @@ Write the research summary now:`;
 
       const analysisPrompt = `You are Lucid, Matt's AI companion. You two are swing trading together — short-term trades held for days to a few weeks, looking for momentum, technical setups, catalysts, and sector rotation opportunities. Matt executes trades on Robinhood based on your research.
 
-This is NOT buy-and-hold. You're looking for:
-- Stocks showing momentum (breaking out of consolidation, high relative volume)
-- Catalyst-driven plays (earnings, FDA approvals, sector rotation, news events)
-- Technical setups (bull flags, breakouts above resistance, moving average crossovers)
-- Clean risk/reward (at least 2:1 ratio, defined stop loss)
+You've just completed a multi-step research pipeline. Here's everything you found:
 
+=== MARKET ENVIRONMENT ===
+Market bias: ${marketBias}
+${marketNote}
+
+${marketContext || '(Market data unavailable)'}
+
+=== CATALYSTS THIS WEEK ===
+${catalystData || '(None found)'}
+
+=== MOMENTUM & VOLUME ===
+${momentumData || '(None found)'}
+
+=== SOCIAL SENTIMENT (X/Twitter) ===
+${socialSentiment || '(Not available)'}
+
+=== CANDIDATE DEEP DIVES ===
+${deepDiveText}
+
+=== PORTFOLIO STATE ===
 CURRENT POSITIONS:
 ${portfolioState.holdings.length > 0
   ? portfolioState.holdings.map(h =>
@@ -1265,29 +1442,20 @@ Capital available: $${budgetRemaining.toFixed(2)} of $${budgetTotal.toFixed(2)} 
 (Capital recycles — when you sell a position, those funds are available for the next trade)
 
 ${investmentContext.preferences ? `MATT'S INTERESTS/WATCHLIST:\n${investmentContext.preferences}\n` : ''}
-MARKET DATA (Alpha Vantage):
-${marketOverview || '(Alpha Vantage not configured — use web research and sentiment)'}
-
-SOCIAL SENTIMENT (from X via Grok):
-${socialSentiment || '(Grok not configured — use web research)'}
-
-WEB RESEARCH (catalysts, momentum, setups):
-${webResearch || '(No web research available)'}
-
 WHAT YOU KNOW ABOUT MATT:
 ${recentFacts.map(f => `- ${f.content}`).join('\n') || '(Building knowledge)'}
 
 ---
 
 INSTRUCTIONS:
-Think like a swing trader. You want trades with clear entries, defined risk, and a catalyst or technical reason to expect a move within days to weeks.
+Think like a swing trader synthesizing a full research session. You've done the work — now make the call.
 
-1. Review any open positions first — should any be closed (hit target, hit stop, thesis broken)?
-2. Scan the data for the best swing trade opportunity RIGHT NOW
-3. Look for clean risk/reward setups (2:1 minimum)
+1. Review open positions first — should any be closed (hit target, hit stop, thesis broken)?
+2. Evaluate each candidate from the deep dives — which has the best risk/reward RIGHT NOW?
+3. Consider market bias — if bearish, be conservative or look for shorts/inverse ETFs
 4. Consider position sizing — don't risk more than 30-40% of capital on one trade
-5. If nothing looks good today, say "hold" — cash is a position too
-6. Provide exact trade parameters Matt can enter on Robinhood
+5. If none of the candidates have a clean setup, say "hold" — cash is a position too
+6. Provide EXACT trade parameters Matt can enter on Robinhood
 
 You MUST respond with valid JSON in this exact format (no markdown, no backticks, just JSON):
 
@@ -1301,7 +1469,10 @@ You MUST respond with valid JSON in this exact format (no markdown, no backticks
   "hold_period": "X days to Y weeks",
   "reasoning": "2-3 sentences on the setup — what's the catalyst or technical pattern? Why now?",
   "risk_notes": "1-2 sentences on what would invalidate this trade",
-  "exit_plan": "When and why to exit — both profit target and stop loss logic"
+  "exit_plan": "When and why to exit — both profit target and stop loss logic",
+  "market_context": "1 sentence on how overall market conditions affect this trade",
+  "confidence": "high" | "medium" | "low",
+  "research_quality": "Brief note on how good the data was today — did all sources produce useful info?"
 }
 
 FIELD DEFINITIONS:
@@ -1318,7 +1489,7 @@ FIELD DEFINITIONS:
 
 If nothing looks like a good swing trade setup today, use action "hold". Cash is a valid position — waiting for a clean setup is better than forcing a trade.`;
 
-      result.steps.question = await this.complete(analysisPrompt, 1200);
+      result.steps.question = await this.complete(analysisPrompt, 1500);
       if (!result.steps.question) {
         throw new Error('Investment analysis failed to produce output');
       }
@@ -1353,17 +1524,22 @@ If nothing looks like a good swing trade setup today, use action "hold". Cash is
         });
       }
 
-      // Step 4: RECOMMEND - Format final conversational recommendation
+      // ---------------------------------------------------------------
+      // Step 8: RECOMMEND & SAVE
+      // ---------------------------------------------------------------
       const recommendPrompt = `You are Lucid. Take your analysis and write a clear, conversational swing trade recommendation for Matt. This will be sent as a push notification.
 
 Your analysis:
 ${result.steps.question}
+
+Research depth today: ${deepDives.length} candidates deep-dived, market bias: ${marketBias}
 
 Write a message to Matt that:
 - Starts with the trade idea (or "sitting in cash today" if holding)
 - If buying: lead with the setup — "Spotted a swing setup on $SYMBOL" — then give exact parameters
 - Include: entry (limit price), stop loss, target, and expected hold period
 - Example format: "Entry: limit at $X.XX / Stop: $X.XX / Target: $X.XX / Hold: ~X days"
+- Mention the market context briefly — is the environment favorable?
 - Explain the WHY briefly — what's the catalyst or pattern?
 - Be honest about risk — what would invalidate the trade?
 - If recommending to sell an existing position: explain why (hit target, stop, or thesis broken)
@@ -1388,20 +1564,54 @@ Remember: Matt executes on Robinhood, so keep ticker symbols clear and give exac
       });
       const title = `Swing Trade Research - ${dateStr}`;
 
+      // Build full research log for the Library entry
+      const fullResearchLog = [
+        `## Research Pipeline Results`,
+        `**Market Bias:** ${marketBias} — ${marketNote}`,
+        `**Candidates Screened:** ${candidates.map(c => c.symbol).join(', ') || 'None'}`,
+        `**Deep Dives Completed:** ${deepDives.length}`,
+        '',
+        `### Market Context`,
+        marketContext || '(Not available)',
+        '',
+        `### Catalysts`,
+        catalystData || '(Not available)',
+        '',
+        `### Momentum & Volume`,
+        momentumData || '(Not available)',
+        '',
+        `### Social Sentiment`,
+        socialSentiment || '(Not available)',
+        '',
+        `### Candidate Deep Dives`,
+        deepDiveText,
+        '',
+        `---`,
+        '',
+        `### Final Analysis`,
+        result.steps.question,
+      ].join('\n');
+
       const libraryEntry = await this.saveToLibrary(
         userId,
         title,
-        `${result.steps.synthesis}\n\n---\n\nDETAILED ANALYSIS:\n${result.steps.question}`,
+        `${result.steps.synthesis}\n\n---\n\n${fullResearchLog}`,
         'investment_recommendation',
         'morning',
         jobId,
         {
           loop_type: 'investment_research',
+          pipeline_version: 2,
           portfolio_budget: budgetTotal,
           portfolio_spent: budgetSpent,
           portfolio_remaining: budgetRemaining,
           holdings_count: portfolioState.holdings.length,
           recommendation: recommendation,
+          screening: {
+            market_bias: marketBias,
+            candidates_screened: candidates.map(c => c.symbol),
+            deep_dives_completed: deepDives.length,
+          },
           data_sources: {
             alpha_vantage: this.alphaVantageService.isAvailable(),
             grok: this.grokService.isAvailable(),
@@ -1462,6 +1672,9 @@ Remember: Matt executes on Robinhood, so keep ticker symbols clear and give exac
         libraryEntryId: libraryEntry.id,
         title,
         budgetRemaining,
+        pipelineVersion: 2,
+        candidatesScreened: candidates.length,
+        deepDivesCompleted: deepDives.length,
         recommendation: recommendation ? {
           symbol: recommendation.symbol,
           action: recommendation.action,
