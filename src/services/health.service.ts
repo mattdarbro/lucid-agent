@@ -309,10 +309,10 @@ export class HealthService {
       };
     }
 
-    // Steps: daily total + optional per-sample breakdown for activity patterns
+    // Steps: daily total only (granular samples removed to avoid confusing the LLM)
     const steps = byType.get('steps');
     if (steps?.length) {
-      const { total, samples } = this.aggregateCumulative(steps);
+      const { total } = this.aggregateCumulative(steps);
       logger.info('[HEALTH] getDailySummary step aggregation', {
         date,
         rowCount: steps.length,
@@ -323,7 +323,6 @@ export class HealthService {
       summary.steps = {
         value: total,
         recorded_at: steps[0].recorded_at,
-        ...(samples.length > 0 && { samples }),
       };
     }
 
@@ -354,24 +353,22 @@ export class HealthService {
       summary.sleep_duration = { hours: totalHours, recorded_at: sleep[0].recorded_at };
     }
 
-    // Active energy: daily total + optional per-sample breakdown
+    // Active energy: daily total only (granular samples removed to avoid confusing the LLM)
     const energy = byType.get('active_energy');
     if (energy?.length) {
-      const { total, samples } = this.aggregateCumulative(energy);
+      const { total } = this.aggregateCumulative(energy);
       summary.active_energy = {
         value: Math.round(total),
         unit: energy[0].unit,
-        ...(samples.length > 0 && { samples }),
       };
     }
 
-    // Exercise minutes: daily total + optional per-sample breakdown
+    // Exercise minutes: daily total only (granular samples removed to avoid confusing the LLM)
     const exercise = byType.get('exercise_minutes');
     if (exercise?.length) {
-      const { total, samples } = this.aggregateCumulative(exercise);
+      const { total } = this.aggregateCumulative(exercise);
       summary.exercise_minutes = {
         value: Math.round(total),
-        ...(samples.length > 0 && { samples }),
       };
     }
 
@@ -416,8 +413,6 @@ export class HealthService {
     }
     if (summary.steps) {
       lines.push(`  Steps: ${summary.steps.value.toLocaleString()}`);
-      const pattern = this.formatActivityPattern(summary.steps.samples);
-      if (pattern) lines.push(`    ${pattern}`);
     }
     if (summary.heart_rate) {
       lines.push(`  Heart Rate: avg ${summary.heart_rate.avg} bpm (${summary.heart_rate.min}-${summary.heart_rate.max})`);
@@ -430,13 +425,9 @@ export class HealthService {
     }
     if (summary.active_energy) {
       lines.push(`  Active Energy: ${summary.active_energy.value} ${summary.active_energy.unit}`);
-      const pattern = this.formatActivityPattern(summary.active_energy.samples);
-      if (pattern) lines.push(`    ${pattern}`);
     }
     if (summary.exercise_minutes) {
       lines.push(`  Exercise: ${summary.exercise_minutes.value} minutes`);
-      const pattern = this.formatActivityPattern(summary.exercise_minutes.samples);
-      if (pattern) lines.push(`    ${pattern}`);
     }
 
     if (lines.length === 1) {
