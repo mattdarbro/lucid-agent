@@ -65,11 +65,8 @@ describe('HealthService', () => {
       // Should use daily_total value, NOT sum of samples
       expect(summary.steps?.value).toBe(5900);
 
-      // Should include the 3 sample records
-      expect(summary.steps?.samples).toHaveLength(3);
-      expect(summary.steps?.samples![0].value).toBe(1200);
-      expect(summary.steps?.samples![1].value).toBe(2300);
-      expect(summary.steps?.samples![2].value).toBe(2400);
+      // Samples should not be included (removed to avoid confusing the LLM)
+      expect(summary.steps?.samples).toBeUndefined();
     });
 
     it('should handle daily_total without any samples (no samples sent yet)', async () => {
@@ -182,9 +179,9 @@ describe('HealthService', () => {
       const summary = await healthService.getDailySummary('user-1', '2026-02-17');
 
       expect(summary.active_energy?.value).toBe(420);
-      expect(summary.active_energy?.samples).toHaveLength(2);
+      expect(summary.active_energy?.samples).toBeUndefined(); // samples removed
       expect(summary.exercise_minutes?.value).toBe(45);
-      expect(summary.exercise_minutes?.samples).toBeUndefined(); // no samples for exercise
+      expect(summary.exercise_minutes?.samples).toBeUndefined();
     });
   });
 
@@ -288,32 +285,19 @@ describe('HealthService', () => {
   // formatSummaryForPrompt
   // -----------------------------------------------------------------------
   describe('formatSummaryForPrompt', () => {
-    it('should include activity pattern when samples exist', () => {
-      // Timestamps are UTC; Chicago is UTC-6 in Feb (CST).
-      // 14:15Z = 08:15 Chicago → 06-09h bucket
-      // 18:30Z = 12:30 Chicago → 12-15h bucket
-      // 22:45Z = 16:45 Chicago → 15-18h bucket
+    it('should show total steps without granular time breakdown', () => {
       const summary: DailyHealthSummary = {
         date: '2026-02-17',
         steps: {
           value: 5900,
           recorded_at: new Date('2026-02-17T06:00:00Z'),
-          samples: [
-            { value: 1200, recorded_at: new Date('2026-02-17T14:15:00Z') },
-            { value: 2300, recorded_at: new Date('2026-02-17T18:30:00Z') },
-            { value: 2400, recorded_at: new Date('2026-02-17T22:45:00Z') },
-          ],
         },
       };
 
       const text = healthService.formatSummaryForPrompt(summary);
 
       expect(text).toContain('Steps: 5,900');
-      expect(text).toContain('By time:');
-      // Chicago hours: 08:15, 12:30, 16:45
-      expect(text).toContain('06-09h: 1,200');
-      expect(text).toContain('12-15h: 2,300');
-      expect(text).toContain('15-18h: 2,400');
+      expect(text).not.toContain('By time');
     });
 
     it('should not show pattern line when there are no samples', () => {
@@ -342,24 +326,15 @@ describe('HealthService', () => {
       expect(text).not.toContain('By time');
     });
 
-    it('should show pattern for active energy and exercise minutes too', () => {
-      // 13:00Z = 07:00 Chicago, 23:30Z = 17:30 Chicago
+    it('should show totals for active energy and exercise minutes without granular breakdown', () => {
       const summary: DailyHealthSummary = {
         date: '2026-02-17',
         active_energy: {
           value: 420,
           unit: 'kcal',
-          samples: [
-            { value: 150, recorded_at: new Date('2026-02-17T13:00:00Z') },
-            { value: 270, recorded_at: new Date('2026-02-17T23:30:00Z') },
-          ],
         },
         exercise_minutes: {
           value: 45,
-          samples: [
-            { value: 20, recorded_at: new Date('2026-02-17T13:00:00Z') },
-            { value: 25, recorded_at: new Date('2026-02-17T23:30:00Z') },
-          ],
         },
       };
 
@@ -367,13 +342,10 @@ describe('HealthService', () => {
 
       expect(text).toContain('Active Energy: 420 kcal');
       expect(text).toContain('Exercise: 45 minutes');
-      // Both should have By time patterns (now Chicago-based)
-      expect(text.match(/By time:/g)).toHaveLength(2);
+      expect(text).not.toContain('By time');
     });
 
-    it('should bucket samples in the same 3-hour window together', () => {
-      // 15:00Z = 09:00 Chicago, 16:30Z = 10:30 Chicago, 17:00Z = 11:00 Chicago
-      // All three fall in 09-12h Chicago bucket
+    it('should not show time-of-day breakdown even if samples are present in summary', () => {
       const summary: DailyHealthSummary = {
         date: '2026-02-17',
         steps: {
@@ -388,8 +360,8 @@ describe('HealthService', () => {
       };
 
       const text = healthService.formatSummaryForPrompt(summary);
-      // All 3 samples fall in 09-12h Chicago bucket
-      expect(text).toContain('09-12h: 1,000');
+      expect(text).toContain('Steps: 1,000');
+      expect(text).not.toContain('By time');
     });
 
     it('should show no data message for empty summary', () => {
