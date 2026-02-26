@@ -262,7 +262,7 @@ export interface Person {
  */
 export type SeedStatus = 'held' | 'growing' | 'grown' | 'released';
 export type SeedSource = 'app' | 'voice' | 'share';
-export type SeedType = 'thought' | 'investment_recommendation' | 'trade_execution';
+export type SeedType = 'thought' | 'investment_recommendation' | 'trade_execution' | 'portfolio_update';
 
 export interface Seed {
   id: string;

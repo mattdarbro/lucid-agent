@@ -1811,12 +1811,37 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
 
       let totalSpent = 0;
 
+      // Find the most recent cash balance snapshot
+      const cashSnapshots = investmentSeeds
+        .filter(s => s.seed_type === 'portfolio_update' && s.source_metadata?.event_type === 'cash_balance')
+        .sort((a, b) => new Date(b.planted_at).getTime() - new Date(a.planted_at).getTime());
+      const latestCashSnapshot = cashSnapshots[0];
+      const cashSnapshotDate = latestCashSnapshot ? new Date(latestCashSnapshot.planted_at) : null;
+
+      // Calculate adjustments (deposits/withdrawals) after snapshot
+      let cashAdjustments = 0;
+      for (const seed of investmentSeeds) {
+        if (seed.seed_type !== 'portfolio_update') continue;
+        const meta = seed.source_metadata;
+        if (meta.event_type === 'cash_balance') continue;
+        const seedDate = new Date(seed.planted_at);
+        if (cashSnapshotDate && seedDate <= cashSnapshotDate) continue;
+        if (meta.event_type === 'deposit') cashAdjustments += (meta.amount || 0);
+        if (meta.event_type === 'withdrawal') cashAdjustments -= (meta.amount || 0);
+      }
+
       for (const seed of investmentSeeds) {
         const meta = seed.source_metadata;
+        if (seed.seed_type === 'portfolio_update') continue;
 
         if (seed.seed_type === 'trade_execution' && meta.action === 'buy') {
           // Actual executed trades = holdings
           const cost = (meta.shares || 0) * (meta.price || 0);
+          // Only count trades after the cash snapshot for spending calculation
+          const tradeDate = new Date(meta.executed_at || seed.planted_at);
+          if (!cashSnapshotDate || tradeDate > cashSnapshotDate) {
+            totalSpent += meta.total_cost || cost;
+          }
           holdings.push({
             seedId: seed.id,
             symbol: meta.symbol || 'UNKNOWN',
@@ -1825,11 +1850,13 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
             totalCost: meta.total_cost || cost,
             purchaseDate: meta.executed_at || seed.planted_at.toISOString(),
           });
-          totalSpent += meta.total_cost || cost;
         } else if (seed.seed_type === 'trade_execution' && meta.action === 'sell') {
           // Sells reduce holdings — credit back to budget
           const proceeds = (meta.shares || 0) * (meta.price || 0);
-          totalSpent -= meta.total_cost || proceeds;
+          const tradeDate = new Date(meta.executed_at || seed.planted_at);
+          if (!cashSnapshotDate || tradeDate > cashSnapshotDate) {
+            totalSpent -= meta.total_cost || proceeds;
+          }
         } else if (seed.seed_type === 'investment_recommendation' && seed.status === 'held') {
           // Pending recommendations not yet acted on
           pendingRecommendations.push({
@@ -1845,8 +1872,12 @@ If nothing seems worth the money right now, say so. "Save the budget for later" 
         }
       }
 
+      // Dynamic budget: use latest cash snapshot if available, otherwise default $50
+      const baseCash = latestCashSnapshot ? (latestCashSnapshot.source_metadata.amount || 50) : 50;
+      const totalBudget = baseCash + cashAdjustments;
+
       return {
-        totalBudget: 50,
+        totalBudget,
         totalSpent: Math.max(0, totalSpent),
         holdings,
         pendingRecommendations,
