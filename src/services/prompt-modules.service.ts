@@ -5,6 +5,7 @@ import { MemoryService } from './memory.service';
 import { LivingDocumentService } from './living-document.service';
 import { ThoughtService } from './thought.service';
 import { LibraryCommentService } from './library-comment.service';
+import { SeedService } from './seed.service';
 
 /**
  * Available modules for chat context building (simplified)
@@ -20,7 +21,8 @@ export type ChatModule =
   | 'living_document'    // Lucid's working memory - questions, threads, curiosities
   | 'facts_relevant'     // Semantic search for relevant stored knowledge
   | 'library_context'    // Relevant Library entries for deep context (semantic search)
-  | 'recent_library';    // Most recent Library entries chronologically (always included)
+  | 'recent_library'     // Most recent Library entries chronologically (always included)
+  | 'portfolio_snapshot'; // Current portfolio state — holdings, cash, pending recs
 
 /**
  * Context passed to module builders
@@ -64,6 +66,7 @@ export class PromptModulesService {
   private livingDocumentService: LivingDocumentService;
   private thoughtService: ThoughtService;
   private commentService: LibraryCommentService;
+  private seedService: SeedService;
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
@@ -71,6 +74,7 @@ export class PromptModulesService {
     this.livingDocumentService = new LivingDocumentService(pool);
     this.thoughtService = new ThoughtService(pool, anthropicApiKey);
     this.commentService = new LibraryCommentService(pool);
+    this.seedService = new SeedService(pool);
   }
 
   /**
@@ -128,6 +132,8 @@ export class PromptModulesService {
         return this.buildLibraryContextModule(context);
       case 'recent_library':
         return this.buildRecentLibraryModule(context);
+      case 'portfolio_snapshot':
+        return this.buildPortfolioSnapshotModule(context);
       default:
         logger.warn(`Unknown module: ${mod}`);
         return { fragment: '' };
@@ -151,6 +157,8 @@ export class PromptModulesService {
 This is a continuous conversation. Topics change naturally—just flow with it. No need to summarize or transition formally. Be present with whatever comes up.
 
 You have tools for calendar, web search, and Library search. Use them when helpful. For web searches, offer briefly: "Want me to look that up?"
+
+PORTFOLIO: You manage a swing trade portfolio together. When Matt tells you about trades, cash, deposits, or any portfolio change, ALWAYS use record_trade or update_portfolio tools to record it in the ledger. Don't just acknowledge — record it. The PORTFOLIO STATE section shows what you currently know.
 
 BREVITY: 50-150 words. Be concise and conversational—2-4 sentences. The Room is for presence, not essays.`;
 
@@ -482,6 +490,99 @@ BREVITY: 50-150 words. Be concise and conversational—2-4 sentences. The Room i
   }
 
   /**
+   * PORTFOLIO_SNAPSHOT module - Current portfolio state
+   * Shows holdings, cash, and pending recommendations so Lucid always knows
+   * what the portfolio looks like and can record changes when Matt mentions them.
+   */
+  private async buildPortfolioSnapshotModule(
+    context: ModuleContext
+  ): Promise<{ fragment: string }> {
+    try {
+      const investmentSeeds = await this.seedService.getInvestmentSeeds(context.userId, {
+        includeCompleted: false,
+      });
+
+      if (investmentSeeds.length === 0) {
+        return {
+          fragment: `\n\n💰 PORTFOLIO STATE:\nNo portfolio data yet. When Matt mentions trades, cash balance, or portfolio updates, use the record_trade or update_portfolio tools to record them.\n`
+        };
+      }
+
+      const holdings: string[] = [];
+      const pendingRecs: string[] = [];
+      let totalSpent = 0;
+
+      // Find the most recent cash balance snapshot
+      const cashSnapshots = investmentSeeds
+        .filter(s => s.seed_type === 'portfolio_update' && s.source_metadata?.event_type === 'cash_balance')
+        .sort((a, b) => new Date(b.planted_at).getTime() - new Date(a.planted_at).getTime());
+      const latestCashSnapshot = cashSnapshots[0];
+      const cashSnapshotDate = latestCashSnapshot ? new Date(latestCashSnapshot.planted_at) : null;
+
+      // Calculate adjustments (deposits/withdrawals) after snapshot
+      let cashAdjustments = 0;
+      for (const seed of investmentSeeds) {
+        if (seed.seed_type !== 'portfolio_update') continue;
+        const meta = seed.source_metadata;
+        if (meta.event_type === 'cash_balance') continue;
+        const seedDate = new Date(seed.planted_at);
+        if (cashSnapshotDate && seedDate <= cashSnapshotDate) continue;
+        if (meta.event_type === 'deposit') cashAdjustments += (meta.amount || 0);
+        if (meta.event_type === 'withdrawal') cashAdjustments -= (meta.amount || 0);
+      }
+
+      for (const seed of investmentSeeds) {
+        const meta = seed.source_metadata;
+        if (seed.seed_type === 'portfolio_update') continue;
+
+        if (seed.seed_type === 'trade_execution' && meta.action === 'buy' && seed.status !== 'grown') {
+          const cost = meta.total_cost || (meta.shares * meta.price);
+          const tradeDate = new Date(meta.executed_at || seed.planted_at);
+          if (!cashSnapshotDate || tradeDate > cashSnapshotDate) {
+            totalSpent += cost;
+          }
+          const date = new Date(meta.executed_at || seed.planted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          holdings.push(`   • ${meta.symbol}: ${meta.shares} shares @ $${meta.price.toFixed(2)} ($${cost.toFixed(2)}) — bought ${date}`);
+        } else if (seed.seed_type === 'trade_execution' && meta.action === 'sell') {
+          const proceeds = meta.total_cost || (meta.shares * meta.price);
+          const tradeDate = new Date(meta.executed_at || seed.planted_at);
+          if (!cashSnapshotDate || tradeDate > cashSnapshotDate) {
+            totalSpent -= proceeds;
+          }
+        } else if (seed.seed_type === 'investment_recommendation' && seed.status === 'held') {
+          pendingRecs.push(`   • ${meta.action?.toUpperCase()} ${meta.symbol}: limit $${meta.limit_price}, target $${meta.price_target}, stop $${meta.stop_loss}`);
+        }
+      }
+
+      const baseCash = latestCashSnapshot ? (latestCashSnapshot.source_metadata.amount || 50) : 50;
+      const cashOnHand = baseCash + cashAdjustments - Math.max(0, totalSpent);
+      const cashSource = latestCashSnapshot
+        ? `(last updated ${new Date(latestCashSnapshot.planted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+        : '(default $50 — ask Matt for current balance)';
+
+      let fragment = `\n\n💰 PORTFOLIO STATE:\n`;
+      fragment += `Cash on hand: $${cashOnHand.toFixed(2)} ${cashSource}\n`;
+
+      if (holdings.length > 0) {
+        fragment += `Open positions:\n${holdings.join('\n')}\n`;
+      } else {
+        fragment += `No open positions.\n`;
+      }
+
+      if (pendingRecs.length > 0) {
+        fragment += `Pending trade ideas:\n${pendingRecs.join('\n')}\n`;
+      }
+
+      fragment += `\nIMPORTANT: When Matt mentions ANY portfolio change — a trade he made, cash balance, deposit, withdrawal — use record_trade or update_portfolio tools IMMEDIATELY to record it. Matt is the source of truth for the portfolio. Don't just acknowledge — RECORD it.\n`;
+
+      return { fragment };
+    } catch (error) {
+      logger.warn('Failed to build portfolio snapshot module', { error });
+      return { fragment: '' };
+    }
+  }
+
+  /**
    * Build the standard prompt for most conversations
    */
   async buildStandardPrompt(
@@ -495,6 +596,7 @@ BREVITY: 50-150 words. Be concise and conversational—2-4 sentences. The Room i
       'living_document',
       'facts_relevant',
       'recent_library', // Always include recent Library entries for awareness
+      'portfolio_snapshot', // Always show current portfolio state
     ];
 
     // Add semantic library search on first turn and every N turns thereafter

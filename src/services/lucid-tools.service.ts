@@ -260,6 +260,33 @@ export const LUCID_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'update_portfolio',
+    description: "Update the portfolio ledger — record cash balance, deposits, withdrawals, or notes. Use this IMMEDIATELY when Matt tells you about cash in the account, deposits, withdrawals, or any portfolio update that isn't a specific buy/sell trade. Examples: 'we have $51 cash', 'deposited $100', 'withdrew $25', 'account value is $200'. This is how you keep the portfolio accurate between trades.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID',
+        },
+        event_type: {
+          type: 'string',
+          enum: ['cash_balance', 'deposit', 'withdrawal', 'note'],
+          description: "Type of update: 'cash_balance' sets the current cash on hand, 'deposit' adds cash, 'withdrawal' removes cash, 'note' is a general portfolio note",
+        },
+        amount: {
+          type: 'number',
+          description: 'Dollar amount (required for cash_balance, deposit, withdrawal)',
+        },
+        notes: {
+          type: 'string',
+          description: 'Optional description of the update',
+        },
+      },
+      required: ['user_id', 'event_type'],
+    },
+  },
+  {
     name: 'comment_on_library_entry',
     description: "Add a comment to a Library entry. Use this to reply to Matt's comments on Library entries, share a follow-up thought on one of your own entries, or annotate an entry with new context. You can see Matt's comments in the RECENT ACTIVITY section — when you want to respond to something he said, use this tool. Keep comments concise and conversational (tweet-length).",
     input_schema: {
@@ -405,6 +432,14 @@ export class LucidToolsService {
           return await this.getPortfolio(
             toolInput.user_id,
             toolInput.include_history || false
+          );
+
+        case 'update_portfolio':
+          return await this.updatePortfolio(
+            toolInput.user_id,
+            toolInput.event_type,
+            toolInput.amount,
+            toolInput.notes
           );
 
         case 'comment_on_library_entry':
@@ -1179,11 +1214,36 @@ Focus on information most relevant to the query and purpose.`;
       const closedPositions: Array<Record<string, any>> = [];
       let totalSpent = 0;
 
+      // Find the most recent cash balance snapshot (if any)
+      const cashSnapshots = investmentSeeds
+        .filter(s => s.seed_type === 'portfolio_update' && s.source_metadata?.event_type === 'cash_balance')
+        .sort((a, b) => new Date(b.planted_at).getTime() - new Date(a.planted_at).getTime());
+      const latestCashSnapshot = cashSnapshots[0];
+      const cashSnapshotDate = latestCashSnapshot ? new Date(latestCashSnapshot.planted_at) : null;
+
+      // Apply deposits and withdrawals after the snapshot
+      let cashAdjustments = 0;
+      for (const seed of investmentSeeds) {
+        if (seed.seed_type !== 'portfolio_update') continue;
+        const meta = seed.source_metadata;
+        if (meta.event_type === 'cash_balance') continue; // already handled
+        const seedDate = new Date(seed.planted_at);
+        if (cashSnapshotDate && seedDate <= cashSnapshotDate) continue; // before snapshot
+        if (meta.event_type === 'deposit') cashAdjustments += (meta.amount || 0);
+        if (meta.event_type === 'withdrawal') cashAdjustments -= (meta.amount || 0);
+      }
+
       for (const seed of investmentSeeds) {
         const meta = seed.source_metadata;
+        if (seed.seed_type === 'portfolio_update') continue; // handled above
 
         if (seed.seed_type === 'trade_execution' && meta.action === 'buy' && seed.status !== 'grown') {
           const cost = meta.total_cost || (meta.shares * meta.price);
+          // Only count trades after the cash snapshot (if one exists)
+          const tradeDate = new Date(meta.executed_at || seed.planted_at);
+          if (!cashSnapshotDate || tradeDate > cashSnapshotDate) {
+            totalSpent += cost;
+          }
           holdings.push({
             seed_id: seed.id,
             symbol: meta.symbol,
@@ -1192,9 +1252,12 @@ Focus on information most relevant to the query and purpose.`;
             total_cost: cost,
             purchased_at: meta.executed_at || seed.planted_at,
           });
-          totalSpent += cost;
         } else if (seed.seed_type === 'trade_execution' && meta.action === 'sell') {
-          totalSpent -= meta.total_cost || (meta.shares * meta.price);
+          const proceeds = meta.total_cost || (meta.shares * meta.price);
+          const tradeDate = new Date(meta.executed_at || seed.planted_at);
+          if (!cashSnapshotDate || tradeDate > cashSnapshotDate) {
+            totalSpent -= proceeds;
+          }
         } else if (seed.seed_type === 'investment_recommendation' && seed.status === 'held') {
           pendingRecommendations.push({
             seed_id: seed.id,
@@ -1218,17 +1281,23 @@ Focus on information most relevant to the query and purpose.`;
         }
       }
 
-      const totalBudget = 50;
-      const remaining = totalBudget - Math.max(0, totalSpent);
+      // Dynamic budget: use latest cash snapshot if available, otherwise default $50
+      const baseCash = latestCashSnapshot ? (latestCashSnapshot.source_metadata.amount || 50) : 50;
+      const cashOnHand = baseCash + cashAdjustments - Math.max(0, totalSpent);
+      const lastUpdated = latestCashSnapshot
+        ? new Date(latestCashSnapshot.planted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : null;
 
       const response: Record<string, any> = {
         message: holdings.length > 0
-          ? `Portfolio: ${holdings.length} position(s), $${remaining.toFixed(2)} remaining of $${totalBudget} budget.`
-          : `Portfolio is empty. $${remaining.toFixed(2)} available of $${totalBudget} budget.`,
-        budget: {
-          total: totalBudget,
-          spent: Math.max(0, totalSpent),
-          remaining,
+          ? `Portfolio: ${holdings.length} position(s), $${cashOnHand.toFixed(2)} cash on hand.`
+          : `Portfolio is empty. $${cashOnHand.toFixed(2)} cash on hand.`,
+        cash: {
+          on_hand: cashOnHand,
+          last_snapshot: latestCashSnapshot ? baseCash : null,
+          last_updated: lastUpdated,
+          adjustments_since: cashAdjustments,
+          spent_since: Math.max(0, totalSpent),
         },
         holdings,
         pending_recommendations: pendingRecommendations,
@@ -1243,6 +1312,77 @@ Focus on information most relevant to the query and purpose.`;
       logger.error('Failed to get portfolio', { userId, error: error.message });
       return JSON.stringify({
         error: 'Failed to get portfolio',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * Update portfolio — record cash balance, deposits, withdrawals, or notes
+   */
+  private async updatePortfolio(
+    userId: string,
+    eventType: 'cash_balance' | 'deposit' | 'withdrawal' | 'note',
+    amount?: number,
+    notes?: string
+  ): Promise<string> {
+    try {
+      if (eventType !== 'note' && (amount === undefined || amount === null)) {
+        return JSON.stringify({ error: 'Amount is required for cash_balance, deposit, and withdrawal events' });
+      }
+
+      let content: string;
+      switch (eventType) {
+        case 'cash_balance':
+          content = `Portfolio cash balance updated to $${amount!.toFixed(2)}`;
+          break;
+        case 'deposit':
+          content = `Deposited $${amount!.toFixed(2)} into portfolio`;
+          break;
+        case 'withdrawal':
+          content = `Withdrew $${amount!.toFixed(2)} from portfolio`;
+          break;
+        case 'note':
+          content = `Portfolio note: ${notes || 'No details'}`;
+          break;
+      }
+      if (notes && eventType !== 'note') {
+        content += ` — ${notes}`;
+      }
+
+      const result = await this.seedService.plant({
+        user_id: userId,
+        content,
+        seed_type: 'portfolio_update',
+        source: 'app',
+        source_metadata: {
+          event_type: eventType,
+          amount: amount || null,
+          notes: notes || null,
+          recorded_at: new Date().toISOString(),
+        },
+        planted_context: 'Portfolio update recorded via Room conversation',
+      });
+
+      logger.info('Portfolio updated via Room', {
+        userId,
+        eventType,
+        amount,
+        seedId: result.seed.id,
+      });
+
+      return JSON.stringify({
+        message: content + '. Portfolio ledger updated.',
+        update: {
+          seed_id: result.seed.id,
+          event_type: eventType,
+          amount: amount || null,
+        },
+      });
+    } catch (error: any) {
+      logger.error('Failed to update portfolio', { userId, eventType, error: error.message });
+      return JSON.stringify({
+        error: 'Failed to update portfolio',
         message: error.message,
       });
     }

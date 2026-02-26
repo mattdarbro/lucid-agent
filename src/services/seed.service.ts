@@ -204,7 +204,7 @@ export class SeedService {
       const result = await this.pool.query(
         `SELECT * FROM seeds
          WHERE user_id = $1
-           AND seed_type IN ('investment_recommendation', 'trade_execution')
+           AND seed_type IN ('investment_recommendation', 'trade_execution', 'portfolio_update')
            ${statusFilter}
          ORDER BY planted_at DESC`,
         [userId]

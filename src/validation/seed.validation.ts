@@ -6,7 +6,7 @@ import { z } from 'zod';
 export const seedSchema = z.object({
   user_id: z.string().uuid('Invalid user ID format'),
   content: z.string().min(1, 'Content is required').max(5000),
-  seed_type: z.enum(['thought', 'investment_recommendation', 'trade_execution']).optional().default('thought'),
+  seed_type: z.enum(['thought', 'investment_recommendation', 'trade_execution', 'portfolio_update']).optional().default('thought'),
   source: z.enum(['app', 'voice', 'share']).optional().default('app'),
   source_metadata: z.record(z.any()).optional().default({}),
   planted_context: z.string().max(1000).optional().nullable(),
