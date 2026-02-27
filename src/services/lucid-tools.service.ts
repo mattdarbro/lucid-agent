@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../logger';
+import { config } from '../config';
 import { WebSearchService } from './web-search.service';
 import { VectorService } from './vector.service';
 import { LibraryCommentService } from './library-comment.service';
@@ -474,6 +475,7 @@ export class LucidToolsService {
 
   /**
    * Get free time slots
+   * Uses the user's timezone for working-hours calculations
    */
   private async getFreeSlots(
     userId: string,
@@ -481,22 +483,23 @@ export class LucidToolsService {
     days: number,
     minDuration: number
   ): Promise<string> {
-    const start = startDate ? new Date(startDate) : new Date();
-    start.setHours(0, 0, 0, 0);
+    // Fetch user timezone (same pattern as getTodaySchedule)
+    const userResult = await this.pool.query(
+      'SELECT timezone FROM users WHERE id = $1',
+      [userId]
+    );
+    const userTimezone = userResult.rows[0]?.timezone || 'UTC';
 
-    const end = new Date(start);
-    end.setDate(end.getDate() + days);
-
-    // Get busy times
+    // Use database to compute timezone-correct day boundaries
     const eventsResult = await this.pool.query(
       `SELECT start_time, end_time
        FROM calendar_events
        WHERE user_id = $1
-         AND start_time >= $2
-         AND start_time < $3
+         AND start_time >= (($2::date) AT TIME ZONE $4)
+         AND start_time < (($2::date + ($3 || ' days')::interval) AT TIME ZONE $4)
          AND status != 'cancelled'
        ORDER BY start_time`,
-      [userId, start.toISOString(), end.toISOString()]
+      [userId, startDate || 'today', days, userTimezone]
     );
 
     const busySlots = eventsResult.rows.map((e: any) => ({
@@ -504,16 +507,27 @@ export class LucidToolsService {
       end: new Date(e.end_time),
     }));
 
-    // Calculate free slots (9am-6pm working hours)
+    // Build working-hours boundaries (9am-6pm) in the user's timezone
+    // by using the database to convert user-local times to UTC
+    const boundsResult = await this.pool.query(
+      `SELECT
+         d::date as day,
+         (d::date + INTERVAL '9 hours') AT TIME ZONE $3 as day_start,
+         (d::date + INTERVAL '18 hours') AT TIME ZONE $3 as day_end
+       FROM generate_series(
+         ($1::date),
+         ($1::date + (($2 - 1) || ' days')::interval),
+         '1 day'::interval
+       ) d`,
+      [startDate || 'today', days, userTimezone]
+    );
+
     const freeSlots: Array<{ date: string; start: string; end: string; duration_minutes: number }> = [];
-    const currentDate = new Date(start);
 
-    while (currentDate < end) {
-      const dayStart = new Date(currentDate);
-      dayStart.setHours(9, 0, 0, 0);
-
-      const dayEnd = new Date(currentDate);
-      dayEnd.setHours(18, 0, 0, 0);
+    for (const dayRow of boundsResult.rows) {
+      const dayStart = new Date(dayRow.day_start);
+      const dayEnd = new Date(dayRow.day_end);
+      const dateStr = new Date(dayRow.day).toISOString().split('T')[0];
 
       const dayBusy = busySlots.filter(
         (b: any) => b.start >= dayStart && b.start < dayEnd
@@ -525,9 +539,9 @@ export class LucidToolsService {
           const durationMins = (busy.start.getTime() - slotStart.getTime()) / 60000;
           if (durationMins >= minDuration) {
             freeSlots.push({
-              date: currentDate.toISOString().split('T')[0],
-              start: slotStart.toTimeString().slice(0, 5),
-              end: busy.start.toTimeString().slice(0, 5),
+              date: dateStr,
+              start: this.formatTimeInTz(slotStart, userTimezone),
+              end: this.formatTimeInTz(busy.start, userTimezone),
               duration_minutes: durationMins,
             });
           }
@@ -539,15 +553,13 @@ export class LucidToolsService {
         const durationMins = (dayEnd.getTime() - slotStart.getTime()) / 60000;
         if (durationMins >= minDuration) {
           freeSlots.push({
-            date: currentDate.toISOString().split('T')[0],
-            start: slotStart.toTimeString().slice(0, 5),
-            end: dayEnd.toTimeString().slice(0, 5),
+            date: dateStr,
+            start: this.formatTimeInTz(slotStart, userTimezone),
+            end: this.formatTimeInTz(dayEnd, userTimezone),
             duration_minutes: durationMins,
           });
         }
       }
-
-      currentDate.setDate(currentDate.getDate() + 1);
     }
 
     if (freeSlots.length === 0) {
@@ -562,6 +574,18 @@ export class LucidToolsService {
       message: `Found ${freeSlots.length} free slot(s) in the next ${days} days.`,
       free_slots: freeSlots,
       count: freeSlots.length,
+    });
+  }
+
+  /**
+   * Format a UTC Date as HH:MM in the given timezone
+   */
+  private formatTimeInTz(date: Date, timezone: string): string {
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: timezone,
     });
   }
 
@@ -754,7 +778,7 @@ Focus on information most relevant to the query and purpose.`;
 
     try {
       const response = await this.anthropic.messages.create({
-        model: 'claude-sonnet-4-5-20250929',
+        model: config.anthropic.model,
         max_tokens: 1000,
         temperature: 0.3,
         messages: [{ role: 'user', content: prompt }],
@@ -957,9 +981,6 @@ Focus on information most relevant to the query and purpose.`;
     }
   }
 
-  /**
-   * Record a trade execution — Matt bought or sold something on Robinhood
-   */
   /**
    * Add a comment to a Library entry as Lucid
    */

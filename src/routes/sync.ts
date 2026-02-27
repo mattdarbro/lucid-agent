@@ -13,6 +13,11 @@ const userIdSchema = z.object({
   user_id: z.string().uuid('Invalid user ID format'),
 });
 
+const selfReviewSchema = z.object({
+  user_id: z.string().uuid('Invalid user ID format'),
+  depth: z.enum(['quick', 'full']).optional().default('quick'),
+});
+
 /**
  * Validation middleware helper
  */
@@ -181,8 +186,8 @@ router.get('/status', async (req: Request, res: Response) => {
         library_entries: parseInt(user.library_entries),
       },
       schedule: {
-        fact_extraction: 'Every 5 minutes (automatic)',
-        morning_reflection: '7:00 AM Pacific Time (daily)',
+        fact_extraction: 'Hourly (conversations idle 60+ minutes)',
+        morning_reflection: '7:00 AM Chicago Time (daily)',
       },
     });
   } catch (error: any) {
@@ -667,7 +672,7 @@ router.post(
  */
 router.post(
   '/self-review',
-  validateBody(userIdSchema),
+  validateBody(selfReviewSchema),
   async (req: Request, res: Response) => {
     try {
       const { user_id, depth } = req.body;
