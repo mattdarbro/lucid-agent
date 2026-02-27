@@ -289,39 +289,6 @@ export class AgentJobService {
       });
     }
 
-    // Swing trade research: Monday (1) through Friday (5) at 10am Chicago time
-    // (skips Saturday and Sunday — markets closed)
-    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-      allJobs.push({
-        user_id: userId,
-        job_type: 'investment_research',
-        scheduled_for: this.getScheduledTime(date, 10, 0), // 10am - Swing Trade Research
-      });
-    }
-
-    // Ability spending: Friday (5) at 2pm Chicago time
-    if (dayOfWeek === 5) {
-      allJobs.push({
-        user_id: userId,
-        job_type: 'ability_spending',
-        scheduled_for: this.getScheduledTime(date, 14, 0), // 2pm - Ability Review
-      });
-    }
-
-    // Health check loops: daily, morning and evening
-    allJobs.push(
-      {
-        user_id: userId,
-        job_type: 'health_check_morning',
-        scheduled_for: this.getScheduledTime(date, 7, 30), // 7:30am - Morning Health Check
-      },
-      {
-        user_id: userId,
-        job_type: 'health_check_evening',
-        scheduled_for: this.getScheduledTime(date, 20, 30), // 8:30pm - Evening Health Check
-      }
-    );
-
     // Filter out jobs that already exist
     const jobsToCreate = allJobs.filter(job => !existingJobTypes.has(job.job_type));
 

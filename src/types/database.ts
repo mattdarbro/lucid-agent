@@ -132,11 +132,7 @@ export type AgentJobType =
   | 'state_session'
   | 'orbit_session'
   | 'document_reflection'
-  | 'self_review'
-  | 'investment_research'
-  | 'ability_spending'
-  | 'health_check_morning'
-  | 'health_check_evening';
+  | 'self_review';
 
 export interface AgentJob {
   id: string;
