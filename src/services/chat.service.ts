@@ -53,7 +53,7 @@ export class ChatService {
   private readonly DEFAULT_CONFIG: ChatConfig = {
     maxResponseWords: 150,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-opus-4-6',
+    defaultModel: 'claude-sonnet-4-5-20250929',
     maxTokens: 500,
     enableRecursiveSearch: false,
     recursiveSearchConfig: {
@@ -247,15 +247,33 @@ export class ChatService {
       // Tool use loop - keep calling until we get a text response
       const MAX_TOOL_ITERATIONS = 5;
       for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+        // Build tools array with prompt caching on the last tool.
+        // Tool definitions are identical every call — caching them saves ~2000+ tokens
+        // at 90% discount on subsequent turns within the same conversation.
+        const cachedTools = toolsWithContext.map((tool: any, i: number) =>
+          i === toolsWithContext.length - 1
+            ? { ...tool, cache_control: { type: 'ephemeral' as const } }
+            : tool
+        );
+
         const response = await withRetry(
           () =>
             this.anthropic.messages.create({
               model: modelUsed,
               max_tokens: maxTokens,
               temperature: temperature,
-              system: finalPrompt,
+              // Pass system prompt as cached content block. Within a multi-turn
+              // conversation the prompt is largely stable, so subsequent turns
+              // hit cache at ~10% of normal input cost.
+              system: [
+                {
+                  type: 'text' as const,
+                  text: finalPrompt,
+                  cache_control: { type: 'ephemeral' as const },
+                },
+              ],
               messages: apiMessages,
-              tools: toolsWithContext,
+              tools: cachedTools,
             }),
           { maxRetries: 2, initialDelayMs: 1000 }
         ) as any;
