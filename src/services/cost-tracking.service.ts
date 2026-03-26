@@ -10,7 +10,9 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   'claude-opus-4-6': { input: 5.0, output: 25.0 },
   // Claude Opus 4.5 (legacy)
   'claude-opus-4-5-20251101': { input: 5.0, output: 25.0 },
-  // Claude Sonnet 4.5
+  // Claude Sonnet 4.6
+  'claude-sonnet-4-6': { input: 3.0, output: 15.0 },
+  // Claude Sonnet 4.5 (legacy)
   'claude-sonnet-4-5-20250929': { input: 3.0, output: 15.0 },
   // Claude Haiku 3.5 / 4.5
   'claude-3-5-haiku-20241022': { input: 0.8, output: 4.0 },
