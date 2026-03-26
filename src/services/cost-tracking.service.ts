@@ -14,9 +14,11 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   'claude-sonnet-4-6': { input: 3.0, output: 15.0 },
   // Claude Sonnet 4.5 (legacy)
   'claude-sonnet-4-5-20250929': { input: 3.0, output: 15.0 },
-  // Claude Haiku 3.5 / 4.5
-  'claude-3-5-haiku-20241022': { input: 0.8, output: 4.0 },
+  // Claude Haiku 4.5
+  'claude-haiku-4-5-20251001': { input: 1.0, output: 5.0 },
+  // Claude Haiku 4.5 / 3.5 (legacy)
   'claude-haiku-4-5-20241022': { input: 0.8, output: 4.0 },
+  'claude-3-5-haiku-20241022': { input: 0.8, output: 4.0 },
   // Older models (fallback)
   'claude-3-opus-20240229': { input: 15.0, output: 75.0 },
   'claude-3-sonnet-20240229': { input: 3.0, output: 15.0 },

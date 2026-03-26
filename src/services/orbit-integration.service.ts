@@ -52,7 +52,7 @@ export class OrbitIntegrationService {
   private anthropic: Anthropic;
   private orbitsService: OrbitsService;
   private vectorService: VectorService;
-  private readonly model = 'claude-haiku-4-5-20241022';
+  private readonly model = 'claude-haiku-4-5-20251001';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
