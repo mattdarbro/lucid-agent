@@ -123,7 +123,7 @@ Output: [{"content": "User is testing an API", "category": "experience", "confid
 
 NOW extract facts from the conversation below. If you truly find NO facts (very rare), return []`;
 
-      const factModel = 'claude-haiku-4-5-20241022';
+      const factModel = 'claude-haiku-4-5-20251001';
 
       logger.info('Calling Anthropic API for fact extraction:', {
         model: factModel,

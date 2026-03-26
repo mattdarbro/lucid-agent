@@ -52,7 +52,7 @@ export interface RecursiveSearchConfig {
   maxChunks?: number;
   /** Minimum similarity threshold for inclusion (default: 0.4) */
   minSimilarity?: number;
-  /** Model for context evaluation (default: claude-3-5-haiku-20241022) */
+  /** Model for context evaluation (default: claude-haiku-4-5-20251001) */
   evaluationModel?: string;
   /** Maximum tokens for evaluation calls (default: 500) */
   evaluationMaxTokens?: number;
@@ -96,7 +96,7 @@ export class RecursiveContextSearchService {
     maxDepth: 3,
     maxChunks: 20,
     minSimilarity: 0.4,
-    evaluationModel: 'claude-3-5-haiku-20241022',
+    evaluationModel: 'claude-haiku-4-5-20251001',
     evaluationMaxTokens: 500,
     searchScope: 'user',
     targetTokenBudget: 4000,
