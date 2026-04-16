@@ -78,7 +78,7 @@ export class PossibilityThinkingService {
   private memoryService: MemoryService;
   private vectorService: VectorService;
   private thoughtService: ThoughtService;
-  private readonly model = 'claude-opus-4-6';
+  private readonly model = 'claude-opus-4-7';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
