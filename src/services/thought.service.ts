@@ -257,7 +257,6 @@ Respond with ONLY one word: DEEP or SIMPLE`;
       const response = await this.anthropic.messages.create({
         model: this.model,
         max_tokens: 10,
-        temperature: 0,
         messages: [{ role: 'user', content: prompt }],
       });
 
@@ -336,7 +335,6 @@ Respond with ONLY one word: DEEP or SIMPLE`;
       const response = await this.anthropic.messages.create({
         model: this.model,
         max_tokens: 3000,
-        temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
       });
 
@@ -504,7 +502,6 @@ Your conversational response (do NOT include the library link - it will be added
       const response = await this.anthropic.messages.create({
         model: this.model,
         max_tokens: 250,
-        temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
       });
 

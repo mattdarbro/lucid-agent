@@ -297,7 +297,6 @@ export class SelfReviewLoopService {
     const response = await this.anthropic.messages.create({
       model: this.model,
       max_tokens: 16384,
-      temperature: 0.5,
       messages: [
         {
           role: 'user',
@@ -383,7 +382,6 @@ ${fileContext}`,
     const response = await this.anthropic.messages.create({
       model: this.model,
       max_tokens: 1500,
-      temperature: 0.3,
       messages: [
         {
           role: 'user',
@@ -450,7 +448,6 @@ If none meet the criteria, return: { "selected": [], "deprioritized_reasoning": 
     const response = await this.anthropic.messages.create({
       model: this.model,
       max_tokens: 4000,
-      temperature: 0.2,
       messages: [
         {
           role: 'user',
