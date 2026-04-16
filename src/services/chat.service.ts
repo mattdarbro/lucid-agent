@@ -261,7 +261,7 @@ export class ChatService {
             this.anthropic.messages.create({
               model: modelUsed,
               max_tokens: maxTokens,
-              temperature: temperature,
+              ...(modelUsed.startsWith('claude-opus-4-7') ? {} : { temperature }),
               // Pass system prompt as cached content block. Within a multi-turn
               // conversation the prompt is largely stable, so subsequent turns
               // hit cache at ~10% of normal input cost.
