@@ -137,7 +137,7 @@ WORTHY: no`
     const text = content.text.trim();
 
     // Check if the review found something worthy
-    if (!text.startsWith('WORTHY: yes')) {
+    if (!/^\s*WORTHY:\s*yes/im.test(text)) {
       logger.debug(`[CONVERSATION-REVIEW] Conversation ${conversationId} - no Library entry needed`);
       return;
     }
