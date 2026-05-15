@@ -143,8 +143,8 @@ WORTHY: no`
     }
 
     // Parse the response
-    const titleMatch = text.match(/TITLE:\s*(.+?)(?:\n|$)/);
-    const contentMatch = text.match(/CONTENT:\s*([\s\S]+)/);
+    const titleMatch = text.match(/TITLE:\s*(.+?)(?:\n|$)/im);
+    const contentMatch = text.match(/CONTENT:\s*([\s\S]+)/im);
 
     if (!titleMatch || !contentMatch) {
       logger.warn('[CONVERSATION-REVIEW] Could not parse review response');
