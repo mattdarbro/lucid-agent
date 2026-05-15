@@ -131,6 +131,8 @@ WORTHY: no`
       }],
     });
 
+    if (!response.content || response.content.length === 0) return;
+
     const content = response.content[0];
     if (content.type !== 'text') return;
 
