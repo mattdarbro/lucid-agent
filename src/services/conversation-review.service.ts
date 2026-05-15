@@ -55,7 +55,7 @@ export class ConversationReviewService {
                OR c.last_library_review_at < c.updated_at)
         GROUP BY c.id, c.user_id, c.updated_at
         HAVING COUNT(m.id) >= 4
-        ORDER BY c.updated_at DESC
+        ORDER BY c.updated_at ASC
         LIMIT 5
       `);
 
