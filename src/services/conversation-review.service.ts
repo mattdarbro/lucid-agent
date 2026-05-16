@@ -106,10 +106,10 @@ export class ConversationReviewService {
       return `${who}: ${m.content}`;
     }).join('\n\n');
 
-    // Ask Claude (using Sonnet for cost efficiency) whether this conversation
-    // has a thread worth developing into a Library entry
+    // Ask Claude whether this conversation has a thread worth developing
+    // into a Library entry
     const response = await this.anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 1500,
       temperature: 0.7,
       messages: [{

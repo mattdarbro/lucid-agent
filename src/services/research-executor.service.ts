@@ -419,7 +419,7 @@ Format your response as JSON:
 Keep facts concise and specific. Focus on information relevant to understanding the user's interests or needs.`;
 
     const response = await this.anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1500,
       temperature: 0.3,
       messages: [{ role: 'user', content: prompt }],

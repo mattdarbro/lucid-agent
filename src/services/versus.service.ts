@@ -54,7 +54,7 @@ export class VersusService {
   private pool: Pool;
   private anthropic: Anthropic;
   private vectorService: VectorService;
-  private readonly model = 'claude-sonnet-4-20250514';
+  private readonly model = 'claude-sonnet-4-6';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;

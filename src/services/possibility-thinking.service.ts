@@ -625,7 +625,7 @@ Your conversational response (do NOT include the library link - it will be added
 
     try {
       const response = await this.anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',  // Faster model for structured generation
+        model: 'claude-sonnet-4-6',  // Faster model for structured generation
         max_tokens: 2000,
         temperature: 0.85,  // Higher for creative alternatives
         messages: [{ role: 'user', content: prompt }],

@@ -49,7 +49,7 @@ export class AutonomousLoopService {
   private pushNotificationService: PushNotificationService;
   private seedService: SeedService;
   private livingDocumentService: LivingDocumentService;
-  private readonly model = 'claude-sonnet-4-20250514';
+  private readonly model = 'claude-sonnet-4-6';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;

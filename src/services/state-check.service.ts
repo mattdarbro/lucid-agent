@@ -248,7 +248,7 @@ Generate a warm, inviting opening message that:
 Keep it to 2-3 sentences. Don't use bullet points or structure - just speak naturally.`;
 
     const response = await this.anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 300,
       temperature: 0.8,
       messages: [{ role: 'user', content: prompt }],
@@ -279,7 +279,7 @@ Generate a brief, warm message that:
 Keep it to 2-3 sentences. Be natural, not clinical.`;
 
     const response = await this.anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 300,
       temperature: 0.7,
       messages: [{ role: 'user', content: prompt }],
@@ -311,7 +311,7 @@ Keep it to 2-3 sentences. Be natural, not clinical.`;
     ];
 
     const response = await this.anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1500,
       temperature: 0.7,
       system: systemPrompt,

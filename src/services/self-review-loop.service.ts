@@ -78,7 +78,7 @@ export class SelfReviewLoopService {
   private vectorService: VectorService;
   private githubService: GitHubService;
   private pushNotificationService: PushNotificationService;
-  private readonly model = 'claude-opus-4-7';
+  private readonly model = 'claude-sonnet-4-6';
 
   constructor(pool: Pool) {
     this.pool = pool;
