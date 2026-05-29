@@ -6,7 +6,9 @@ import { logger } from '../logger';
  * https://www.anthropic.com/pricing
  */
 export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  // Claude Opus 4.7
+  // Claude Opus 4.8
+  'claude-opus-4-8': { input: 5.0, output: 25.0 },
+  // Claude Opus 4.7 (legacy)
   'claude-opus-4-7': { input: 5.0, output: 25.0 },
   // Claude Opus 4.6 (legacy)
   'claude-opus-4-6': { input: 5.0, output: 25.0 },
