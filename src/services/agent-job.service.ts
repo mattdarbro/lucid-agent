@@ -80,6 +80,7 @@ export class AgentJobService {
     if (input.error_message !== undefined) updateData.error_message = input.error_message;
     if (input.started_at) updateData.started_at = input.started_at.toISOString();
     if (input.completed_at) updateData.completed_at = input.completed_at.toISOString();
+    if (input.library_entry_id !== undefined) updateData.library_entry_id = input.library_entry_id;
 
     const { data, error } = await this.supabase
       .from('agent_jobs')
@@ -172,12 +173,14 @@ export class AgentJobService {
     jobId: string,
     thoughtsGenerated: number,
     researchTasksCreated: number,
+    libraryEntryId?: string | null,
   ): Promise<AgentJob> {
     return this.updateJob(jobId, {
       status: 'completed',
       thoughts_generated: thoughtsGenerated,
       research_tasks_created: researchTasksCreated,
       completed_at: new Date(),
+      library_entry_id: libraryEntryId ?? null,
     });
   }
 
