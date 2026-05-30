@@ -42,6 +42,7 @@ export const updateAgentJobSchema = z.object({
   error_message: z.string().optional(),
   started_at: z.coerce.date().optional(),
   completed_at: z.coerce.date().optional(),
+  library_entry_id: z.string().uuid().nullable().optional(),
 });
 
 // Query params for listing jobs

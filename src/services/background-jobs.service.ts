@@ -365,7 +365,8 @@ export class BackgroundJobsService {
           await this.agentJobService.markJobAsCompleted(
             job.id,
             result.thoughtProduced ? 1 : 0,
-            0 // research tasks (not implemented yet)
+            0, // research tasks (not implemented yet)
+            result.libraryEntryId // link the job to the library entry it produced
           );
 
           logger.info(`[AL] Completed job ${job.id}`, {

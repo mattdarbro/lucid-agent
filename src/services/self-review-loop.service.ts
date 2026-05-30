@@ -568,8 +568,8 @@ ${skipped.length > 0 ? skipped.map(imp => `- ${imp.description} (${imp.file}) â€
       );
 
       const insertResult = await this.pool.query(
-        `INSERT INTO library_entries (user_id, entry_type, title, content, time_of_day, metadata, embedding)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO library_entries (user_id, entry_type, title, content, time_of_day, metadata, embedding, is_shared)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id`,
         [
           userId,
@@ -585,6 +585,9 @@ ${skipped.length > 0 ? skipped.map(imp => `- ${imp.description} (${imp.file}) â€
             improvements_selected: selectedImprovements.length,
           }),
           embedding ? JSON.stringify(embedding) : null,
+          // Surface self-reviews in the Library feed by default â€” the written
+          // assessment is the deliverable even on runs that open no PRs.
+          true,
         ],
       );
 
