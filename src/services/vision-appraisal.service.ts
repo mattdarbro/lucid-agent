@@ -64,7 +64,7 @@ export class VisionAppraisalService {
   private memoryService: MemoryService;
   private vectorService: VectorService;
   private thoughtService: ThoughtService;
-  private readonly model = 'claude-opus-4-7';
+  private readonly model = 'claude-opus-4-8';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
