@@ -78,7 +78,11 @@ export class SelfReviewLoopService {
   private vectorService: VectorService;
   private githubService: GitHubService;
   private pushNotificationService: PushNotificationService;
-  private readonly model = 'claude-sonnet-4-6';
+  // Quick weekly reviews run on Sonnet (cost-efficient, ideal for small well-scoped
+  // diffs). The monthly "full" deep dive (first Thursday) runs on Opus for deeper
+  // architectural reasoning across the larger file set.
+  private readonly quickModel = 'claude-sonnet-4-6';
+  private readonly deepModel = 'claude-opus-4-8';
 
   constructor(pool: Pool) {
     this.pool = pool;
@@ -111,7 +115,9 @@ export class SelfReviewLoopService {
         return result;
       }
 
-      logger.info('[SELF-REVIEW] Starting self-review loop', { userId, jobId, depth });
+      // Full (monthly deep dive) runs on Opus; quick (weekly) runs on Sonnet.
+      const model = depth === 'full' ? this.deepModel : this.quickModel;
+      logger.info('[SELF-REVIEW] Starting self-review loop', { userId, jobId, depth, model });
 
       // ====== STEP 1: GATHER ======
       const files = await this.gatherFiles(depth);
@@ -125,7 +131,7 @@ export class SelfReviewLoopService {
       logger.info(`[SELF-REVIEW] Gathered ${files.length} files for review`);
 
       // ====== STEP 2: ANALYZE ======
-      const improvements = await this.analyzeCode(files);
+      const improvements = await this.analyzeCode(files, model);
 
       if (improvements.length === 0) {
         logger.info('[SELF-REVIEW] No improvements identified');
@@ -136,7 +142,7 @@ export class SelfReviewLoopService {
       logger.info(`[SELF-REVIEW] Identified ${improvements.length} potential improvements`);
 
       // ====== STEP 3: PRIORITIZE ======
-      const selected = await this.prioritizeImprovements(improvements);
+      const selected = await this.prioritizeImprovements(improvements, model);
 
       if (selected.length === 0) {
         logger.info('[SELF-REVIEW] No improvements selected after prioritization');
@@ -155,7 +161,7 @@ export class SelfReviewLoopService {
           const branchName = `lucid/self-review-${dateStr}-${i + 1}`;
 
           // Generate the actual code change
-          const generated = await this.generateCodeChange(improvement);
+          const generated = await this.generateCodeChange(improvement, model);
 
           // Create branch, commit, and open PR
           await this.githubService.createBranch(branchName);
@@ -287,7 +293,7 @@ export class SelfReviewLoopService {
   /**
    * ANALYZE: Send code to Claude for structured analysis
    */
-  private async analyzeCode(files: Array<{ path: string; content: string }>): Promise<Improvement[]> {
+  private async analyzeCode(files: Array<{ path: string; content: string }>, model: string): Promise<Improvement[]> {
     const fileContext = files.map(f => `=== ${f.path} ===\n${f.content}`).join('\n\n');
 
     const soulFileList = Object.entries(SOUL_FILES)
@@ -295,7 +301,7 @@ export class SelfReviewLoopService {
       .join('\n');
 
     const response = await this.anthropic.messages.create({
-      model: this.model,
+      model,
       max_tokens: 16384,
       messages: [
         {
@@ -378,9 +384,9 @@ ${fileContext}`,
   /**
    * PRIORITIZE: Second LLM pass to select top actionable improvements
    */
-  private async prioritizeImprovements(improvements: Improvement[]): Promise<Improvement[]> {
+  private async prioritizeImprovements(improvements: Improvement[], model: string): Promise<Improvement[]> {
     const response = await this.anthropic.messages.create({
-      model: this.model,
+      model,
       max_tokens: 1500,
       messages: [
         {
@@ -441,12 +447,12 @@ If none meet the criteria, return: { "selected": [], "deprioritized_reasoning": 
   /**
    * Generate actual code change for a selected improvement
    */
-  private async generateCodeChange(improvement: Improvement): Promise<SelectedImprovement> {
+  private async generateCodeChange(improvement: Improvement, model: string): Promise<SelectedImprovement> {
     // Fetch the current file content
     const file = await this.githubService.getFileContent(improvement.file);
 
     const response = await this.anthropic.messages.create({
-      model: this.model,
+      model,
       max_tokens: 4000,
       messages: [
         {
