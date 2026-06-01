@@ -354,6 +354,42 @@ export class LucidToolsService {
   }
 
   /**
+   * Assess whether calendar data is trustworthy for "you're free" conclusions.
+   *
+   * calendar_events is populated by device sync. If nothing has synced in a long
+   * time (or ever), an empty query window does NOT mean the user is free — it
+   * means we can't see their calendar. Returns a warning string for the model to
+   * relay honestly, or null when data is fresh enough to trust.
+   */
+  private async getCalendarStaleness(userId: string): Promise<{ total: number; staleDays: number | null; warning: string | null }> {
+    const res = await this.pool.query(
+      `SELECT COUNT(*) AS total, MAX(created_at) AS last_synced
+       FROM calendar_events WHERE user_id = $1`,
+      [userId]
+    );
+    const total = parseInt(res.rows[0]?.total ?? '0', 10);
+    if (total === 0) {
+      return {
+        total: 0,
+        staleDays: null,
+        warning: "No calendar data has ever synced for this user — you genuinely cannot see their calendar. Do NOT say they are free; say you can't see it.",
+      };
+    }
+    const lastSynced = res.rows[0]?.last_synced ? new Date(res.rows[0].last_synced) : null;
+    const staleDays = lastSynced
+      ? Math.floor((Date.now() - lastSynced.getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+    if (staleDays === null || staleDays > 7) {
+      return {
+        total,
+        staleDays,
+        warning: `Calendar data is stale (last sync ${staleDays !== null ? `${staleDays} days ago` : 'unknown'}). An empty result likely means the calendar stopped syncing, not that the user is free. Be honest about this uncertainty.`,
+      };
+    }
+    return { total, staleDays, warning: null };
+  }
+
+  /**
    * Get today's calendar events
    */
   private async getTodaySchedule(userId: string): Promise<string> {
@@ -378,10 +414,14 @@ export class LucidToolsService {
     );
 
     if (result.rows.length === 0) {
+      const { warning } = await this.getCalendarStaleness(userId);
       return JSON.stringify({
-        message: 'No events scheduled for today.',
+        message: warning
+          ? "No events returned, but the calendar can't be trusted right now."
+          : 'No events scheduled for today.',
         events: [],
         count: 0,
+        ...(warning ? { data_warning: warning, reliable: false } : { reliable: true }),
       });
     }
 
@@ -412,10 +452,14 @@ export class LucidToolsService {
     );
 
     if (result.rows.length === 0) {
+      const { warning } = await this.getCalendarStaleness(userId);
       return JSON.stringify({
-        message: `No events scheduled for the next ${days} days.`,
+        message: warning
+          ? `No events returned for the next ${days} days, but the calendar can't be trusted right now.`
+          : `No events scheduled for the next ${days} days.`,
         events: [],
         count: 0,
+        ...(warning ? { data_warning: warning, reliable: false } : { reliable: true }),
       });
     }
 
@@ -483,6 +527,19 @@ export class LucidToolsService {
     days: number,
     minDuration: number
   ): Promise<string> {
+    // Guard: if the calendar hasn't synced, "all slots free" is meaningless —
+    // it would report the entire window open when we simply can't see anything.
+    const staleness = await this.getCalendarStaleness(userId);
+    if (staleness.warning) {
+      return JSON.stringify({
+        message: "I can't reliably find free slots — my view of your calendar isn't current.",
+        free_slots: [],
+        count: 0,
+        data_warning: staleness.warning,
+        reliable: false,
+      });
+    }
+
     // Fetch user timezone (same pattern as getTodaySchedule)
     const userResult = await this.pool.query(
       'SELECT timezone FROM users WHERE id = $1',
