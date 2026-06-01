@@ -376,9 +376,9 @@ export class ChatService {
         );
       }
 
-      // Enforce word limit at service layer (unified approach)
-      const maxWords = chatConfig.maxResponseWords || this.DEFAULT_CONFIG.maxResponseWords!;
-      assistantResponse = this.enforceWordLimit(assistantResponse, maxWords);
+      // Word cap intentionally removed: Lucid's responses should find their own
+      // length and never be truncated mid-thought. Generation is still bounded by
+      // maxTokens; brevity is now guidance in the prompt, not a hard server chop.
 
       // Store assistant message
       const assistantMessage = await this.messageService.createMessage({
