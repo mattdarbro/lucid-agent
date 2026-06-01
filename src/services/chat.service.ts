@@ -425,42 +425,4 @@ export class ChatService {
       ...profileConfig,
     };
   }
-
-  /**
-   * Enforce word limit on responses
-   * Truncates at sentence boundary when possible
-   *
-   * This is the single source of truth for word limits (unified at service layer)
-   */
-  private enforceWordLimit(text: string, maxWords: number): string {
-    const words = text.split(/\s+/);
-
-    if (words.length <= maxWords) {
-      return text;
-    }
-
-    // Try to truncate at a sentence boundary
-    const truncatedWords = words.slice(0, maxWords);
-    const truncatedText = truncatedWords.join(' ');
-
-    // Find the last sentence ending
-    const lastSentenceEnd = Math.max(
-      truncatedText.lastIndexOf('.'),
-      truncatedText.lastIndexOf('!'),
-      truncatedText.lastIndexOf('?')
-    );
-
-    if (lastSentenceEnd > truncatedText.length * 0.5) {
-      // Use sentence boundary if it's past the halfway point
-      return truncatedText.slice(0, lastSentenceEnd + 1);
-    }
-
-    // Otherwise just truncate at word boundary
-    logger.warn('Response exceeded word limit, truncating at word boundary', {
-      original_words: words.length,
-      max_words: maxWords,
-    });
-
-    return truncatedText + '...';
-  }
 }
