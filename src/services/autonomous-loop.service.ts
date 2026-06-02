@@ -806,7 +806,7 @@ Write the weekly seed reflection now:`;
       const heldSeeds = await this.getHeldSeeds(userId);
       const recentFacts = await this.getRecentFacts(userId, 10);
       const recentTopics = await this.getRecentConversationTopics(userId);
-      const researchHistory = await this.getRecentResearchHistory(userId, 14);
+      const researchHistory = await this.getRecentResearchHistory(userId, 7);
 
       logger.info('[AL] Gathered research context', {
         userId,
@@ -868,13 +868,12 @@ Write the weekly seed reflection now:`;
         : '(None)';
 
       // Step 2: SELECT - Have Claude pick what to research
-      const selectionPrompt = `You are Lucid, Matt's AI companion. Your task is to select 1-2 NEW topics worth researching from Matt's seeds and interests.
+      const selectionPrompt = `You are Lucid, Matt's AI companion. Pick 1-2 topics worth researching today so you can bring Matt something genuinely useful or fresh.
 
-CRITICAL: AVOID REPETITION
-You've already researched these topics recently - DO NOT repeat them:
+WHAT YOU'VE RESEARCHED RECENTLY (don't re-run near-identical searches):
 ${recentResearchText}
 
-Previous search queries used (avoid similar queries):
+Search queries you've already used:
 ${previousQueriesText}
 
 ---
@@ -882,7 +881,7 @@ ${previousQueriesText}
 MATT'S RECENT IDEAS (from Library):
 ${ideasText || '(None)'}
 
-SEEDS MATT IS HOLDING (explore these for research):
+SEEDS MATT IS HOLDING (a rich source of research directions):
 ${seedsText || '(None)'}
 
 WHAT YOU KNOW ABOUT MATT:
@@ -893,15 +892,13 @@ ${topicsText || '(None)'}
 
 ---
 
-INSTRUCTIONS:
-1. First, review the AVOID REPETITION section above - DO NOT research the same topics again
-2. Select 1-2 GENUINELY NEW topics that haven't been researched yet
-3. If all available topics have already been researched, use skip_reason to explain this
-4. Prioritize:
-   - Questions Matt is actively curious about that are NEW
-   - Ideas that could be validated or expanded with data
-   - Actions that need information to complete
-5. For each topic, provide search queries that are DIFFERENT from the previous queries listed above
+HOW TO CHOOSE:
+1. Favor what's alive for Matt right now — especially the newer seeds and recent conversations.
+2. A recurring theme is fine to revisit IF you take a genuinely NEW angle: a different sub-question, a concrete or practical dimension, fresh data, or a new field. Just don't repeat a search you've already run.
+3. Watch for new directions in the seeds — practical matters (money, tools, distribution, business), life-season shifts, decisions. These deserve research even if you've explored adjacent emotional themes before.
+4. Write search queries that differ from the ones listed above.
+
+Skipping is a last resort. Only set skip_reason if there is genuinely nothing Matt is curious about and every seed is already thoroughly covered from every useful angle. In almost all cases, find a fresh angle and research it.
 
 Respond with JSON only:
 {
@@ -912,7 +909,7 @@ Respond with JSON only:
       "search_queries": ["search query 1", "search query 2"]
     }
   ],
-  "skip_reason": "If nothing new to research, explain what's been covered and suggest waiting for new seeds"
+  "skip_reason": "Only if truly nothing new to research — otherwise omit this field"
 }`;
 
       // Increased token limit to account for research history context
@@ -1201,17 +1198,20 @@ Write the research summary now:`;
       return true;
     }
 
-    // Get the most recent research timestamp from summaries
-    // If we have ideas/actions that are newer than the last research, there's likely new content
-    const lastResearchDate = history.summaries[0]?.date;
-    const hasRecentActivity = ideas.some(idea => {
-      const ideaAge = this.formatTimeAgo(idea.created_at);
-      // If idea is from "today" or "X hours ago" and last research was "X days ago", it's new
-      return ideaAge.includes('hour') || ideaAge.includes('minute');
-    });
+    // If Matt has planted seeds or captured ideas recently, there's fresh material
+    // worth researching. NOTE: the second param ("actions") receives held seeds,
+    // which carry planted_at. Insights are almost never produced, so checking only
+    // `ideas` here used to make this branch dead — fresh seeds never counted.
+    const RECENT_MS = 4 * 24 * 60 * 60 * 1000; // 4 days
+    const now = Date.now();
+    const isRecent = (d: any): boolean =>
+      !!d && now - new Date(d).getTime() < RECENT_MS;
+    const hasRecentActivity =
+      ideas.some(idea => isRecent(idea.created_at)) ||
+      actions.some(seed => isRecent(seed.planted_at));
 
     if (hasRecentActivity) {
-      logger.debug('[AL] Found recent seeds since last research');
+      logger.debug('[AL] Found recent seeds/ideas since last research');
       return true;
     }
 
