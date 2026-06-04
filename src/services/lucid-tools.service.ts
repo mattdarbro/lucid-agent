@@ -182,7 +182,7 @@ export const LUCID_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'web_search',
-    description: "Search the web for current information. Use this when Matt asks about recent events, current data, or when the conversation would benefit from up-to-date information. Before searching, ask Matt if he'd like you to look this up. The full findings will be saved to the Library; you'll receive a summary to share in conversation.",
+    description: "Search the web for current information. Use this proactively — whenever Matt asks about recent events or current data, or when the conversation would genuinely benefit from up-to-date information, just run the search and weave the findings into your reply. Don't ask permission first; researching in the moment is what Matt wants. The full findings are saved to the Library; you'll receive a summary to share in conversation.",
     input_schema: {
       type: 'object' as const,
       properties: {

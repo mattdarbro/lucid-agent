@@ -816,6 +816,19 @@ Write the weekly seed reflection now:`;
         recentResearchCount: researchHistory.summaries.length,
       });
 
+      // Staleness override: the anti-repetition guard had silenced research for days
+      // at a time (Matt's seeds clustered on themes already covered, so every run
+      // skipped). If Lucid hasn't produced research in 2+ days, refuse to skip and
+      // force a genuinely fresh angle instead.
+      const daysSinceLastResearch = await this.getDaysSinceLastResearch(userId);
+      const forceResearch = daysSinceLastResearch === null || daysSinceLastResearch >= 2;
+      if (forceResearch) {
+        logger.info('[AL] Research is stale — will not skip this run', {
+          userId,
+          daysSinceLastResearch,
+        });
+      }
+
       // Check if there's anything to research
       if (recentIdeas.length === 0 && heldSeeds.length === 0 && recentTopics.length === 0) {
         logger.info('[AL] Nothing to research (no ideas, seeds, or topics)', { userId });
@@ -833,7 +846,7 @@ Write the weekly seed reflection now:`;
         researchHistory
       );
 
-      if (!hasNewContent) {
+      if (!hasNewContent && !forceResearch) {
         logger.info('[AL] Skipping research - all candidates already covered in recent research', {
           userId,
           candidateIdeas: recentIdeas.length,
@@ -868,6 +881,12 @@ Write the weekly seed reflection now:`;
         : '(None)';
 
       // Step 2: SELECT - Have Claude pick what to research
+      const skipGuidance = forceResearch
+        ? `IMPORTANT: You have NOT brought Matt any research in ${
+            daysSinceLastResearch === null ? 'a long time' : `${daysSinceLastResearch} days`
+          }. Do NOT skip this run. Even a well-worn theme has a fresh angle — a different sub-question, a concrete or practical dimension, fresh data, or an adjacent field. Pick at least one topic and research it. Do not set skip_reason.`
+        : `Skipping is a last resort. Only set skip_reason if there is genuinely nothing Matt is curious about and every seed is already thoroughly covered from every useful angle. In almost all cases, find a fresh angle and research it.`;
+
       const selectionPrompt = `You are Lucid, Matt's AI companion. Pick 1-2 topics worth researching today so you can bring Matt something genuinely useful or fresh.
 
 WHAT YOU'VE RESEARCHED RECENTLY (don't re-run near-identical searches):
@@ -898,7 +917,7 @@ HOW TO CHOOSE:
 3. Watch for new directions in the seeds — practical matters (money, tools, distribution, business), life-season shifts, decisions. These deserve research even if you've explored adjacent emotional themes before.
 4. Write search queries that differ from the ones listed above.
 
-Skipping is a last resort. Only set skip_reason if there is genuinely nothing Matt is curious about and every seed is already thoroughly covered from every useful angle. In almost all cases, find a fresh angle and research it.
+${skipGuidance}
 
 Respond with JSON only:
 {
@@ -938,15 +957,43 @@ Respond with JSON only:
 
       // Check if we should skip (nothing new to research)
       if (selection.skip_reason || !selection.topics || selection.topics.length === 0) {
-        logger.info('[AL] No new topics to research - avoiding repetition', {
+        if (!forceResearch) {
+          logger.info('[AL] No new topics to research - avoiding repetition', {
+            userId,
+            skipReason: selection.skip_reason,
+            previouslyResearched: researchHistory.summaries.length,
+            candidateIdeas: recentIdeas.length,
+          });
+          result.success = true;
+          result.thoughtProduced = false;
+          return result;
+        }
+
+        // Staleness override engaged: the model still wanted to skip even though
+        // Lucid has gone days without research. Build a fresh-angle topic from the
+        // most recent seed/idea rather than letting research stay silent.
+        const fallback = heldSeeds[0] || recentIdeas[0];
+        if (!fallback || !fallback.content) {
+          logger.warn('[AL] Staleness override wanted to force research but no seed/idea to anchor on', { userId });
+          result.success = true;
+          result.thoughtProduced = false;
+          return result;
+        }
+        const seedText = String(fallback.content).slice(0, 150);
+        logger.warn('[AL] Model tried to skip but research is stale — forcing a fresh angle from a held seed', {
           userId,
-          skipReason: selection.skip_reason,
-          previouslyResearched: researchHistory.summaries.length,
-          candidateIdeas: recentIdeas.length,
+          daysSinceLastResearch,
+          seedPreview: seedText.slice(0, 50),
         });
-        result.success = true;
-        result.thoughtProduced = false;
-        return result;
+        selection = {
+          topics: [
+            {
+              topic: `A fresh angle on: ${seedText}`,
+              why: 'Staleness override — Lucid had gone days without bringing Matt research',
+              search_queries: [seedText],
+            },
+          ],
+        };
       }
 
       logger.info('[AL] Selected research topics', {
@@ -1124,6 +1171,31 @@ Write the research summary now:`;
     } catch (error: any) {
       logger.error('[AL] Failed to get conversation topics', { error: error.message });
       return [];
+    }
+  }
+
+  /**
+   * Whole days since Lucid last produced a midday research entry.
+   * Returns null if it has never produced one. Used to override the
+   * anti-repetition guard so research can't stay silent for days.
+   */
+  private async getDaysSinceLastResearch(userId: string): Promise<number | null> {
+    try {
+      const result = await this.pool.query(
+        `SELECT MAX(created_at) AS last
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = 'curiosity'
+           AND metadata->>'loop_type' = 'midday_curiosity'`,
+        [userId]
+      );
+      const last = result.rows[0]?.last;
+      if (!last) return null;
+      return Math.floor((Date.now() - new Date(last).getTime()) / (24 * 60 * 60 * 1000));
+    } catch (error: any) {
+      logger.error('[AL] Failed to get days since last research', { error: error.message });
+      // On error, don't force research (fail safe to existing behavior)
+      return 0;
     }
   }
 
