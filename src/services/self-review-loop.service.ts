@@ -132,25 +132,26 @@ export class SelfReviewLoopService {
 
       // ====== STEP 2: ANALYZE ======
       const improvements = await this.analyzeCode(files, model);
-
-      if (improvements.length === 0) {
-        logger.info('[SELF-REVIEW] No improvements identified');
-        result.success = true;
-        return result;
-      }
-
       logger.info(`[SELF-REVIEW] Identified ${improvements.length} potential improvements`);
 
       // ====== STEP 3: PRIORITIZE ======
-      const selected = await this.prioritizeImprovements(improvements, model);
+      // Only prioritize when there's something to prioritize. Crucially, runs
+      // that find nothing — or select nothing — no longer return early: they
+      // fall through to STEP 5/6 so every review leaves a visible "I reviewed
+      // myself, nothing worth a PR this week" record instead of silently
+      // producing nothing (which looked, from the outside, like self-review was
+      // broken).
+      const selected = improvements.length > 0
+        ? await this.prioritizeImprovements(improvements, model)
+        : [];
 
-      if (selected.length === 0) {
-        logger.info('[SELF-REVIEW] No improvements selected after prioritization');
-        result.success = true;
-        return result;
+      if (improvements.length === 0) {
+        logger.info('[SELF-REVIEW] No improvements identified — recording a clean review');
+      } else if (selected.length === 0) {
+        logger.info('[SELF-REVIEW] No improvements selected after prioritization — recording review');
+      } else {
+        logger.info(`[SELF-REVIEW] Selected ${selected.length} improvements for PRs`);
       }
-
-      logger.info(`[SELF-REVIEW] Selected ${selected.length} improvements for PRs`);
 
       // ====== STEP 4: GENERATE PRs ======
       const dateStr = new Date().toISOString().split('T')[0];
