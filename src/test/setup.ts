@@ -13,6 +13,11 @@ process.env.PORT = '4000';
 process.env.AGENT_NAME = 'Lucid Test';
 process.env.LOG_LEVEL = 'error'; // Suppress logs during tests
 
+// Dummy API keys so SDK clients constructed at import time don't throw.
+// Tests never hit real APIs — network calls are mocked.
+process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'test-openai-key';
+process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test-anthropic-key';
+
 // Export test utilities
 export const mockPool = {
   query: vi.fn(),

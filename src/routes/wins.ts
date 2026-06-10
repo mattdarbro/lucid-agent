@@ -2,15 +2,8 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { logger } from '../logger';
 import { z } from 'zod';
-import Anthropic from '@anthropic-ai/sdk';
-import { config } from '../config';
 
 const router = Router();
-
-// Initialize Anthropic client for embeddings
-const anthropic = new Anthropic({
-  apiKey: config.anthropic.apiKey,
-});
 
 // Validation schemas
 const createWinSchema = z.object({
@@ -31,13 +24,6 @@ const listWinsSchema = z.object({
  */
 async function generateEmbedding(text: string): Promise<number[] | null> {
   try {
-    const response = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1,
-      messages: [{ role: 'user', content: 'embed' }],
-    });
-
-    // Use voyage for actual embeddings
     const voyageResponse = await fetch('https://api.voyageai.com/v1/embeddings', {
       method: 'POST',
       headers: {

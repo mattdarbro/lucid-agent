@@ -13,6 +13,9 @@ vi.mock('../db', () => ({
   pool: {
     query: vi.fn(),
   },
+  supabase: {
+    from: vi.fn(),
+  },
 }));
 
 vi.mock('../logger', () => ({
@@ -20,6 +23,7 @@ vi.mock('../logger', () => ({
     info: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 

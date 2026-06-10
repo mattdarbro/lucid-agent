@@ -1,12 +1,13 @@
+import { vi, type Mock } from 'vitest';
 import { Pool } from 'pg';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { AutonomousThoughtService } from './autonomous-thought.service';
 import { CreateAutonomousThoughtInput } from '../validation/autonomous-thought.validation';
 
 // Mock the VectorService
-jest.mock('./vector.service', () => ({
-  VectorService: jest.fn().mockImplementation(() => ({
-    generateEmbedding: jest.fn().mockResolvedValue(new Array(1536).fill(0.1)),
+vi.mock('./vector.service', () => ({
+  VectorService: vi.fn().mockImplementation(() => ({
+    generateEmbedding: vi.fn().mockResolvedValue(new Array(1536).fill(0.1)),
   })),
 }));
 
@@ -20,7 +21,7 @@ describe('AutonomousThoughtService', () => {
     user_id: 'test-user-id',
     agent_job_id: 'test-job-id',
     content: 'This is a test thought',
-    thought_type: 'reflection',
+    category: 'reflection', // DB column is 'category'; service maps it to thought_type
     circadian_phase: 'morning',
     generated_at_time: '07:30:00',
     importance_score: 0.8,
@@ -33,33 +34,33 @@ describe('AutonomousThoughtService', () => {
   beforeEach(() => {
     // Create mock pool with query method
     pool = {
-      connect: jest.fn().mockResolvedValue({
-        query: jest.fn().mockResolvedValue({ rows: [mockThought] }),
-        release: jest.fn(),
+      connect: vi.fn().mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ rows: [mockThought] }),
+        release: vi.fn(),
       }),
     } as any;
 
     // Create mock Supabase client
     supabase = {
-      from: jest.fn().mockReturnThis(),
-      insert: jest.fn().mockReturnThis(),
-      select: jest.fn().mockReturnThis(),
-      update: jest.fn().mockReturnThis(),
-      delete: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      gte: jest.fn().mockReturnThis(),
-      lte: jest.fn().mockReturnThis(),
-      order: jest.fn().mockReturnThis(),
-      range: jest.fn().mockReturnThis(),
-      limit: jest.fn().mockReturnThis(),
-      single: jest.fn(),
+      from: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockReturnThis(),
+      lte: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      range: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      single: vi.fn(),
     } as any;
 
     service = new AutonomousThoughtService(pool, supabase);
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('createThought', () => {
@@ -73,7 +74,7 @@ describe('AutonomousThoughtService', () => {
         importance_score: 0.8,
       };
 
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: mockThought,
         error: null,
       });
@@ -95,13 +96,12 @@ describe('AutonomousThoughtService', () => {
         thought_type: 'curiosity',
       };
 
-      // Mock embedding failure
-      const mockVectorService = require('./vector.service').VectorService;
-      mockVectorService.mockImplementationOnce(() => ({
-        generateEmbedding: jest.fn().mockRejectedValue(new Error('Embedding failed')),
-      }));
+      // Mock embedding failure on the instance the service already holds
+      (service as any).vectorService.generateEmbedding = vi
+        .fn()
+        .mockRejectedValue(new Error('Embedding failed'));
 
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: { ...mockThought, embedding: null },
         error: null,
       });
@@ -115,7 +115,7 @@ describe('AutonomousThoughtService', () => {
 
   describe('getThoughtById', () => {
     it('should retrieve a thought by ID', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: mockThought,
         error: null,
       });
@@ -129,7 +129,7 @@ describe('AutonomousThoughtService', () => {
     });
 
     it('should return null if thought not found', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: null,
         error: { code: 'PGRST116' },
       });
@@ -142,7 +142,7 @@ describe('AutonomousThoughtService', () => {
 
   describe('updateThought', () => {
     it('should update a thought successfully', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: { ...mockThought, is_shared: true, shared_at: new Date().toISOString() },
         error: null,
       });
@@ -162,13 +162,13 @@ describe('AutonomousThoughtService', () => {
     it('should list thoughts with filters', async () => {
       const mockThoughts = [mockThought, { ...mockThought, id: 'test-thought-id-2' }];
 
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        gte: jest.fn().mockReturnThis(),
-        lte: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        range: jest.fn().mockResolvedValue({
+      (supabase.from as Mock).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        gte: vi.fn().mockReturnThis(),
+        lte: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        range: vi.fn().mockResolvedValue({
           data: mockThoughts,
           error: null,
         }),
@@ -202,7 +202,7 @@ describe('AutonomousThoughtService', () => {
 
   describe('shareThought', () => {
     it('should mark a thought as shared', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: { ...mockThought, is_shared: true, shared_at: new Date().toISOString() },
         error: null,
       });
@@ -218,10 +218,10 @@ describe('AutonomousThoughtService', () => {
     it('should retrieve thoughts by agent job ID', async () => {
       const mockThoughts = [mockThought];
 
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockResolvedValue({
+      (supabase.from as Mock).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        order: vi.fn().mockResolvedValue({
           data: mockThoughts,
           error: null,
         }),
@@ -238,11 +238,11 @@ describe('AutonomousThoughtService', () => {
     it('should retrieve recent unshared thoughts', async () => {
       const mockThoughts = [mockThought];
 
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue({
+      (supabase.from as Mock).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
           data: mockThoughts,
           error: null,
         }),
@@ -257,8 +257,8 @@ describe('AutonomousThoughtService', () => {
 
   describe('deleteThought', () => {
     it('should delete a thought successfully', async () => {
-      (supabase.delete as jest.Mock).mockReturnValue({
-        eq: jest.fn().mockResolvedValue({
+      (supabase.delete as Mock).mockReturnValue({
+        eq: vi.fn().mockResolvedValue({
           error: null,
         }),
       });

@@ -1,3 +1,4 @@
+import { vi, type Mock } from 'vitest';
 import { Pool } from 'pg';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ResearchTaskService } from './research-task.service';
@@ -30,25 +31,25 @@ describe('ResearchTaskService', () => {
 
     // Create mock Supabase client
     supabase = {
-      from: jest.fn().mockReturnThis(),
-      insert: jest.fn().mockReturnThis(),
-      select: jest.fn().mockReturnThis(),
-      update: jest.fn().mockReturnThis(),
-      delete: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      gte: jest.fn().mockReturnThis(),
-      lte: jest.fn().mockReturnThis(),
-      order: jest.fn().mockReturnThis(),
-      range: jest.fn().mockReturnThis(),
-      limit: jest.fn().mockReturnThis(),
-      single: jest.fn(),
+      from: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockReturnThis(),
+      lte: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      range: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      single: vi.fn(),
     } as any;
 
     service = new ResearchTaskService(pool, supabase);
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('createTask', () => {
@@ -62,7 +63,7 @@ describe('ResearchTaskService', () => {
         priority: 7,
       };
 
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: mockTask,
         error: null,
       });
@@ -83,7 +84,7 @@ describe('ResearchTaskService', () => {
         query: 'Simple query',
       };
 
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: { ...mockTask, approach: 'exploratory', priority: 5 },
         error: null,
       });
@@ -97,7 +98,7 @@ describe('ResearchTaskService', () => {
 
   describe('getTaskById', () => {
     it('should retrieve a task by ID', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: mockTask,
         error: null,
       });
@@ -111,7 +112,7 @@ describe('ResearchTaskService', () => {
     });
 
     it('should return null if task not found', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: null,
         error: { code: 'PGRST116' },
       });
@@ -124,7 +125,7 @@ describe('ResearchTaskService', () => {
 
   describe('updateTask', () => {
     it('should update a task successfully', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: { ...mockTask, status: 'in_progress' },
         error: null,
       });
@@ -142,13 +143,13 @@ describe('ResearchTaskService', () => {
     it('should list tasks with filters', async () => {
       const mockTasks = [mockTask, { ...mockTask, id: 'test-task-id-2' }];
 
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        gte: jest.fn().mockReturnThis(),
-        lte: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        range: jest.fn().mockResolvedValue({
+      (supabase.from as Mock).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        gte: vi.fn().mockReturnThis(),
+        lte: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        range: vi.fn().mockResolvedValue({
           data: mockTasks,
           error: null,
         }),
@@ -170,11 +171,11 @@ describe('ResearchTaskService', () => {
     it('should retrieve pending tasks ordered by priority', async () => {
       const mockTasks = [mockTask];
 
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue({
+      (supabase.from as Mock).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
           data: mockTasks,
           error: null,
         }),
@@ -189,11 +190,11 @@ describe('ResearchTaskService', () => {
     it('should retrieve pending tasks for all users when no userId provided', async () => {
       const mockTasks = [mockTask];
 
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue({
+      (supabase.from as Mock).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
           data: mockTasks,
           error: null,
         }),
@@ -207,7 +208,7 @@ describe('ResearchTaskService', () => {
 
   describe('markTaskAsStarted', () => {
     it('should mark a task as started', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: { ...mockTask, status: 'in_progress', started_at: new Date().toISOString() },
         error: null,
       });
@@ -224,7 +225,7 @@ describe('ResearchTaskService', () => {
       const results = { findings: ['Finding 1', 'Finding 2'] };
       const derivedFacts = ['Fact 1', 'Fact 2'];
 
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: {
           ...mockTask,
           status: 'completed',
@@ -248,7 +249,7 @@ describe('ResearchTaskService', () => {
     it('should mark a task as failed with error results', async () => {
       const errorResults = { error: 'Network error' };
 
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: {
           ...mockTask,
           status: 'failed',
@@ -270,10 +271,10 @@ describe('ResearchTaskService', () => {
     it('should retrieve tasks by emotional state ID', async () => {
       const mockTasks = [mockTask];
 
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockResolvedValue({
+      (supabase.from as Mock).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        order: vi.fn().mockResolvedValue({
           data: mockTasks,
           error: null,
         }),
@@ -288,8 +289,8 @@ describe('ResearchTaskService', () => {
 
   describe('deleteTask', () => {
     it('should delete a task successfully', async () => {
-      (supabase.delete as jest.Mock).mockReturnValue({
-        eq: jest.fn().mockResolvedValue({
+      (supabase.delete as Mock).mockReturnValue({
+        eq: vi.fn().mockResolvedValue({
           error: null,
         }),
       });

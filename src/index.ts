@@ -1,6 +1,8 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { config, validateConfig } from './config';
+import { requireApiToken } from './middleware/auth';
 import { testConnection, closeConnections, pool, supabase } from './db';
 import { logger } from './logger';
 import usersRouter from './routes/users';
@@ -47,6 +49,10 @@ try {
 const app = express();
 const PORT = config.port;
 const HOST = '0.0.0.0';
+
+// Railway terminates TLS at a proxy; trust it so req.ip (used by the rate
+// limiter) reflects the real client, not the proxy.
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(
@@ -109,6 +115,34 @@ app.get('/health', async (req: Request, res: Response) => {
     });
   }
 });
+
+// ============================================================================
+// AUTH & RATE LIMITING
+// ============================================================================
+// Everything below this point (including /info and all /v1 routes) requires
+// the Bearer token. `/` and `/health` above stay open for Railway checks.
+
+app.use(requireApiToken);
+
+// General API limiter — generous for a single-user app, exists to stop abuse
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Stricter limiter for endpoints that trigger LLM calls on someone's bill
+const llmLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/v1', apiLimiter);
+app.use('/v1/chat', llmLimiter);
+app.use('/v1/versus', llmLimiter);
 
 app.get('/info', (req: Request, res: Response) => {
   res.json({
