@@ -106,20 +106,32 @@ export class CostTrackingService {
   constructor(private pool: Pool) {}
 
   /**
-   * Calculate cost for a Claude API call
+   * Calculate cost for a Claude API call.
+   *
+   * Prompt-cache tokens are billed separately from regular input tokens:
+   * cache writes (5-minute ephemeral) at 1.25x the input price, cache reads
+   * at 0.1x. The API's `input_tokens` field excludes both.
    */
-  calculateCost(model: string, inputTokens: number, outputTokens: number): number {
-    const pricing = MODEL_PRICING[model];
+  calculateCost(
+    model: string,
+    inputTokens: number,
+    outputTokens: number,
+    cacheCreationTokens: number = 0,
+    cacheReadTokens: number = 0
+  ): number {
+    let pricing = MODEL_PRICING[model];
     if (!pricing) {
       logger.warn('Unknown model for pricing', { model });
       // Default to Sonnet pricing if unknown
-      return (inputTokens * 3.0 + outputTokens * 15.0) / 1_000_000;
+      pricing = { input: 3.0, output: 15.0 };
     }
 
     const inputCost = (inputTokens * pricing.input) / 1_000_000;
     const outputCost = (outputTokens * pricing.output) / 1_000_000;
+    const cacheWriteCost = (cacheCreationTokens * pricing.input * 1.25) / 1_000_000;
+    const cacheReadCost = (cacheReadTokens * pricing.input * 0.1) / 1_000_000;
 
-    return inputCost + outputCost;
+    return inputCost + outputCost + cacheWriteCost + cacheReadCost;
   }
 
   /**
@@ -139,16 +151,35 @@ export class CostTrackingService {
     model: string,
     inputTokens: number,
     outputTokens: number,
-    metadata: Record<string, any> = {}
+    metadata: Record<string, any> = {},
+    cacheCreationTokens: number = 0,
+    cacheReadTokens: number = 0
   ): Promise<void> {
-    const costUsd = this.calculateCost(model, inputTokens, outputTokens);
+    const costUsd = this.calculateCost(
+      model,
+      inputTokens,
+      outputTokens,
+      cacheCreationTokens,
+      cacheReadTokens
+    );
+
+    // Cache tokens live in metadata rather than dedicated columns so the
+    // api_usage schema doesn't need a migration.
+    const fullMetadata =
+      cacheCreationTokens > 0 || cacheReadTokens > 0
+        ? {
+            ...metadata,
+            cache_creation_tokens: cacheCreationTokens,
+            cache_read_tokens: cacheReadTokens,
+          }
+        : metadata;
 
     try {
       await this.pool.query(
         `INSERT INTO api_usage (
           user_id, source, model, input_tokens, output_tokens, cost_usd, metadata
         ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [userId, source, model, inputTokens, outputTokens, costUsd, JSON.stringify(metadata)]
+        [userId, source, model, inputTokens, outputTokens, costUsd, JSON.stringify(fullMetadata)]
       );
 
       logger.debug('API usage logged', {
@@ -157,6 +188,8 @@ export class CostTrackingService {
         model,
         inputTokens,
         outputTokens,
+        cacheCreationTokens,
+        cacheReadTokens,
         costUsd: costUsd.toFixed(6),
       });
     } catch (error) {

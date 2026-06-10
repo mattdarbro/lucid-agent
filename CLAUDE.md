@@ -48,6 +48,19 @@ waits were the original pain — don't reintroduce them casually.
   is to upgrade that path (better model, in-chat notification) rather than
   rebuilding the synchronous pipeline.
 
+## API auth (added 2026-06-10)
+
+- The API now requires `Authorization: Bearer <LUCID_API_TOKEN>` on everything
+  except `/` and `/health` (`src/middleware/auth.ts`). **Enforcement is off
+  until the env var is set** — unset token = unauthenticated with a startup
+  warning, so deploys can't brick the iOS app before it ships the token.
+- **TODO to actually lock the door:** generate a token (`openssl rand -hex 32`),
+  set `LUCID_API_TOKEN` on Railway, and add the header to the iOS client.
+- Rate limits: 600 req/15min on `/v1`, 60 req/5min on `/v1/chat` and
+  `/v1/versus` (the endpoints that spend LLM money).
+- Context: there is no per-user layer behind this (Supabase service key, no
+  RLS). The bearer token IS the trust boundary — fine for a single-user app.
+
 ## Git / workflow notes
 - Active feature branch convention: `claude/...`. Default branch is `main`.
 - The model identifier the assistant runs on must NOT appear in commits/PRs.

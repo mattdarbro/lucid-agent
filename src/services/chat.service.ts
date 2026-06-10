@@ -110,11 +110,12 @@ export class ChatService {
         content: input.message,
       });
 
-      // Fetch recent conversation history
-      const history = await this.messageService.getRecentMessages(
-        input.conversation_id,
-        20
-      );
+      // Fetch conversation history and profile concurrently — they're
+      // independent queries and both sit on the latency-critical path.
+      const [history, profile] = await Promise.all([
+        this.messageService.getRecentMessages(input.conversation_id, 20),
+        this.profileService.getUserProfile(input.user_id),
+      ]);
 
       // Format messages for Claude API
       const messages = history.map((msg) => ({
@@ -122,8 +123,6 @@ export class ChatService {
         content: msg.content,
       }));
 
-      // Get user's profile configuration
-      const profile = await this.profileService.getUserProfile(input.user_id);
       const chatConfig = this.mergeConfig(profile.chat);
 
       // Build prompt from modules
@@ -243,6 +242,8 @@ export class ChatService {
       let assistantResponse = '';
       let totalInputTokens = 0;
       let totalOutputTokens = 0;
+      let totalCacheCreationTokens = 0;
+      let totalCacheReadTokens = 0;
 
       // Tool use loop - keep calling until we get a text response
       const MAX_TOOL_ITERATIONS = 5;
@@ -278,10 +279,13 @@ export class ChatService {
           { maxRetries: 2, initialDelayMs: 1000 }
         ) as any;
 
-        // Track token usage
+        // Track token usage. input_tokens excludes cached tokens — cache
+        // writes and reads are reported (and billed) separately.
         if (response.usage) {
           totalInputTokens += response.usage.input_tokens;
           totalOutputTokens += response.usage.output_tokens;
+          totalCacheCreationTokens += response.usage.cache_creation_input_tokens || 0;
+          totalCacheReadTokens += response.usage.cache_read_input_tokens || 0;
         }
 
         // Check if we got a final text response (stop_reason is 'end_turn' or 'max_tokens')
@@ -321,28 +325,30 @@ export class ChatService {
             content: response.content,
           });
 
-          // Execute each tool and collect results
-          const toolResults: Anthropic.ToolResultBlockParam[] = [];
-          for (const toolUse of toolUseBlocks) {
-            if (toolUse.type === 'tool_use') {
-              logger.info('Executing tool', {
-                tool: toolUse.name,
-                input: toolUse.input,
-                iteration,
-              });
+          // Execute all requested tools concurrently — they're independent
+          // (DB lookups, web searches) and each await adds user-visible latency.
+          const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+            toolUseBlocks
+              .filter((toolUse: any) => toolUse.type === 'tool_use')
+              .map(async (toolUse: any) => {
+                logger.info('Executing tool', {
+                  tool: toolUse.name,
+                  input: toolUse.input,
+                  iteration,
+                });
 
-              const result = await this.lucidToolsService.executeTool(
-                toolUse.name,
-                toolUse.input as Record<string, any>
-              );
+                const result = await this.lucidToolsService.executeTool(
+                  toolUse.name,
+                  toolUse.input as Record<string, any>
+                );
 
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: toolUse.id,
-                content: result,
-              });
-            }
-          }
+                return {
+                  type: 'tool_result' as const,
+                  tool_use_id: toolUse.id,
+                  content: result,
+                };
+              })
+          );
 
           // Add tool results to messages
           apiMessages.push({
@@ -364,15 +370,18 @@ export class ChatService {
         }
       }
 
-      // Log total API usage for cost tracking
+      // Log total API usage for cost tracking. Deliberately not awaited —
+      // logUsage handles its own errors and the reply shouldn't wait on it.
       if (totalInputTokens > 0 || totalOutputTokens > 0) {
-        await this.costTrackingService.logUsage(
+        void this.costTrackingService.logUsage(
           input.user_id,
           'chat',
           modelUsed,
           totalInputTokens,
           totalOutputTokens,
-          { conversation_id: input.conversation_id }
+          { conversation_id: input.conversation_id },
+          totalCacheCreationTokens,
+          totalCacheReadTokens
         );
       }
 

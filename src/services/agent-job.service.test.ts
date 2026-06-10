@@ -1,3 +1,4 @@
+import { vi, type Mock } from 'vitest';
 import { Pool } from 'pg';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { AgentJobService } from './agent-job.service';
@@ -29,24 +30,24 @@ describe('AgentJobService', () => {
 
     // Create mock Supabase client
     supabase = {
-      from: jest.fn().mockReturnThis(),
-      insert: jest.fn().mockReturnThis(),
-      select: jest.fn().mockReturnThis(),
-      update: jest.fn().mockReturnThis(),
-      delete: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      lte: jest.fn().mockReturnThis(),
-      gte: jest.fn().mockReturnThis(),
-      order: jest.fn().mockReturnThis(),
-      range: jest.fn().mockReturnThis(),
-      single: jest.fn(),
+      from: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      lte: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      range: vi.fn().mockReturnThis(),
+      single: vi.fn(),
     } as any;
 
     service = new AgentJobService(pool, supabase);
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('createJob', () => {
@@ -57,7 +58,7 @@ describe('AgentJobService', () => {
         scheduled_for: new Date(),
       };
 
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: mockJob,
         error: null,
       });
@@ -78,7 +79,7 @@ describe('AgentJobService', () => {
         scheduled_for: new Date(),
       };
 
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: null,
         error: { message: 'Database error' },
       });
@@ -89,7 +90,7 @@ describe('AgentJobService', () => {
 
   describe('getJobById', () => {
     it('should retrieve a job by ID', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: mockJob,
         error: null,
       });
@@ -103,7 +104,7 @@ describe('AgentJobService', () => {
     });
 
     it('should return null if job not found', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: null,
         error: { code: 'PGRST116' },
       });
@@ -121,7 +122,7 @@ describe('AgentJobService', () => {
         started_at: new Date(),
       };
 
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: { ...mockJob, status: 'running' },
         error: null,
       });
@@ -139,11 +140,11 @@ describe('AgentJobService', () => {
     it('should list jobs with filters', async () => {
       const mockJobs = [mockJob, { ...mockJob, id: 'test-job-id-2' }];
 
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        range: jest.fn().mockResolvedValue({
+      (supabase.from as Mock).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        range: vi.fn().mockResolvedValue({
           data: mockJobs,
           error: null,
         }),
@@ -164,11 +165,13 @@ describe('AgentJobService', () => {
     it('should retrieve jobs that are due to run', async () => {
       const mockDueJobs = [mockJob];
 
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        lte: jest.fn().mockReturnThis(),
-        order: jest.fn().mockResolvedValue({
+      (supabase.from as Mock).mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        gte: vi.fn().mockReturnThis(),
+        lte: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
           data: mockDueJobs,
           error: null,
         }),
@@ -183,7 +186,7 @@ describe('AgentJobService', () => {
 
   describe('markJobAsStarted', () => {
     it('should mark a job as started', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: { ...mockJob, status: 'running', started_at: new Date().toISOString() },
         error: null,
       });
@@ -197,7 +200,7 @@ describe('AgentJobService', () => {
 
   describe('markJobAsCompleted', () => {
     it('should mark a job as completed with results', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: {
           ...mockJob,
           status: 'completed',
@@ -219,7 +222,7 @@ describe('AgentJobService', () => {
 
   describe('markJobAsFailed', () => {
     it('should mark a job as failed with error message', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: {
           ...mockJob,
           status: 'failed',
@@ -239,22 +242,24 @@ describe('AgentJobService', () => {
 
   describe('scheduleCircadianJobs', () => {
     it('should schedule all circadian jobs for a user', async () => {
-      (supabase.single as jest.Mock).mockResolvedValue({
+      (supabase.single as Mock).mockResolvedValue({
         data: mockJob,
         error: null,
       });
 
-      const result = await service.scheduleCircadianJobs('test-user-id', new Date());
+      // Fixed non-Thursday date — Thursdays additionally schedule self_review
+      const monday = new Date('2026-06-08T12:00:00-05:00');
+      const result = await service.scheduleCircadianJobs('test-user-id', monday);
 
-      expect(result).toHaveLength(4); // morning, midday, evening, night
-      expect(supabase.insert).toHaveBeenCalledTimes(4);
+      expect(result).toHaveLength(5); // morning, midday, afternoon, evening, night
+      expect(supabase.insert).toHaveBeenCalledTimes(5);
     });
   });
 
   describe('deleteJob', () => {
     it('should delete a job successfully', async () => {
-      (supabase.delete as jest.Mock).mockReturnValue({
-        eq: jest.fn().mockResolvedValue({
+      (supabase.delete as Mock).mockReturnValue({
+        eq: vi.fn().mockResolvedValue({
           error: null,
         }),
       });

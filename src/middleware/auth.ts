@@ -1,99 +1,68 @@
 /**
  * Authentication Middleware
  *
- * Basic middleware to ensure user_id is provided in requests.
- *
- * TODO: This should be upgraded to use:
- * - JWT token validation
- * - Session management
- * - Integration with studio-api for auth
+ * Bearer-token auth for the whole API. Lucid is a single-user app, so a
+ * single shared secret (LUCID_API_TOKEN) held by the iOS client is the
+ * trust boundary. There is no per-user session layer behind it — the
+ * database is accessed with the Supabase service key and has no RLS.
  */
 
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
+import { config } from '../config';
 import { logger } from '../logger';
-import { userService } from '../services';
+
+let warnedNoToken = false;
 
 /**
- * Validates that user_id is present and exists in database
- * Can be applied to routes that require authentication
+ * Constant-time string comparison to avoid leaking the token via timing.
  */
-export async function requireUser(req: Request, res: Response, next: NextFunction) {
-  try {
-    // Check for user_id in body or params
-    const userId = req.body.user_id || req.params.user_id;
-
-    if (!userId) {
-      return res.status(401).json({
-        error: 'Unauthorized',
-        message: 'user_id is required',
-      });
-    }
-
-    // Validate UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(userId)) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: 'Invalid user_id format',
-      });
-    }
-
-    // Verify user exists in database
-    try {
-      const user = await userService.findById(userId);
-      if (!user) {
-        return res.status(404).json({
-          error: 'Not Found',
-          message: 'User not found',
-        });
-      }
-
-      // Attach user to request for downstream handlers
-      (req as any).user = user;
-      next();
-    } catch (error: any) {
-      logger.error('Error verifying user:', error);
-      return res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to verify user',
-      });
-    }
-  } catch (error: any) {
-    logger.error('Error in auth middleware:', error);
-    return res.status(500).json({
-      error: 'Internal Server Error',
-      message: 'Authentication failed',
-    });
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // Still do a comparison so length mismatches take similar time
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
   }
+  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 /**
- * Optional: validates user_id if present, but doesn't require it
+ * Requires `Authorization: Bearer <LUCID_API_TOKEN>` on every request.
+ *
+ * Migration path: if LUCID_API_TOKEN is not configured, requests are allowed
+ * through with a loud warning so a deploy can't lock out the iOS app before
+ * the client ships the token. Set the env var to turn enforcement on.
  */
-export async function optionalUser(req: Request, res: Response, next: NextFunction) {
-  const userId = req.body.user_id || req.params.user_id;
+export function requireApiToken(req: Request, res: Response, next: NextFunction) {
+  const expected = config.auth.apiToken;
 
-  if (!userId) {
+  if (!expected) {
+    if (!warnedNoToken) {
+      logger.warn(
+        '⚠️  LUCID_API_TOKEN is not set — API is running UNAUTHENTICATED. ' +
+          'Set LUCID_API_TOKEN and configure the client to send it as a Bearer token.'
+      );
+      warnedNoToken = true;
+    }
     return next();
   }
 
-  // Validate UUID format
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(userId)) {
-    return res.status(400).json({
-      error: 'Bad Request',
-      message: 'Invalid user_id format',
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+
+  if (!token || !safeEqual(token, expected)) {
+    logger.warn('Rejected request with missing/invalid API token', {
+      method: req.method,
+      path: req.path,
+      ip: req.ip,
+    });
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Valid Bearer token required',
     });
   }
 
-  try {
-    const user = await userService.findById(userId);
-    if (user) {
-      (req as any).user = user;
-    }
-    next();
-  } catch (error: any) {
-    logger.warn('Error loading optional user:', error);
-    next(); // Continue even if user lookup fails
-  }
+  next();
 }

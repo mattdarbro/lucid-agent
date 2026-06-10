@@ -7,6 +7,12 @@ export const config = {
   port: parseInt(process.env.PORT || '4000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
 
+  // API auth — shared secret the iOS client sends as a Bearer token.
+  // When unset, the API runs unauthenticated (a loud warning is logged).
+  auth: {
+    apiToken: process.env.LUCID_API_TOKEN || '',
+  },
+
   // Supabase
   supabase: {
     url: process.env.SUPABASE_URL || '',
