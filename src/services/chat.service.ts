@@ -389,6 +389,18 @@ export class ChatService {
       // length and never be truncated mid-thought. Generation is still bounded by
       // maxTokens; brevity is now guidance in the prompt, not a hard server chop.
 
+      // Guard against a silent blank reply: if the tool loop exhausted all
+      // iterations without ever producing text, assistantResponse is still
+      // empty. Surface that as an error rather than storing and returning a
+      // blank message the user can't distinguish from a real (empty) answer.
+      if (!assistantResponse.trim()) {
+        logger.error('Chat completion produced no text response', {
+          conversation_id: input.conversation_id,
+          max_tool_iterations: MAX_TOOL_ITERATIONS,
+        });
+        throw new Error('No response generated after maximum tool iterations');
+      }
+
       // Store assistant message
       const assistantMessage = await this.messageService.createMessage({
         conversation_id: input.conversation_id,

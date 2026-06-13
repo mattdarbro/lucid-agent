@@ -302,11 +302,14 @@ async function startServer() {
         process.exit(0);
       });
 
-      // Force shutdown after 10 seconds
+      // Force shutdown after 10 seconds. unref() so this timer never holds
+      // the event loop open — once a clean shutdown completes, the process
+      // can exit immediately instead of waiting out the 10s (which on Railway
+      // would delay container recycling).
       setTimeout(() => {
         logger.error('Forced shutdown after timeout');
         process.exit(1);
-      }, 10000);
+      }, 10000).unref();
     };
 
     process.on('SIGTERM', shutdown);

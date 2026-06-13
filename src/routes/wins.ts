@@ -211,7 +211,6 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
 
     // Generate new embedding if content changed
-    let embeddingUpdate = '';
     const params: any[] = [id];
     let paramIndex = 2;
 
