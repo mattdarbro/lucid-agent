@@ -12,6 +12,7 @@ import { WebSearchService } from './web-search.service';
 import { RecursiveContextSearchService, RecursiveSearchConfig } from './recursive-context-search.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
 import { withRetry, wrapAnthropicError } from '../utils/anthropic-errors';
+import { stripLoneSurrogates } from '../utils/sanitize-unicode';
 
 /**
  * Configuration for chat behavior
@@ -117,10 +118,15 @@ export class ChatService {
         this.profileService.getUserProfile(input.user_id),
       ]);
 
-      // Format messages for Claude API
+      // Format messages for Claude API.
+      // Strip any lone UTF-16 surrogates from stored content: a truncated emoji
+      // (or one mangled by the client) becomes invalid JSON that Anthropic
+      // rejects with a non-retryable 400 ("no low surrogate in string").
+      // Sanitizing on read also heals histories already poisoned by such a
+      // message, which would otherwise fail on every subsequent turn.
       const messages = history.map((msg) => ({
         role: msg.role as 'user' | 'assistant',
-        content: msg.content,
+        content: stripLoneSurrogates(msg.content),
       }));
 
       const chatConfig = this.mergeConfig(profile.chat);
@@ -212,10 +218,14 @@ export class ChatService {
         }
       }
 
-      // Combine base prompt with recursive context
-      const finalPrompt = recursiveContext
-        ? `${moduleResult.prompt}\n${recursiveContext}`
-        : moduleResult.prompt;
+      // Combine base prompt with recursive context. Sanitize lone surrogates:
+      // the prompt is assembled from DB/library content that is truncated by
+      // character count, which can split an emoji and leave invalid JSON.
+      const finalPrompt = stripLoneSurrogates(
+        recursiveContext
+          ? `${moduleResult.prompt}\n${recursiveContext}`
+          : moduleResult.prompt
+      );
 
       // Calculate temperature
       const temperature = input.temperature ?? chatConfig.defaultTemperature;
@@ -345,7 +355,9 @@ export class ChatService {
                 return {
                   type: 'tool_result' as const,
                   tool_use_id: toolUse.id,
-                  content: result,
+                  // Tool output (web search, DB content) can also carry a lone
+                  // surrogate; strip it so the next API call stays valid JSON.
+                  content: stripLoneSurrogates(result),
                 };
               })
           );
