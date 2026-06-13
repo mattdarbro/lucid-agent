@@ -1,9 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { logger } from '../logger';
+import { VectorService } from '../services/vector.service';
 import { z } from 'zod';
 
 const router = Router();
+const vectorService = new VectorService();
 
 // Validation schemas
 const createWinSchema = z.object({
@@ -20,31 +22,17 @@ const listWinsSchema = z.object({
 });
 
 /**
- * Generate embedding for text using voyage-3-lite
+ * Generate an embedding for a win via the shared VectorService (OpenAI
+ * ada-002, 1536 dims). Wins live in library_entries alongside every other
+ * entry type, so they must share that embedding space and dimension for the
+ * vector(1536) column and cross-entry semantic search to work. Returns null
+ * on failure — the embedding is optional and must never fail the request.
  */
 async function generateEmbedding(text: string): Promise<number[] | null> {
   try {
-    const voyageResponse = await fetch('https://api.voyageai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.VOYAGE_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'voyage-3-lite',
-        input: text,
-      }),
-    });
-
-    if (!voyageResponse.ok) {
-      logger.warn('Voyage embedding failed, skipping embedding');
-      return null;
-    }
-
-    const data = (await voyageResponse.json()) as { data: { embedding: number[] }[] };
-    return data.data[0].embedding;
+    return await vectorService.generateEmbedding(text);
   } catch (error) {
-    logger.warn('Failed to generate embedding:', error);
+    logger.warn('Failed to generate win embedding:', error);
     return null;
   }
 }
