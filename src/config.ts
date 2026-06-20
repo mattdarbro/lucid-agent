@@ -101,6 +101,13 @@ export function validateConfig(): void {
   if (!config.openai.apiKey) errors.push('OPENAI_API_KEY is required');
   // STUDIO_APP_KEY is optional - only needed for session validation
 
+  // In production, refuse to boot without an API token. Without it the auth
+  // middleware falls through to UNAUTHENTICATED (see middleware/auth.ts), which
+  // would silently expose the whole API. Dev/test stay permissive (warning only).
+  if (config.nodeEnv === 'production' && !config.auth.apiToken) {
+    errors.push('LUCID_API_TOKEN is required in production (auth is open without it)');
+  }
+
   if (errors.length > 0) {
     throw new Error(`Configuration errors:\n${errors.join('\n')}`);
   }

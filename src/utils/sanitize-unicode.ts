@@ -27,7 +27,10 @@ const LONE_SURROGATE =
  * always well-formed Unicode and safe to send as JSON.
  */
 export function stripLoneSurrogates(input: string): string {
-  if (!input) return input;
+  // Always return a string. The declared type is `string`, but loosely-typed
+  // callers can pass null/undefined; coerce those (and '') to '' rather than
+  // returning a non-string falsy value that violates the signature.
+  if (!input) return '';
   // Fast path: most strings have no surrogates at all.
   if (!/[\uD800-\uDFFF]/.test(input)) return input;
   return input.replace(LONE_SURROGATE, '');

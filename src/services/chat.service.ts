@@ -13,12 +13,12 @@ import { RecursiveContextSearchService, RecursiveSearchConfig } from './recursiv
 import { ChatCompletionInput } from '../validation/chat.validation';
 import { withRetry, wrapAnthropicError } from '../utils/anthropic-errors';
 import { stripLoneSurrogates } from '../utils/sanitize-unicode';
+import { config } from '../config';
 
 /**
  * Configuration for chat behavior
  */
 interface ChatConfig {
-  maxResponseWords?: number;
   defaultTemperature?: number;
   defaultModel?: string;
   maxTokens?: number;
@@ -50,11 +50,12 @@ export class ChatService {
   private lucidToolsService: LucidToolsService;
   private recursiveContextService: RecursiveContextSearchService;
 
-  // Default configuration - word limits unified at service layer
+  // Default configuration. defaultModel is sourced from config.anthropic.model
+  // (the ANTHROPIC_MODEL env) so this fallback can't silently drift from the
+  // app-wide model default.
   private readonly DEFAULT_CONFIG: ChatConfig = {
-    maxResponseWords: 150,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-sonnet-4-6',
+    defaultModel: config.anthropic.model,
     maxTokens: 500,
     enableRecursiveSearch: false,
     recursiveSearchConfig: {
@@ -68,21 +69,28 @@ export class ChatService {
   constructor(pool: Pool, supabase: SupabaseClient, anthropicApiKey?: string) {
     this.pool = pool;
     this.supabase = supabase;
+
+    // Resolve the Anthropic key ONCE here so every sub-service shares the same
+    // value. Passing the raw (possibly undefined or empty) param down created
+    // two resolution paths: an empty string would be forwarded as-is instead of
+    // falling back to the env var.
+    const resolvedApiKey = anthropicApiKey || process.env.ANTHROPIC_API_KEY;
+
     this.anthropic = new Anthropic({
-      apiKey: anthropicApiKey || process.env.ANTHROPIC_API_KEY,
+      apiKey: resolvedApiKey,
     });
 
     const vectorService = new VectorService();
     this.messageService = new MessageService(pool, vectorService);
     this.profileService = new ProfileService(pool);
     this.costTrackingService = new CostTrackingService(pool);
-    this.promptModulesService = new PromptModulesService(pool, anthropicApiKey);
+    this.promptModulesService = new PromptModulesService(pool, resolvedApiKey);
 
     // Initialize web search service for Room searches
     const webSearchService = new WebSearchService();
     this.lucidToolsService = new LucidToolsService(pool, webSearchService);
 
-    this.recursiveContextService = new RecursiveContextSearchService(pool, anthropicApiKey);
+    this.recursiveContextService = new RecursiveContextSearchService(pool, resolvedApiKey);
   }
 
   /**
@@ -102,9 +110,13 @@ export class ChatService {
     assistant_message: any;
     response: string;
   }> {
+    // Tracked across the try/catch so a failed turn can roll back the user
+    // message it already persisted (see catch block).
+    let userMessage: any = null;
+    let assistantStored = false;
     try {
       // Store user message
-      const userMessage = await this.messageService.createMessage({
+      userMessage = await this.messageService.createMessage({
         conversation_id: input.conversation_id,
         user_id: input.user_id,
         role: 'user',
@@ -151,18 +163,12 @@ export class ChatService {
         // Auto-detect based on message content and conversation state
         const conversationLength = messages.length;
 
-        // Calculate days since conversation started (if we have message history)
-        let daysSinceFirstMessage: number | undefined;
-        if (messages.length > 0) {
-          // We don't have timestamps in the API messages, so we'll skip this for now
-          // Could be enhanced by fetching conversation metadata
-          daysSinceFirstMessage = undefined;
-        }
-
+        // daysSinceFirstMessage is omitted: the API message objects carry no
+        // timestamps. Could be added later by fetching conversation metadata.
         const detection = this.recursiveContextService.shouldUseRecursiveSearch(
           input.message,
           conversationLength,
-          daysSinceFirstMessage
+          undefined
         );
 
         useRecursiveSearch = detection.shouldSearch;
@@ -272,7 +278,10 @@ export class ChatService {
             this.anthropic.messages.create({
               model: modelUsed,
               max_tokens: maxTokens,
-              ...(/^claude-opus-4-[78]/.test(modelUsed) ? {} : { temperature }),
+              // Opus 4.7+ reasoning models reject a custom temperature. Match the
+              // single-digit suffixes (4-7, 4-8, 4-9) AND any multi-digit future
+              // version (4-10+); the old /4-[78]/ silently broke for 2-digit names.
+              ...(/^claude-opus-4-(?:[7-9]|\d{2,})/.test(modelUsed) ? {} : { temperature }),
               // Pass system prompt as cached content block. Within a multi-turn
               // conversation the prompt is largely stable, so subsequent turns
               // hit cache at ~10% of normal input cost.
@@ -382,6 +391,18 @@ export class ChatService {
         }
       }
 
+      // Fallback: if the tool loop ran all MAX_TOOL_ITERATIONS without ever
+      // producing text (Claude kept requesting tools), assistantResponse is still
+      // empty. Don't store/return an empty turn — give a graceful reply instead.
+      if (!assistantResponse.trim()) {
+        logger.warn('Chat produced no text after tool loop — returning fallback', {
+          conversation_id: input.conversation_id,
+          maxIterations: MAX_TOOL_ITERATIONS,
+        });
+        assistantResponse =
+          "I got a little tangled up working through that one — could you say it again?";
+      }
+
       // Log total API usage for cost tracking. Deliberately not awaited —
       // logUsage handles its own errors and the reply shouldn't wait on it.
       if (totalInputTokens > 0 || totalOutputTokens > 0) {
@@ -408,6 +429,7 @@ export class ChatService {
         role: 'assistant',
         content: assistantResponse,
       });
+      assistantStored = true;
 
       logger.info('Chat completion successful', {
         conversation_id: input.conversation_id,
@@ -420,6 +442,24 @@ export class ChatService {
         response: assistantResponse,
       };
     } catch (error: any) {
+      // Roll back the orphaned user turn: if we persisted the user message but
+      // never stored an assistant reply, delete it so the conversation isn't left
+      // with a dangling unanswered user turn that gets re-sent on every retry.
+      if (userMessage && !assistantStored) {
+        try {
+          await this.messageService.deleteMessage(userMessage.id);
+          logger.info('Rolled back orphaned user message after failed chat turn', {
+            message_id: userMessage.id,
+            conversation_id: input.conversation_id,
+          });
+        } catch (cleanupError: any) {
+          logger.warn('Failed to roll back orphaned user message', {
+            message_id: userMessage.id,
+            error: cleanupError.message,
+          });
+        }
+      }
+
       logger.error('Error in chat completion:', {
         message: error.message,
         status: error.status,
