@@ -356,14 +356,21 @@ export class LucidToolsService {
   /**
    * Assess whether calendar data is trustworthy for "you're free" conclusions.
    *
-   * calendar_events is populated by device sync. If nothing has synced in a long
-   * time (or ever), an empty query window does NOT mean the user is free — it
-   * means we can't see their calendar. Returns a warning string for the model to
-   * relay honestly, or null when data is fresh enough to trust.
+   * calendar_events is populated by device sync. If nothing has EVER synced, an
+   * empty query window does NOT mean the user is free — it means we can't see
+   * their calendar. Returns a warning string for the model to relay honestly, or
+   * null when the data is current enough to trust.
+   *
+   * Staleness is measured by last_synced_at, which every sync bumps to NOW() (both
+   * the insert and update paths in routes/calendar.ts). We deliberately do NOT use
+   * created_at here: created_at only moves when a brand-new event is added, so a
+   * stable calendar that syncs daily but gains no new events would look "stale"
+   * and make Lucid distrust perfectly good data. The day threshold is generous so
+   * a few quiet days never trip the warning.
    */
   private async getCalendarStaleness(userId: string): Promise<{ total: number; staleDays: number | null; warning: string | null }> {
     const res = await this.pool.query(
-      `SELECT COUNT(*) AS total, MAX(created_at) AS last_synced
+      `SELECT COUNT(*) AS total, MAX(COALESCE(last_synced_at, created_at)) AS last_synced
        FROM calendar_events WHERE user_id = $1`,
       [userId]
     );
@@ -379,11 +386,13 @@ export class LucidToolsService {
     const staleDays = lastSynced
       ? Math.floor((Date.now() - lastSynced.getTime()) / (1000 * 60 * 60 * 24))
       : null;
-    if (staleDays === null || staleDays > 7) {
+    // Only flag a genuinely long sync gap. Below this, trust the data as-is.
+    const STALE_DAYS = 21;
+    if (staleDays !== null && staleDays > STALE_DAYS) {
       return {
         total,
         staleDays,
-        warning: `Calendar data is stale (last sync ${staleDays !== null ? `${staleDays} days ago` : 'unknown'}). An empty result likely means the calendar stopped syncing, not that the user is free. Be honest about this uncertainty.`,
+        warning: `Calendar may not have synced recently (last sync ${staleDays} days ago). If a result comes back empty, that could mean syncing stopped rather than that the user is actually free — note that uncertainty instead of asserting they're free.`,
       };
     }
     return { total, staleDays, warning: null };

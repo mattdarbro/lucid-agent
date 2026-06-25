@@ -113,6 +113,12 @@ export class AutonomousLoopService {
       const seedsText = this.formatSeedsForBriefing(heldSeeds);
       const libraryContext = this.formatLibraryEntries(recentLibraryEntries);
 
+      // Keep the reflection anchored to what this loop actually has. The evening
+      // synthesis runs with no tools and no calendar/schedule data injected, so
+      // without this scope note Lucid reaches for Matt's schedule, can't find it,
+      // and narrates that confusion into the Library.
+      const scopeNote = `This is a quiet reflection on The Room and your seeds. You don't have calendar or schedule access in this moment, and you don't need it here—work only from the conversations, seeds, and notes above. Don't go looking for Matt's schedule or puzzle over why you can't see it.`;
+
       // Step 1: NOTICE
       logger.debug('[AL] Step 1: Notice', { userId });
       const noticePrompt = `You are Lucid, reflecting on today's time in The Room with Matt.
@@ -125,6 +131,8 @@ ${conversationText || '(No conversations today)'}
 
 Seeds you're currently holding:
 ${seedsText || '(No seeds held)'}
+
+${scopeNote}
 
 What stands out from today? Did any seeds get touched or stirred by the conversation? What felt unfinished? What moment had weight?
 
@@ -148,6 +156,8 @@ ${seedsText || '(No seeds held)'}
 Recent thoughts in the Library:
 ${libraryContext || '(No recent Library entries)'}
 
+${scopeNote}
+
 How does what you noticed today connect to the seeds you're holding? Is a seed starting to sprout - showing new growth? Are two seeds connecting in interesting ways? Is there a tension worth holding?
 
 Write 1-2 connections you see between today's conversations and the seeds.`;
@@ -166,6 +176,8 @@ ${result.steps.notice}
 
 You connected:
 ${result.steps.connect}
+
+${scopeNote}
 
 What question is forming in you? Is there a seed that feels ready to grow - to be explored deeply and potentially become a Library entry? Or does a seed need more time, more conversation, more waiting?
 
@@ -188,6 +200,8 @@ ${result.steps.connect}
 
 You're questioning:
 ${result.steps.question}
+
+${scopeNote}
 
 ${recentTopics.length > 0 ? `IMPORTANT: The Library already has: ${recentTopics.join(', ')}. If a seed grows tonight, it should add something NEW.` : ''}
 
