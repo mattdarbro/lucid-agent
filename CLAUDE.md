@@ -3,18 +3,43 @@
 This file is read first in any session. It records decisions and their *why* so
 context isn't lost between sessions.
 
-## Lucid's voice & models (current state as of 2026-06-01)
+## Lucid's voice & models (current state as of 2026-07-01)
 
-- **Chat** runs on **Sonnet 4.6** (validation default + all profiles in
-  `src/types/profiles.ts`). The reflective "Library voice" Matt associates with
-  Lucid is Sonnet's, so chat now shares it.
+- **Chat** runs on **Sonnet 5** with **adaptive thinking at `medium` effort**
+  (validation default in `chat.validation.ts` + all profiles in
+  `src/types/profiles.ts` + `chat.service.ts` DEFAULT_CONFIG). Matt wanted chat
+  to reason a little more before replying — the fast/lean Sonnet 4.6 chat felt
+  "a little too quick." Sonnet 5 keeps the reflective "Library voice" lineage
+  and adds real reasoning; `medium` is the deliberate middle ground (more than
+  the old no-thinking chat, less latency than `high`).
+  - **Why the migration needed more than a string swap:** Sonnet 5 rejects
+    non-default `temperature`/`top_p`/`top_k` (400) and removed the fixed
+    `budget_tokens` thinking mode. `chat.service.ts` now drops temperature and
+    turns on `thinking:{type:'adaptive'}` + `output_config:{effort:'medium'}`
+    for the reasoning-model family (`claude-(opus-4-[78]|sonnet-5|fable-5)`),
+    keeping the old temperature path for legacy models. `max_tokens` was raised
+    (validation default 2000→8000, cap 4096→16000; profiles 600→8000) because
+    adaptive-thinking tokens count toward `max_tokens` and would otherwise
+    truncate the reply.
+  - **SDK bump:** `@anthropic-ai/sdk` `0.68.0 → 0.109.0`. 0.68 predated adaptive
+    thinking / `output_config`; without the bump the only way to reason on
+    Sonnet 5 was to omit `thinking` (implicit `high` effort, not tunable).
+  - **iOS caveat:** if the iOS client sends an explicit `model` in the chat
+    request it overrides the server default — the app must omit `model` (or send
+    `claude-sonnet-5`) to actually get Sonnet 5.
+  - **Latency watch:** this reintroduces some per-turn thinking latency, the
+    thing PR #164 removed. `medium` is the compromise; dial `effort` down (or to
+    `low`) in `chat.service.ts` if iOS waits feel long again.
 - **Deep work stays on Opus 4.8**: deep-thoughts (`thought.service.ts`) and the
   monthly self-review / code review (`self-review-loop.service.ts` `deepModel`).
+  Background loops (autonomous synthesis, versus, summaries, research,
+  state-check, quick self-review) are still on **Sonnet 4.6** — deliberately not
+  migrated in this pass (Matt scoped it to chat only).
 - **Word cap removed.** There used to be TWO muzzles: a "50-150 words" prompt
   rule AND a hard server-side `enforceWordLimit()` that truncated every reply
   mid-thought. Both are gone. Reply length is now bounded only by `max_tokens`
-  (request default **2000**, schema max 4096). The core_identity prompt tells
-  Lucid to "let your response find its own length."
+  (chat request default **8000**, schema max 16000). The core_identity prompt
+  tells Lucid to "let your response find its own length."
 
 ## OPEN IDEA — reconnect the reasoning channel (DO NOT do yet)
 

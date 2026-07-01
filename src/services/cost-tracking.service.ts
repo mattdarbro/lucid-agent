@@ -14,6 +14,9 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   'claude-opus-4-6': { input: 5.0, output: 25.0 },
   // Claude Opus 4.5 (legacy)
   'claude-opus-4-5-20251101': { input: 5.0, output: 25.0 },
+  // Claude Sonnet 5 (intro pricing $2/$10 per MTok through 2026-08-31;
+  // standard $3/$15 used here so cost is never under-counted)
+  'claude-sonnet-5': { input: 3.0, output: 15.0 },
   // Claude Sonnet 4.6
   'claude-sonnet-4-6': { input: 3.0, output: 15.0 },
   // Claude Sonnet 4.5 (legacy)
