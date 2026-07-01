@@ -5,7 +5,17 @@ context isn't lost between sessions.
 
 ## Lucid's voice & models (current state as of 2026-07-01)
 
-- **Chat** runs on **Sonnet 5** with **adaptive thinking at `medium` effort**
+- **Deployment topology (important).** Lucid's intelligence is split across two
+  hosts: **Railway** runs this `lucid-agent` Node app; **the Falcon** is a
+  Claude Code server doing some of Lucid's agentic thinking. As of 2026-07-01
+  **live chat + Library entries run on the Falcon**, and on Railway everything
+  is toggled **off except the weekly self-review** (`ENABLE_SELF_REVIEW=true`).
+  So the Railway chat path described below is **staged, not live** — the model
+  settings here take effect only if/when chat is started up on Railway again.
+  The reasoning depth of the *current* live chat is a Falcon (Claude Code)
+  setting, not this repo.
+- **Chat (Railway path)** runs on **Sonnet 5** with **adaptive thinking at
+  `medium` effort**
   (validation default in `chat.validation.ts` + all profiles in
   `src/types/profiles.ts` + `chat.service.ts` DEFAULT_CONFIG). Matt wanted chat
   to reason a little more before replying — the fast/lean Sonnet 4.6 chat felt
