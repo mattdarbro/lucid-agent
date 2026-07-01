@@ -20,15 +20,18 @@ export const chatCompletionSchema = z.object({
   model: z
     .string()
     .optional()
-    .default('claude-sonnet-4-6'),
+    .default('claude-sonnet-5'),
 
   max_tokens: z
     .number()
     .int()
     .min(1)
-    .max(4096)
+    // Adaptive thinking (Sonnet 5) counts toward max_tokens, so the ceiling must
+    // cover reasoning + reply. Raised from 4096/2000 to give thinking headroom;
+    // 16000 stays under the SDK's non-streaming HTTP-timeout threshold.
+    .max(16000)
     .optional()
-    .default(2000),
+    .default(8000),
 
   temperature: z
     .number()

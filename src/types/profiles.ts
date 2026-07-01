@@ -64,7 +64,7 @@ export interface LucidProfile {
     defaultTemperature: number;
     defaultModel: string;
     // Brevity controls (LUCID principle: 50-150 words for chat)
-    maxTokens: number; // API max_tokens (~250 for 150 words)
+    maxTokens: number; // API max_tokens; covers adaptive-thinking tokens + the reply
     maxResponseWords: number; // Programmatic word limit enforcement
     // Deep thinking controls
     forceDeepThinking: boolean; // Bypass complexity assessment, always generate Library entries
@@ -164,8 +164,8 @@ export const FULL_LUCID_PROFILE: LucidProfile = {
     includeFacts: true,
     maxThoughtsInContext: 5,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-sonnet-4-6',
-    maxTokens: 600,
+    defaultModel: 'claude-sonnet-5',
+    maxTokens: 8000,
     maxResponseWords: 150,
     forceDeepThinking: false,
   },
@@ -252,8 +252,8 @@ export const DEV_LUCID_PROFILE: LucidProfile = {
     includeFacts: true,
     maxThoughtsInContext: 5,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-sonnet-4-6',
-    maxTokens: 600,
+    defaultModel: 'claude-sonnet-5',
+    maxTokens: 8000,
     maxResponseWords: 150,
     forceDeepThinking: true, // KEY: Always generate Library entries
   },
@@ -330,8 +330,8 @@ export const DECISION_ASSISTANT_PROFILE: LucidProfile = {
     includeFacts: true, // Include learned decision patterns
     maxThoughtsInContext: 0,
     defaultTemperature: 0.3, // More analytical
-    defaultModel: 'claude-sonnet-4-6',
-    maxTokens: 600,
+    defaultModel: 'claude-sonnet-5',
+    maxTokens: 8000,
     maxResponseWords: 150,
     forceDeepThinking: false,
   },
@@ -419,8 +419,8 @@ export const NEWS_DIGEST_PROFILE: LucidProfile = {
     includeFacts: true, // Topics of interest
     maxThoughtsInContext: 10, // More news insights
     defaultTemperature: 0.5,
-    defaultModel: 'claude-sonnet-4-6',
-    maxTokens: 600,
+    defaultModel: 'claude-sonnet-5',
+    maxTokens: 8000,
     maxResponseWords: 150,
     forceDeepThinking: false,
   },
@@ -458,8 +458,8 @@ export const SIMPLE_CHAT_PROFILE: LucidProfile = {
     includeFacts: true,
     maxThoughtsInContext: 0,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-sonnet-4-6',
-    maxTokens: 600,
+    defaultModel: 'claude-sonnet-5',
+    maxTokens: 8000,
     maxResponseWords: 150,
     forceDeepThinking: false,
   },
@@ -489,8 +489,8 @@ export const CUSTOM_PROFILE_TEMPLATE: LucidProfile = {
     includeFacts: true,
     maxThoughtsInContext: 5,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-sonnet-4-6',
-    maxTokens: 600,
+    defaultModel: 'claude-sonnet-5',
+    maxTokens: 8000,
     maxResponseWords: 150,
     forceDeepThinking: false,
   },

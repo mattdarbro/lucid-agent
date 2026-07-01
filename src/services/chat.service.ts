@@ -54,8 +54,11 @@ export class ChatService {
   private readonly DEFAULT_CONFIG: ChatConfig = {
     maxResponseWords: 150,
     defaultTemperature: 0.7,
-    defaultModel: 'claude-sonnet-4-6',
-    maxTokens: 500,
+    defaultModel: 'claude-sonnet-5',
+    // Adaptive thinking counts toward max_tokens, so the ceiling has to cover
+    // both the reasoning and the reply. 8000 leaves ample room for a medium
+    // thinking pass plus a full-length answer without truncating mid-thought.
+    maxTokens: 8000,
     enableRecursiveSearch: false,
     recursiveSearchConfig: {
       maxDepth: 3,
@@ -241,6 +244,14 @@ export class ChatService {
       const modelUsed = input.model || chatConfig.defaultModel || this.DEFAULT_CONFIG.defaultModel!;
       const maxTokens = input.max_tokens || chatConfig.maxTokens || this.DEFAULT_CONFIG.maxTokens!;
 
+      // Sonnet 5 / Opus 4.7–4.8 / Fable 5 reject non-default sampling params
+      // (temperature/top_p/top_k → 400) and replace the old fixed thinking
+      // budget with adaptive thinking. For these we drop temperature and turn
+      // on adaptive thinking at 'medium' effort — Lucid reasons a little more
+      // before replying, without the full latency of 'high'. Older models keep
+      // the previous temperature-based behavior untouched.
+      const isReasoningModel = /^claude-(opus-4-[78]|sonnet-5|fable-5)/.test(modelUsed);
+
       // Prepare tools with user_id injected (so Claude doesn't need to guess it)
       const toolsWithContext = LUCID_TOOLS.map((tool) => ({
         ...tool,
@@ -272,7 +283,12 @@ export class ChatService {
             this.anthropic.messages.create({
               model: modelUsed,
               max_tokens: maxTokens,
-              ...(/^claude-opus-4-[78]/.test(modelUsed) ? {} : { temperature }),
+              ...(isReasoningModel
+                ? {
+                    thinking: { type: 'adaptive' as const },
+                    output_config: { effort: 'medium' as const },
+                  }
+                : { temperature }),
               // Pass system prompt as cached content block. Within a multi-turn
               // conversation the prompt is largely stable, so subsequent turns
               // hit cache at ~10% of normal input cost.
