@@ -105,9 +105,14 @@ export class ChatService {
     assistant_message: any;
     response: string;
   }> {
+    // Track the user message we save up front so we can roll it back if the
+    // AI call (or reply assembly) fails. Without this, a failed turn leaves an
+    // orphaned user message with no reply next to it — and a client retry then
+    // saves a second copy.
+    let userMessage: any = null;
     try {
       // Store user message
-      const userMessage = await this.messageService.createMessage({
+      userMessage = await this.messageService.createMessage({
         conversation_id: input.conversation_id,
         user_id: input.user_id,
         role: 'user',
@@ -417,6 +422,19 @@ export class ChatService {
       // length and never be truncated mid-thought. Generation is still bounded by
       // maxTokens; brevity is now guidance in the prompt, not a hard server chop.
 
+      // Never save an empty reply. The tool loop can finish with no text — the
+      // model may spend its whole budget thinking, or keep reaching for tools
+      // and never write an answer (the loop stops after MAX_TOOL_ITERATIONS).
+      // Saving a blank would show the person an empty message and can poison
+      // the next turns. Throw instead, which also rolls back the user message
+      // above so the client can cleanly retry.
+      if (!assistantResponse.trim()) {
+        logger.warn('Assistant produced an empty reply — not saving', {
+          conversation_id: input.conversation_id,
+        });
+        throw new Error('Assistant produced an empty response');
+      }
+
       // Store assistant message
       const assistantMessage = await this.messageService.createMessage({
         conversation_id: input.conversation_id,
@@ -436,6 +454,20 @@ export class ChatService {
         response: assistantResponse,
       };
     } catch (error: any) {
+      // Roll back the user message we saved before the AI call so a failed
+      // turn doesn't leave it orphaned (no reply beside it, and a duplicate on
+      // retry). Guard the cleanup so a delete failure can't hide the real error.
+      if (userMessage?.id) {
+        try {
+          await this.messageService.deleteMessage(userMessage.id);
+        } catch (cleanupError: any) {
+          logger.warn('Failed to roll back orphaned user message', {
+            message_id: userMessage.id,
+            error: cleanupError.message,
+          });
+        }
+      }
+
       logger.error('Error in chat completion:', {
         message: error.message,
         status: error.status,
