@@ -83,6 +83,59 @@ waits were the original pain — don't reintroduce them casually.
   is to upgrade that path (better model, in-chat notification) rather than
   rebuilding the synchronous pipeline.
 
+## Embedding outage + Library blindness (found 2026-07-06)
+
+- **What happened:** every library entry and chat message written via the
+  Railway app since ~2026-07-02 has `embedding = NULL` — OpenAI embedding
+  calls fail and every write path swallows the error with a `logger.warn`.
+  Falcon-written entries (`metadata.source = 'falcon'`) kept getting
+  embeddings, so the break is Railway-side env/infra, not the OpenAI account
+  (Matt verified the key; ada-002 is NOT retired on OpenAI's platform, only
+  Azure's). Timing matches the 2026-07-01 Falcon-migration env reshuffle.
+  Matt re-copied the key 2026-07-06; verify by checking `embedding IS NULL`
+  on a fresh message.
+- **Why it blinded chat:** `search_library` embedded the *query* first, so an
+  OpenAI failure hard-failed the whole tool → Lucid told Matt he couldn't
+  access the Library at all. NULL-embedding rows were also invisible forever.
+- **Fixes (2026-07-06):** `search_library`/`search_conversations` are hybrid
+  (vector + ILIKE keyword fallback, never hard-fail); new
+  `get_recent_library_entries` tool (no embedding dependency); backfill job
+  re-embeds NULL rows every 15 min (`ENABLE_EMBEDDING_BACKFILL=false` to
+  disable); `GET /v1/library/search` moved above `/:id` (was unreachable);
+  PATCH re-embeds on edit.
+
+## Env toggles are now real kill switches (2026-07-06)
+
+- Until now `ENABLE_AUTONOMOUS_AGENTS` / `ENABLE_WEB_RESEARCH` were read into
+  config but **never checked** — the only gate was the per-user profile in
+  `user_profiles` (Matt's says `autonomousAgents: true`), which is why turning
+  everything off in Railway variables didn't stop the daily briefings /
+  curiosity / consolidation entries.
+- Now enforced server-side in `background-jobs.service.ts` +
+  `agent-job.service.ts`: `ENABLE_AUTONOMOUS_AGENTS` gates the circadian
+  loops AND conversation review; `ENABLE_SELF_REVIEW` gates self-review
+  independently (runs through the same job runner); `ENABLE_WEB_RESEARCH`
+  gates the research executor; `ENABLE_FACT_EXTRACTION=false` opts out of
+  fact extraction (default on — it's memory infra for chat, not a voice).
+- **The Falcon's loops are separate.** Its entries (`source: falcon`) come
+  from the Claude Code server, not this repo — Railway variables can never
+  stop those; they have to be disabled on the Falcon itself. Note: since
+  ~Jul 2 the Falcon and Railway were BOTH running curiosity/briefing loops,
+  writing near-duplicate entries a minute apart.
+
+## Reading websites + YouTube (added 2026-07-06)
+
+- New chat tools in `lucid-tools.service.ts` → `content-reader.service.ts`:
+  `read_webpage` (Tavily extract when `TAVILY_API_KEY` set, direct fetch
+  fallback, SSRF-guarded) and `watch_youtube_video` (metadata via YouTube
+  **Data API v3** when `YOUTUBE_API_KEY` is set — never bot-walled; else
+  Innertube/watch-page scrape; oEmbed as the always-works floor; transcript
+  from caption tracks, best-effort since YouTube bot-walls datacenter IPs).
+- **YouTube key note:** the *Analytics* API Matt enabled is the wrong one
+  (OAuth-only, own-channel stats). `watch_youtube_video` needs **YouTube
+  Data API v3** enabled + a plain API key in `YOUTUBE_API_KEY`. No OAuth
+  token required.
+
 ## API auth (added 2026-06-10)
 
 - The API now requires `Authorization: Bearer <LUCID_API_TOKEN>` on everything

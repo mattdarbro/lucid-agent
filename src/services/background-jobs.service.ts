@@ -15,6 +15,7 @@ import { PushNotificationService } from './push-notification.service';
 import { ConversationReviewService } from './conversation-review.service';
 import { JobType } from '../validation/agent-job.validation';
 import { chicagoDateParts } from '../utils/chicago-time';
+import { config } from '../config';
 
 /**
  * BackgroundJobsService
@@ -78,15 +79,55 @@ export class BackgroundJobsService {
       return;
     }
 
-    this.startFactExtractionJob();
-    this.startAutonomousLoopJob();
-    this.startDailyJobScheduler();
-    this.startResearchExecutorJob();
+    // Server-level kill switches. The env feature flags (ENABLE_AUTONOMOUS_AGENTS,
+    // ENABLE_SELF_REVIEW, ENABLE_WEB_RESEARCH) used to be read into config but
+    // never consulted — the only real gate was the per-user profile in the DB,
+    // so flipping the Railway variables off stopped nothing. Now:
+    // - The autonomous-loop runner + daily scheduler run when EITHER
+    //   autonomousAgents or selfReview is enabled (self-review jobs flow through
+    //   the same runner); per-job-type gating below decides what actually runs.
+    // - Conversation review (silent Library entries after chats go idle) counts
+    //   as an autonomous writer, so it follows ENABLE_AUTONOMOUS_AGENTS.
+    // - The research executor spends web-search + LLM money, so it follows
+    //   ENABLE_WEB_RESEARCH.
+    // - Fact extraction is memory infrastructure for chat (not an autonomous
+    //   voice); it stays on unless ENABLE_FACT_EXTRACTION=false.
+    // - Notification dispatch and embedding backfill are cheap plumbing and
+    //   always run.
+    if (process.env.ENABLE_FACT_EXTRACTION !== 'false') {
+      this.startFactExtractionJob();
+    } else {
+      logger.info('[BACKGROUND] Fact extraction disabled via ENABLE_FACT_EXTRACTION');
+    }
+
+    if (config.features.autonomousAgents || config.features.selfReview) {
+      this.startAutonomousLoopJob();
+      this.startDailyJobScheduler();
+    } else {
+      logger.info('[BACKGROUND] Autonomous loop runner + scheduler disabled (ENABLE_AUTONOMOUS_AGENTS and ENABLE_SELF_REVIEW both off)');
+    }
+
+    if (config.features.webResearch) {
+      this.startResearchExecutorJob();
+    } else {
+      logger.info('[BACKGROUND] Research executor disabled via ENABLE_WEB_RESEARCH');
+    }
+
     this.startNotificationDispatchJob();
-    this.startConversationReviewJob();
+
+    if (config.features.autonomousAgents) {
+      this.startConversationReviewJob();
+    } else {
+      logger.info('[BACKGROUND] Conversation review disabled via ENABLE_AUTONOMOUS_AGENTS');
+    }
+
     this.startEmbeddingBackfillJob();
     this.isRunning = true;
-    logger.info('[BACKGROUND] Background jobs started');
+    logger.info('[BACKGROUND] Background jobs started', {
+      autonomousAgents: config.features.autonomousAgents,
+      selfReview: config.features.selfReview,
+      webResearch: config.features.webResearch,
+    });
   }
 
   /**
@@ -457,6 +498,25 @@ export class BackgroundJobsService {
 
       for (const job of dueJobs) {
         try {
+          // Server-level gate by job type: self_review follows ENABLE_SELF_REVIEW,
+          // everything else follows ENABLE_AUTONOMOUS_AGENTS. This catches jobs
+          // already sitting in agent_jobs from before a toggle was flipped off.
+          const serverAllowed = job.job_type === 'self_review'
+            ? config.features.selfReview
+            : config.features.autonomousAgents;
+          if (!serverAllowed) {
+            logger.info(`[AL] Skipping job ${job.id} — disabled by server env flag`, {
+              jobType: job.job_type,
+            });
+            await this.agentJobService.markJobAsSkipped(
+              job.id,
+              job.job_type === 'self_review'
+                ? 'Disabled by ENABLE_SELF_REVIEW'
+                : 'Disabled by ENABLE_AUTONOMOUS_AGENTS'
+            );
+            continue;
+          }
+
           // Check if user has autonomous agents enabled
           const profile = await this.profileService.getUserProfile(job.user_id);
           if (!profile.features.autonomousAgents) {

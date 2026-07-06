@@ -252,44 +252,60 @@ export class AgentJobService {
 
     const existingJobTypes = new Set(existingJobs?.map((j: any) => j.job_type) || []);
 
-    const allJobs: CreateAgentJobInput[] = [
-      {
-        user_id: userId,
-        job_type: 'morning_reflection',
-        scheduled_for: this.getScheduledTime(date, 7, 0), // 7am - Fresh Eyes
-      },
-      {
-        user_id: userId,
-        job_type: 'midday_curiosity',
-        scheduled_for: this.getScheduledTime(date, 12, 0), // 12pm - Active Explorer
-      },
-      {
-        user_id: userId,
-        job_type: 'afternoon_synthesis',
-        scheduled_for: this.getScheduledTime(date, 15, 0), // 3pm - Deep Work Companion
-      },
-      {
-        user_id: userId,
-        job_type: 'evening_consolidation',
-        scheduled_for: this.getScheduledTime(date, 20, 0), // 8pm - Winding Down
-      },
-      {
-        user_id: userId,
-        job_type: 'night_dream',
-        scheduled_for: this.getScheduledTime(date, 2, 0), // 2am - Dreaming Mind
-      },
-      // document_reflection removed — notebook updates happen organically
-      // every time Lucid thinks (conversations + autonomous loops)
-    ];
+    // Circadian jobs are only scheduled when the server-level flag is on
+    // (ENABLE_AUTONOMOUS_AGENTS). The runner also gates by type at execution
+    // time, but not creating disabled jobs keeps agent_jobs from filling with
+    // rows that will only ever be skipped. Read at call time (not via the
+    // import-time config snapshot) so tests and env changes behave sanely.
+    const autonomousEnabled = process.env.ENABLE_AUTONOMOUS_AGENTS === 'true';
+    const selfReviewEnabled = process.env.ENABLE_SELF_REVIEW === 'true';
 
-    // Self-review: Thursday only (day 4) at 10pm Chicago time
+    const allJobs: CreateAgentJobInput[] = autonomousEnabled
+      ? [
+          {
+            user_id: userId,
+            job_type: 'morning_reflection',
+            scheduled_for: this.getScheduledTime(date, 7, 0), // 7am - Fresh Eyes
+          },
+          {
+            user_id: userId,
+            job_type: 'midday_curiosity',
+            scheduled_for: this.getScheduledTime(date, 12, 0), // 12pm - Active Explorer
+          },
+          {
+            user_id: userId,
+            job_type: 'afternoon_synthesis',
+            scheduled_for: this.getScheduledTime(date, 15, 0), // 3pm - Deep Work Companion
+          },
+          {
+            user_id: userId,
+            job_type: 'evening_consolidation',
+            scheduled_for: this.getScheduledTime(date, 20, 0), // 8pm - Winding Down
+          },
+          {
+            user_id: userId,
+            job_type: 'night_dream',
+            scheduled_for: this.getScheduledTime(date, 2, 0), // 2am - Dreaming Mind
+          },
+          // document_reflection removed — notebook updates happen organically
+          // every time Lucid thinks (conversations + autonomous loops)
+        ]
+      : [];
+
+    // Self-review: Thursday only (day 4) at 10pm Chicago time — follows its
+    // own flag so it keeps running when the circadian loops are off.
     const { dayOfWeek } = chicagoDateParts(date);
-    if (dayOfWeek === 4) {
+    if (dayOfWeek === 4 && selfReviewEnabled) {
       allJobs.push({
         user_id: userId,
         job_type: 'self_review',
         scheduled_for: this.getScheduledTime(date, 22, 0), // 10pm - Self Review
       });
+    }
+
+    if (allJobs.length === 0) {
+      logger.info('No job types enabled at server level — nothing to schedule', { userId });
+      return [];
     }
 
     // Filter out jobs that already exist

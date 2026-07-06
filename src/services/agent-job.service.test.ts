@@ -241,7 +241,18 @@ describe('AgentJobService', () => {
   });
 
   describe('scheduleCircadianJobs', () => {
-    it('should schedule all circadian jobs for a user', async () => {
+    const originalAutonomous = process.env.ENABLE_AUTONOMOUS_AGENTS;
+    const originalSelfReview = process.env.ENABLE_SELF_REVIEW;
+
+    afterEach(() => {
+      if (originalAutonomous === undefined) delete process.env.ENABLE_AUTONOMOUS_AGENTS;
+      else process.env.ENABLE_AUTONOMOUS_AGENTS = originalAutonomous;
+      if (originalSelfReview === undefined) delete process.env.ENABLE_SELF_REVIEW;
+      else process.env.ENABLE_SELF_REVIEW = originalSelfReview;
+    });
+
+    it('should schedule all circadian jobs for a user when autonomous agents are enabled', async () => {
+      process.env.ENABLE_AUTONOMOUS_AGENTS = 'true';
       (supabase.single as Mock).mockResolvedValue({
         data: mockJob,
         error: null,
@@ -253,6 +264,32 @@ describe('AgentJobService', () => {
 
       expect(result).toHaveLength(5); // morning, midday, afternoon, evening, night
       expect(supabase.insert).toHaveBeenCalledTimes(5);
+    });
+
+    it('should schedule nothing when all server-level flags are off', async () => {
+      delete process.env.ENABLE_AUTONOMOUS_AGENTS;
+      delete process.env.ENABLE_SELF_REVIEW;
+
+      const monday = new Date('2026-06-08T12:00:00-05:00');
+      const result = await service.scheduleCircadianJobs('test-user-id', monday);
+
+      expect(result).toHaveLength(0);
+      expect(supabase.insert).not.toHaveBeenCalled();
+    });
+
+    it('should schedule only self_review on Thursdays when only ENABLE_SELF_REVIEW is on', async () => {
+      delete process.env.ENABLE_AUTONOMOUS_AGENTS;
+      process.env.ENABLE_SELF_REVIEW = 'true';
+      (supabase.single as Mock).mockResolvedValue({
+        data: { ...mockJob, job_type: 'self_review' },
+        error: null,
+      });
+
+      const thursday = new Date('2026-06-11T12:00:00-05:00');
+      const result = await service.scheduleCircadianJobs('test-user-id', thursday);
+
+      expect(result).toHaveLength(1);
+      expect(supabase.insert).toHaveBeenCalledTimes(1);
     });
   });
 
