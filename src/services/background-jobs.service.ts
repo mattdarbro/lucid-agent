@@ -40,7 +40,10 @@ export class BackgroundJobsService {
   private thoughtNotificationService: ThoughtNotificationService;
   private pushNotificationService: PushNotificationService;
   private conversationReviewService: ConversationReviewService;
+  private vectorService: VectorService;
   private factExtractionJob: cron.ScheduledTask | null = null;
+  private embeddingBackfillJob: cron.ScheduledTask | null = null;
+  private isRunningEmbeddingBackfill: boolean = false;
   private autonomousLoopJob: cron.ScheduledTask | null = null;
   private dailyJobScheduler: cron.ScheduledTask | null = null;
   private researchExecutorJob: cron.ScheduledTask | null = null;
@@ -53,6 +56,7 @@ export class BackgroundJobsService {
     this.pool = pool;
     this.supabase = supabase;
     const vectorService = new VectorService();
+    this.vectorService = vectorService;
     this.factService = new FactService(pool, vectorService);
     this.messageService = new MessageService(pool, vectorService);
     this.profileService = new ProfileService(pool);
@@ -80,6 +84,7 @@ export class BackgroundJobsService {
     this.startResearchExecutorJob();
     this.startNotificationDispatchJob();
     this.startConversationReviewJob();
+    this.startEmbeddingBackfillJob();
     this.isRunning = true;
     logger.info('[BACKGROUND] Background jobs started');
   }
@@ -112,8 +117,116 @@ export class BackgroundJobsService {
       this.conversationReviewJob.stop();
       this.conversationReviewJob = null;
     }
+    if (this.embeddingBackfillJob) {
+      this.embeddingBackfillJob.stop();
+      this.embeddingBackfillJob = null;
+    }
     this.isRunning = false;
     logger.info('[BACKGROUND] Background jobs stopped');
+  }
+
+  /**
+   * Start the embedding backfill job.
+   *
+   * Embedding generation is best-effort at write time: when the OpenAI API is
+   * down or the key is bad, messages and library entries get saved with
+   * embedding = NULL and become invisible to semantic search (this silently
+   * blinded Lucid to everything written during the July 2026 outage). This
+   * job heals those rows in small batches once the embedding API works again.
+   *
+   * Enabled by default; set ENABLE_EMBEDDING_BACKFILL=false to turn off.
+   */
+  private startEmbeddingBackfillJob(): void {
+    if (process.env.ENABLE_EMBEDDING_BACKFILL === 'false') {
+      logger.info('[BACKGROUND] Embedding backfill disabled via ENABLE_EMBEDDING_BACKFILL');
+      return;
+    }
+
+    // Every 15 minutes; each run is capped to small batches so a large backlog
+    // drains gradually without hammering the OpenAI API.
+    this.embeddingBackfillJob = cron.schedule('*/15 * * * *', async () => {
+      try {
+        await this.runEmbeddingBackfill();
+      } catch (err: any) {
+        logger.error('[BACKGROUND] Unhandled error in embedding backfill cron', { error: err.message });
+      }
+    });
+
+    logger.info('[BACKGROUND] Embedding backfill job scheduled (every 15 minutes)');
+  }
+
+  /**
+   * Backfill missing embeddings for library entries and messages.
+   */
+  private async runEmbeddingBackfill(): Promise<void> {
+    if (this.isRunningEmbeddingBackfill) {
+      return;
+    }
+    this.isRunningEmbeddingBackfill = true;
+
+    try {
+      // Library entries first — they're what Lucid reaches for in chat.
+      const entries = await this.pool.query(
+        `SELECT id, title, content
+         FROM library_entries
+         WHERE embedding IS NULL AND content IS NOT NULL AND length(trim(content)) > 0
+         ORDER BY created_at DESC
+         LIMIT 40`
+      );
+
+      let entriesFixed = 0;
+      if (entries.rows.length > 0) {
+        const texts = entries.rows.map((row: any) =>
+          `${row.title || ''} ${row.content}`.trim().slice(0, 8000)
+        );
+        // One batched API call; throws if the embedding API is still down,
+        // which we catch below and simply retry next cycle.
+        const embeddings = await this.vectorService.generateEmbeddings(texts);
+        for (let i = 0; i < entries.rows.length; i++) {
+          await this.pool.query(
+            `UPDATE library_entries SET embedding = $1::vector WHERE id = $2 AND embedding IS NULL`,
+            [`[${embeddings[i].join(',')}]`, entries.rows[i].id]
+          );
+          entriesFixed++;
+        }
+      }
+
+      // Then messages — these power search_conversations.
+      const messages = await this.pool.query(
+        `SELECT id, content
+         FROM messages
+         WHERE embedding IS NULL AND content IS NOT NULL AND length(trim(content)) > 0
+         ORDER BY created_at DESC
+         LIMIT 150`
+      );
+
+      let messagesFixed = 0;
+      if (messages.rows.length > 0) {
+        const texts = messages.rows.map((row: any) => row.content.slice(0, 8000));
+        const embeddings = await this.vectorService.generateEmbeddings(texts);
+        for (let i = 0; i < messages.rows.length; i++) {
+          await this.pool.query(
+            `UPDATE messages SET embedding = $1::vector WHERE id = $2 AND embedding IS NULL`,
+            [`[${embeddings[i].join(',')}]`, messages.rows[i].id]
+          );
+          messagesFixed++;
+        }
+      }
+
+      if (entriesFixed > 0 || messagesFixed > 0) {
+        logger.info('[BACKGROUND] Embedding backfill completed', {
+          libraryEntriesFixed: entriesFixed,
+          messagesFixed,
+        });
+      }
+    } catch (err: any) {
+      // Expected while the embedding API/key is broken — log and retry next cycle.
+      logger.warn('[BACKGROUND] Embedding backfill could not run (embedding API unavailable?)', {
+        error: err.message,
+      });
+    } finally {
+      this.isRunningEmbeddingBackfill = false;
+    }
   }
 
   /**

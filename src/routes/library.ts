@@ -93,6 +93,88 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /v1/library/search
+ *
+ * Semantic search across library entries
+ *
+ * NOTE: this route MUST be registered before GET /:id — Express matches in
+ * declaration order, so declared later, "search" would be captured as an :id
+ * (a non-UUID one, which made this endpoint 500 on every call).
+ *
+ * Query parameters:
+ * - user_id: string (required) - UUID of the user
+ * - query: string (required) - Search query text
+ * - limit: number (optional) - Max entries to return (default: 10)
+ * - min_similarity: number (optional) - Minimum similarity threshold 0-1 (default: 0.8)
+ * - entry_type: string (optional) - Filter by entry type
+ */
+router.get('/search', async (req: Request, res: Response) => {
+  try {
+    const { user_id, query, limit = '10', min_similarity = '0.8', entry_type } = req.query;
+
+    if (!user_id || typeof user_id !== 'string') {
+      return res.status(400).json({ error: 'user_id is required' });
+    }
+
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ error: 'query is required' });
+    }
+
+    // Parse and validate min_similarity
+    const similarityThreshold = Math.min(1, Math.max(0, parseFloat(min_similarity as string) || 0.8));
+
+    // Generate embedding for the search query
+    const queryEmbedding = await vectorService.generateEmbedding(query);
+
+    // Format embedding for PostgreSQL vector type
+    const embeddingString = `[${queryEmbedding.join(',')}]`;
+
+    // Build the search query with similarity threshold filter
+    let searchQuery = `
+      SELECT
+        id, user_id, entry_type, title, content, time_of_day,
+        related_conversation_id, metadata, created_at, updated_at,
+        1 - (embedding <=> $1::vector) as similarity
+      FROM library_entries
+      WHERE user_id = $2
+        AND embedding IS NOT NULL
+        AND (1 - (embedding <=> $1::vector)) >= $3
+    `;
+    const params: any[] = [embeddingString, user_id, similarityThreshold];
+
+    if (entry_type && typeof entry_type === 'string') {
+      searchQuery += ` AND entry_type = $${params.length + 1}`;
+      params.push(entry_type);
+    }
+
+    searchQuery += ` ORDER BY embedding <=> $1::vector`;
+    searchQuery += ` LIMIT $${params.length + 1}`;
+    params.push(parseInt(limit as string, 10));
+
+    const result = await pool.query(searchQuery, params);
+
+    logger.info('Library semantic search', {
+      user_id,
+      query: query.slice(0, 50),
+      min_similarity: similarityThreshold,
+      results: result.rows.length,
+    });
+
+    res.status(200).json({
+      entries: result.rows,
+      query,
+      count: result.rows.length,
+    });
+  } catch (error: any) {
+    logger.error('Error in GET /v1/library/search:', error);
+    res.status(500).json({
+      error: 'Failed to search library',
+      details: error.message,
+    });
+  }
+});
+
+/**
  * GET /v1/library/:id
  *
  * Get a specific library entry
@@ -243,6 +325,24 @@ router.patch('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Entry not found' });
     }
 
+    // Re-embed from the updated text so semantic search reflects the edit
+    // (previously the old embedding was kept forever). Non-fatal on failure —
+    // the backfill job will pick the entry up if we null it out here.
+    try {
+      const updated = result.rows[0];
+      const textForEmbedding = `${updated.title || ''} ${updated.content}`.trim();
+      const embedding = await vectorService.generateEmbedding(textForEmbedding);
+      await pool.query(
+        `UPDATE library_entries SET embedding = $1::vector WHERE id = $2`,
+        [`[${embedding.join(',')}]`, id]
+      );
+    } catch (embeddingError) {
+      logger.warn('Failed to refresh embedding after library entry update', {
+        id,
+        error: embeddingError,
+      });
+    }
+
     logger.info('Library entry updated', { id, user_id });
 
     res.status(200).json({ entry: result.rows[0] });
@@ -295,84 +395,6 @@ router.delete('/:id', async (req: Request, res: Response) => {
     logger.error('Error in DELETE /v1/library/:id:', error);
     res.status(500).json({
       error: 'Failed to delete entry',
-      details: error.message,
-    });
-  }
-});
-
-/**
- * GET /v1/library/search
- *
- * Semantic search across library entries
- *
- * Query parameters:
- * - user_id: string (required) - UUID of the user
- * - query: string (required) - Search query text
- * - limit: number (optional) - Max entries to return (default: 10)
- * - min_similarity: number (optional) - Minimum similarity threshold 0-1 (default: 0.8)
- * - entry_type: string (optional) - Filter by entry type
- */
-router.get('/search', async (req: Request, res: Response) => {
-  try {
-    const { user_id, query, limit = '10', min_similarity = '0.8', entry_type } = req.query;
-
-    if (!user_id || typeof user_id !== 'string') {
-      return res.status(400).json({ error: 'user_id is required' });
-    }
-
-    if (!query || typeof query !== 'string') {
-      return res.status(400).json({ error: 'query is required' });
-    }
-
-    // Parse and validate min_similarity
-    const similarityThreshold = Math.min(1, Math.max(0, parseFloat(min_similarity as string) || 0.8));
-
-    // Generate embedding for the search query
-    const queryEmbedding = await vectorService.generateEmbedding(query);
-
-    // Format embedding for PostgreSQL vector type
-    const embeddingString = `[${queryEmbedding.join(',')}]`;
-
-    // Build the search query with similarity threshold filter
-    let searchQuery = `
-      SELECT
-        id, user_id, entry_type, title, content, time_of_day,
-        related_conversation_id, metadata, created_at, updated_at,
-        1 - (embedding <=> $1::vector) as similarity
-      FROM library_entries
-      WHERE user_id = $2
-        AND embedding IS NOT NULL
-        AND (1 - (embedding <=> $1::vector)) >= $3
-    `;
-    const params: any[] = [embeddingString, user_id, similarityThreshold];
-
-    if (entry_type && typeof entry_type === 'string') {
-      searchQuery += ` AND entry_type = $${params.length + 1}`;
-      params.push(entry_type);
-    }
-
-    searchQuery += ` ORDER BY embedding <=> $1::vector`;
-    searchQuery += ` LIMIT $${params.length + 1}`;
-    params.push(parseInt(limit as string, 10));
-
-    const result = await pool.query(searchQuery, params);
-
-    logger.info('Library semantic search', {
-      user_id,
-      query: query.slice(0, 50),
-      min_similarity: similarityThreshold,
-      results: result.rows.length,
-    });
-
-    res.status(200).json({
-      entries: result.rows,
-      query,
-      count: result.rows.length,
-    });
-  } catch (error: any) {
-    logger.error('Error in GET /v1/library/search:', error);
-    res.status(500).json({
-      error: 'Failed to search library',
       details: error.message,
     });
   }

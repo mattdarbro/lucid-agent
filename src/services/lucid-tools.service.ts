@@ -6,6 +6,7 @@ import { WebSearchService } from './web-search.service';
 import { VectorService } from './vector.service';
 import { LibraryCommentService } from './library-comment.service';
 import { LivingDocumentService } from './living-document.service';
+import { ContentReaderService } from './content-reader.service';
 
 /**
  * Tool definitions for Claude to use during chat
@@ -32,6 +33,28 @@ export const LUCID_TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ['user_id', 'query'],
+    },
+  },
+  {
+    name: 'get_recent_library_entries',
+    description: "List the most recent entries in Lucid's Library, newest first — including reflections Matt wrote himself (entry type 'user_reflection'). Use this when Matt says he just added something to the Library, asks what's in the Library lately, or when search_library comes up empty for something recent. This works even when semantic search is unavailable.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of entries to return (default: 10, max: 25)',
+        },
+        entry_type: {
+          type: 'string',
+          description: "Optional filter by type, e.g. 'user_reflection' (Matt's own entries), 'lucid_thought', 'consolidation', 'curiosity', 'briefing', 'research_journal'. Omit for all types.",
+        },
+      },
+      required: ['user_id'],
     },
   },
   {
@@ -203,6 +226,42 @@ export const LUCID_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'read_webpage',
+    description: "Read the text content of a specific web page. Use this whenever Matt shares a link and wants to discuss it, asks you to review a website or article, or when a conversation references a specific URL. This fetches the actual page content — different from web_search, which finds new information. After reading, engage with the substance of what the page says.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID',
+        },
+        url: {
+          type: 'string',
+          description: 'The full URL of the page to read (must start with http:// or https://)',
+        },
+      },
+      required: ['user_id', 'url'],
+    },
+  },
+  {
+    name: 'watch_youtube_video',
+    description: "\"Watch\" a YouTube video by reading its transcript, title, description, and metadata. Use this when Matt shares a YouTube link and wants to talk about the video, or asks what you think of one. You'll get the full transcript when captions exist — enough to genuinely discuss the content. If no captions are available you'll only get the metadata; say so honestly.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID',
+        },
+        url: {
+          type: 'string',
+          description: 'The YouTube URL (youtube.com/watch, youtu.be, or Shorts link) or bare 11-character video ID',
+        },
+      },
+      required: ['user_id', 'url'],
+    },
+  },
+  {
     name: 'comment_on_library_entry',
     description: "Add a comment to a Library entry. Use this to reply to Matt's comments on Library entries, share a follow-up thought on one of your own entries, or annotate an entry with new context. You can see Matt's comments in the RECENT ACTIVITY section — when you want to respond to something he said, use this tool. Keep comments concise and conversational (tweet-length).",
     input_schema: {
@@ -253,6 +312,7 @@ export class LucidToolsService {
   private anthropic: Anthropic;
   private commentService: LibraryCommentService;
   private livingDocumentService: LivingDocumentService;
+  private contentReaderService: ContentReaderService;
 
   constructor(private pool: Pool, webSearchService?: WebSearchService) {
     this.webSearchService = webSearchService || null;
@@ -262,6 +322,7 @@ export class LucidToolsService {
     });
     this.commentService = new LibraryCommentService(pool);
     this.livingDocumentService = new LivingDocumentService(pool);
+    this.contentReaderService = new ContentReaderService();
   }
 
   /**
@@ -280,6 +341,13 @@ export class LucidToolsService {
             toolInput.user_id,
             toolInput.query,
             toolInput.limit || 5
+          );
+
+        case 'get_recent_library_entries':
+          return await this.getRecentLibraryEntries(
+            toolInput.user_id,
+            toolInput.limit || 10,
+            toolInput.entry_type
           );
 
         case 'search_conversations':
@@ -330,6 +398,12 @@ export class LucidToolsService {
             toolInput.query,
             toolInput.purpose
           );
+
+        case 'read_webpage':
+          return await this.readWebpage(toolInput.user_id, toolInput.url);
+
+        case 'watch_youtube_video':
+          return await this.watchYoutubeVideo(toolInput.user_id, toolInput.url);
 
         case 'comment_on_library_entry':
           return await this.commentOnLibraryEntry(
@@ -941,9 +1015,38 @@ Focus on information most relevant to the query and purpose.`;
   }
 
   /**
-   * Search Library entries using semantic similarity
+   * Extract keyword patterns from a search query for ILIKE matching.
+   * Returns %word% patterns for words of 3+ chars (max 8), plus the full query.
+   */
+  private keywordPatterns(query: string): string[] {
+    const words = query
+      .toLowerCase()
+      .split(/[^a-z0-9']+/)
+      .filter((w) => w.length >= 3)
+      .slice(0, 8);
+    const patterns = words.map((w) => `%${w}%`);
+    // Also match the whole phrase — highest-signal hit for short queries
+    if (query.trim().length >= 3) {
+      patterns.unshift(`%${query.trim().toLowerCase()}%`);
+    }
+    return patterns;
+  }
+
+  /**
+   * Search Library entries.
+   *
+   * Hybrid strategy: semantic (vector) search when embeddings are available,
+   * merged with a keyword pass. The keyword pass matters for two failure modes
+   * that used to make the whole Library invisible from chat:
+   * 1. The embedding API (OpenAI) is down/misconfigured — the query itself
+   *    can't be embedded, so pure vector search hard-fails.
+   * 2. Entries saved while the embedding API was failing have embedding = NULL
+   *    and can never be found by vector search alone.
    */
   private async searchLibrary(userId: string, query: string, limit: number): Promise<string> {
+    let semanticRows: any[] = [];
+    let semanticUnavailable = false;
+
     try {
       const queryEmbedding = await this.vectorService.generateEmbedding(query);
       const embeddingString = `[${queryEmbedding.join(',')}]`;
@@ -963,28 +1066,75 @@ Focus on information most relevant to the query and purpose.`;
          LIMIT $3`,
         [userId, embeddingString, limit]
       );
+      semanticRows = result.rows;
+    } catch (error: any) {
+      semanticUnavailable = true;
+      logger.warn('Semantic library search unavailable, falling back to keyword search', {
+        userId,
+        query,
+        error: error.message,
+      });
+    }
 
-      if (result.rows.length === 0) {
+    try {
+      // Keyword pass — covers NULL-embedding entries and embedding outages.
+      let keywordRows: any[] = [];
+      const patterns = this.keywordPatterns(query);
+      if (patterns.length > 0) {
+        const result = await this.pool.query(
+          `SELECT id, entry_type, title, content, created_at,
+                  (SELECT COUNT(*) FROM unnest($2::text[]) p
+                   WHERE LOWER(COALESCE(title, '')) LIKE p OR LOWER(content) LIKE p) AS match_count
+           FROM library_entries
+           WHERE user_id = $1
+             AND EXISTS (SELECT 1 FROM unnest($2::text[]) p
+                         WHERE LOWER(COALESCE(title, '')) LIKE p OR LOWER(content) LIKE p)
+           ORDER BY match_count DESC, created_at DESC
+           LIMIT $3`,
+          [userId, patterns, limit]
+        );
+        keywordRows = result.rows;
+      }
+
+      // Merge: semantic hits first, then keyword hits not already present.
+      const seen = new Set(semanticRows.map((r: any) => r.id));
+      const merged = [
+        ...semanticRows.map((r: any) => ({ ...r, match_type: 'semantic' })),
+        ...keywordRows
+          .filter((r: any) => !seen.has(r.id))
+          .map((r: any) => ({ ...r, match_type: 'keyword' })),
+      ].slice(0, limit);
+
+      if (merged.length === 0) {
         return JSON.stringify({
           message: `No Library entries found matching "${query}".`,
           entries: [],
           count: 0,
+          ...(semanticUnavailable
+            ? { note: 'Semantic search was unavailable (embedding service error); only keyword matching ran. Try get_recent_library_entries to browse recent entries.' }
+            : {}),
         });
       }
 
       return JSON.stringify({
-        message: `Found ${result.rows.length} Library entry/entries matching "${query}".`,
-        entries: result.rows.map((row: any) => ({
+        message: `Found ${merged.length} Library entry/entries matching "${query}".`,
+        entries: merged.map((row: any) => ({
           id: row.id,
           type: row.entry_type,
           title: row.title,
           content: row.content.length > 1000
             ? row.content.slice(0, 1000) + '...'
             : row.content,
-          similarity: parseFloat(row.similarity).toFixed(3),
+          ...(row.similarity !== undefined
+            ? { similarity: parseFloat(row.similarity).toFixed(3) }
+            : {}),
+          match_type: row.match_type,
           created_at: row.created_at,
         })),
-        count: result.rows.length,
+        count: merged.length,
+        ...(semanticUnavailable
+          ? { note: 'Semantic search was unavailable (embedding service error); results are from keyword matching.' }
+          : {}),
       });
     } catch (error: any) {
       logger.error('Library search failed', { userId, query, error: error.message });
@@ -996,9 +1146,75 @@ Focus on information most relevant to the query and purpose.`;
   }
 
   /**
-   * Search past conversation messages using semantic similarity
+   * List the most recent Library entries — no embeddings involved, so this
+   * always works regardless of the embedding pipeline's health.
+   */
+  private async getRecentLibraryEntries(
+    userId: string,
+    limit: number,
+    entryType?: string
+  ): Promise<string> {
+    try {
+      const params: any[] = [userId];
+      let query = `
+        SELECT id, entry_type, title, content, comment_count, created_at
+        FROM library_entries
+        WHERE user_id = $1
+      `;
+      if (entryType && entryType !== 'all') {
+        params.push(entryType);
+        query += ` AND entry_type = $${params.length}`;
+      }
+      params.push(Math.min(limit, 25));
+      query += ` ORDER BY created_at DESC LIMIT $${params.length}`;
+
+      const result = await this.pool.query(query, params);
+
+      if (result.rows.length === 0) {
+        return JSON.stringify({
+          message: entryType
+            ? `No Library entries of type '${entryType}' found.`
+            : 'No Library entries found.',
+          entries: [],
+          count: 0,
+        });
+      }
+
+      return JSON.stringify({
+        message: `Most recent ${result.rows.length} Library entry/entries${entryType ? ` of type '${entryType}'` : ''}.`,
+        entries: result.rows.map((row: any) => ({
+          id: row.id,
+          type: row.entry_type,
+          title: row.title,
+          content: row.content.length > 1500
+            ? row.content.slice(0, 1500) + '...'
+            : row.content,
+          comment_count: row.comment_count,
+          created_at: row.created_at,
+        })),
+        count: result.rows.length,
+      });
+    } catch (error: any) {
+      logger.error('Failed to get recent library entries', { userId, error: error.message });
+      return JSON.stringify({
+        error: 'Failed to get recent library entries',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * Search past conversation messages.
+   *
+   * Same hybrid strategy as searchLibrary: semantic when embeddings work,
+   * merged with a keyword pass so messages saved during an embedding outage
+   * (embedding = NULL) stay findable and the tool never hard-fails just
+   * because the embedding API is down.
    */
   private async searchConversations(userId: string, query: string, limit: number): Promise<string> {
+    let semanticRows: any[] = [];
+    let semanticUnavailable = false;
+
     try {
       const queryEmbedding = await this.vectorService.generateEmbedding(query);
       const embeddingString = `[${queryEmbedding.join(',')}]`;
@@ -1015,33 +1231,119 @@ Focus on information most relevant to the query and purpose.`;
          LIMIT $3`,
         [userId, embeddingString, limit]
       );
+      semanticRows = result.rows;
+    } catch (error: any) {
+      semanticUnavailable = true;
+      logger.warn('Semantic conversation search unavailable, falling back to keyword search', {
+        userId,
+        query,
+        error: error.message,
+      });
+    }
 
-      if (result.rows.length === 0) {
+    try {
+      let keywordRows: any[] = [];
+      const patterns = this.keywordPatterns(query);
+      if (patterns.length > 0) {
+        const result = await this.pool.query(
+          `SELECT m.id, m.role, m.content, m.conversation_id, m.created_at,
+                  (SELECT COUNT(*) FROM unnest($2::text[]) p
+                   WHERE LOWER(m.content) LIKE p) AS match_count
+           FROM messages m
+           WHERE m.user_id = $1
+             AND EXISTS (SELECT 1 FROM unnest($2::text[]) p WHERE LOWER(m.content) LIKE p)
+           ORDER BY match_count DESC, m.created_at DESC
+           LIMIT $3`,
+          [userId, patterns, limit]
+        );
+        keywordRows = result.rows;
+      }
+
+      const seen = new Set(semanticRows.map((r: any) => r.id));
+      const merged = [
+        ...semanticRows.map((r: any) => ({ ...r, match_type: 'semantic' })),
+        ...keywordRows
+          .filter((r: any) => !seen.has(r.id))
+          .map((r: any) => ({ ...r, match_type: 'keyword' })),
+      ].slice(0, limit);
+
+      if (merged.length === 0) {
         return JSON.stringify({
           message: `No past messages found matching "${query}".`,
           messages: [],
           count: 0,
+          ...(semanticUnavailable
+            ? { note: 'Semantic search was unavailable (embedding service error); only keyword matching ran.' }
+            : {}),
         });
       }
 
       return JSON.stringify({
-        message: `Found ${result.rows.length} past message(s) matching "${query}".`,
-        messages: result.rows.map((row: any) => ({
+        message: `Found ${merged.length} past message(s) matching "${query}".`,
+        messages: merged.map((row: any) => ({
           id: row.id,
           role: row.role,
           content: row.content.length > 500
             ? row.content.slice(0, 500) + '...'
             : row.content,
           conversation_id: row.conversation_id,
-          similarity: parseFloat(row.similarity).toFixed(3),
+          ...(row.similarity !== undefined
+            ? { similarity: parseFloat(row.similarity).toFixed(3) }
+            : {}),
+          match_type: row.match_type,
           created_at: row.created_at,
         })),
-        count: result.rows.length,
+        count: merged.length,
+        ...(semanticUnavailable
+          ? { note: 'Semantic search was unavailable (embedding service error); results are from keyword matching.' }
+          : {}),
       });
     } catch (error: any) {
       logger.error('Conversation search failed', { userId, query, error: error.message });
       return JSON.stringify({
         error: 'Conversation search failed',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * Read a web page's content for discussion in the Room
+   */
+  private async readWebpage(userId: string, url: string): Promise<string> {
+    try {
+      logger.info('Reading webpage from Room', { userId, url });
+      const page = await this.contentReaderService.readWebpage(url);
+      return JSON.stringify({
+        message: `Read the page${page.truncated ? ' (content truncated)' : ''}.`,
+        ...page,
+      });
+    } catch (error: any) {
+      logger.warn('Failed to read webpage', { userId, url, error: error.message });
+      return JSON.stringify({
+        error: 'Failed to read the page',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * "Watch" a YouTube video (transcript + metadata) for discussion in the Room
+   */
+  private async watchYoutubeVideo(userId: string, url: string): Promise<string> {
+    try {
+      logger.info('Watching YouTube video from Room', { userId, url });
+      const video = await this.contentReaderService.watchYoutubeVideo(url);
+      return JSON.stringify({
+        message: video.transcript
+          ? `Got the transcript${video.transcriptTruncated ? ' (truncated)' : ''} and metadata.`
+          : 'Got the video metadata, but no transcript was available.',
+        ...video,
+      });
+    } catch (error: any) {
+      logger.warn('Failed to watch YouTube video', { userId, url, error: error.message });
+      return JSON.stringify({
+        error: 'Failed to fetch the video',
         message: error.message,
       });
     }
