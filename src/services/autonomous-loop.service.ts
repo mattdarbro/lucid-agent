@@ -341,7 +341,7 @@ TITLE: [What this seed became]
       const heldSeedsText = this.formatSeedsForBriefing(heldSeeds);
       const recentSeedsText = this.formatSeedsForBriefing(recentlyPlantedSeeds);
       const grownSeedsText = grownSeeds.length > 0
-        ? grownSeeds.map(s => `- "${s.content.slice(0, 100)}${s.content.length > 100 ? '...' : ''}" (grew into: ${s.library_title || 'Library entry'})`).join('\n')
+        ? grownSeeds.map(s => `- "${this.seedForPrompt(s.content)}" (grew into: ${s.library_title || 'Library entry'})`).join('\n')
         : '';
 
       logger.info('[AL] Morning briefing - seeds formatted', {
@@ -553,11 +553,18 @@ Write the briefing now:`;
     return seeds
       .map((seed) => {
         const age = this.formatTimeAgo(seed.planted_at);
-        const content = seed.content.slice(0, 150);
-        const truncated = seed.content.length > 150 ? '...' : '';
-        return `- "${content}${truncated}" (planted ${age})`;
+        return `- "${this.seedForPrompt(seed.content)}" (planted ${age})`;
       })
       .join('\n');
+  }
+
+  /**
+   * Seeds go into prompts whole — truncating them mid-thought leaves the model
+   * reasoning from a fragment. The cap only guards against pathological pastes.
+   */
+  private seedForPrompt(content: any): string {
+    const text = String(content ?? '');
+    return text.length > 2000 ? text.slice(0, 2000) + '...' : text;
   }
 
   /**
@@ -671,7 +678,7 @@ Write the briefing now:`;
       const plantedSeedsText = this.formatWeekSeeds(weekSeeds);
       const grownSeedsText = this.formatWeekGrownSeeds(grownSeeds);
       const releasedSeedsText = releasedSeeds.length > 0
-        ? releasedSeeds.map(s => `- "${s.content.slice(0, 80)}..." (released)`).join('\n')
+        ? releasedSeeds.map(s => `- "${this.seedForPrompt(s.content)}" (released)`).join('\n')
         : '';
       const reflectionsText = this.formatWeekReflections(weekReflections);
 
@@ -993,7 +1000,9 @@ Respond with JSON only:
           result.thoughtProduced = false;
           return result;
         }
-        const seedText = String(fallback.content).slice(0, 150);
+        const seedText = this.seedForPrompt(fallback.content);
+        // Search APIs cap query length, so the query stays short — the topic gets the whole seed.
+        const seedQuery = String(fallback.content).slice(0, 300);
         logger.warn('[AL] Model tried to skip but research is stale — forcing a fresh angle from a held seed', {
           userId,
           daysSinceLastResearch,
@@ -1004,7 +1013,7 @@ Respond with JSON only:
             {
               topic: `A fresh angle on: ${seedText}`,
               why: 'Staleness override — Lucid had gone days without bringing Matt research',
-              search_queries: [seedText],
+              search_queries: [seedQuery],
             },
           ],
         };
@@ -1451,9 +1460,7 @@ Write the research summary now:`;
     return seeds
       .map((seed) => {
         const status = seed.status || 'held';
-        const content = seed.content.slice(0, 120);
-        const truncated = seed.content.length > 120 ? '...' : '';
-        return `- "${content}${truncated}" (${status})`;
+        return `- "${this.seedForPrompt(seed.content)}" (${status})`;
       })
       .join('\n');
   }
@@ -1466,10 +1473,8 @@ Write the research summary now:`;
 
     return seeds
       .map((seed) => {
-        const content = seed.content.slice(0, 100);
-        const truncated = seed.content.length > 100 ? '...' : '';
         const libraryTitle = seed.library_title ? ` -> "${seed.library_title}"` : '';
-        return `- "${content}${truncated}"${libraryTitle}`;
+        return `- "${this.seedForPrompt(seed.content)}"${libraryTitle}`;
       })
       .join('\n');
   }
