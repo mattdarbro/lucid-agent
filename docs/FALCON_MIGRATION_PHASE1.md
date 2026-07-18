@@ -1,5 +1,17 @@
 # Phase 1 Runbook — Move lucid-agent from Railway to the Falcon
 
+> **STATUS — 2026-07-17 (updated live):** Steps 2–6 are DONE. The app is cloned
+> at `/home/matt/lucid-agent`, built, and running under **pm2** (`pm2 status` →
+> `lucid`, online) on **port 4000**. The Cloudflare tunnel ingress + DNS route
+> for **`lucid.loopsymphony.com`** are live and verified from the edge
+> (`/health` → 200, unauthenticated `/v1/*` → 401). Falcon toggles are set for
+> the parallel period (`ENABLE_SELF_REVIEW=false`, `ENABLE_AUTONOMOUS_AGENTS=false`).
+> **Remaining: step 7 (point the iOS app at the Falcon) and step 8 (stop Railway,
+> then flip self-review on).** Note: the autonomous Opus loops on Railway have
+> been genuinely off since **2026-07-06** — commit `8fc951d "enforce Railway env
+> toggles"` is what actually made the flag gate; the earlier 06-22 flag-flip did
+> NOT stop them (they metered until 07-06). Verified via `agent_jobs` + `library_entries`.
+
 **Goal:** run the existing lucid-agent Node app on the Falcon behind a Cloudflare
 tunnel, point the iOS app at it, and shut down Railway. Nothing else changes:
 same code, same Supabase database, same Dispatch push notifications. This is a
@@ -205,8 +217,12 @@ Networks → Tunnels → your tunnel → Public Hostname): add a public hostname
 `lucid.<your-domain>` → service `http://localhost:4000`. Done — DNS is created
 automatically.
 
-**If it's configured by file** (`~/.cloudflared/config.yml`), add the rule
-above the catch-all:
+**On this Falcon the tunnel is file-configured at `/etc/cloudflared/config.yml`**
+(run by systemd: `cloudflared.service`, tunnel `69ae231c-…`). The
+`lucid.loopsymphony.com → http://localhost:4000` ingress rule and the DNS route
+are already in place (route added 2026-07-17 via
+`cloudflared tunnel route dns 69ae231c-a5ef-4241-bf30-c5583f4dd240 lucid.loopsymphony.com`).
+For reference, the file-config rule sits above the catch-all:
 
 ```yaml
 ingress:
