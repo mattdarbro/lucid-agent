@@ -49,11 +49,30 @@ export class HealthService {
     if (!HealthService.CUMULATIVE_DAILY_METRICS.has(metricType)) return recordedAt;
     if (metadata?.granularity !== 'daily_total') return recordedAt;
 
-    // Extract the calendar date from the timestamp and pin to Chicago midnight.
     // The iOS app means "this is the total for this calendar date" — we store it
     // at the start of that date in Chicago time so getDailySummary picks it up.
+    //
+    // iOS uses TWO shapes for recorded_at here, so we handle both rather than
+    // betting on one (getting it wrong misdates totals in one direction or the
+    // other, and the Swift side isn't readable from the Falcon):
+    //
+    //   1. Exactly midnight UTC — a DATE MARKER, not an instant. The UTC
+    //      calendar date is the intended date; reading it in Chicago would
+    //      shift every total back a day (00:00Z is 6pm Chicago the day before).
+    //   2. Any other time — a real capture/sync instant. Here the UTC date is
+    //      wrong for anything after 6pm Chicago (5pm CDT): a total stamped
+    //      2026-02-17T05:00:00Z is Feb 16 11pm Chicago but read as Feb 17.
+    //      Observable in the raw sleep_duration daily_total rows, which skip
+    //      this normalization and carry real sync times (23:07Z, 19:50Z, ...).
+    //
+    // A genuine capture at exactly 00:00:00.000Z would be read as a marker, but
+    // that is a single millisecond and the marker reading is far likelier.
     const d = new Date(recordedAt);
-    const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    const isDateMarker = d.getUTCMilliseconds() === 0 && d.getUTCSeconds() === 0 &&
+                         d.getUTCMinutes() === 0 && d.getUTCHours() === 0;
+    const dateStr = isDateMarker
+      ? `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+      : chicagoDateStr(d);
     const { start } = chicagoDayBounds(dateStr);
     return start;
   }

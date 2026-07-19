@@ -8,9 +8,15 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
 
   // API auth — shared secret the iOS client sends as a Bearer token.
-  // When unset, the API runs unauthenticated (a loud warning is logged).
+  //
+  // Required: validateConfig() refuses to boot without it. This used to fail
+  // OPEN — a missing or typo'd LUCID_API_TOKEN silently served chat, library,
+  // facts, and health metrics to the internet with only a log line to say so.
+  // Fail-closed is the right default for a personal-memory API; set
+  // ALLOW_UNAUTHENTICATED=true for local dev.
   auth: {
     apiToken: process.env.LUCID_API_TOKEN || '',
+    allowUnauthenticated: process.env.ALLOW_UNAUTHENTICATED === 'true',
   },
 
   // Supabase
@@ -100,6 +106,17 @@ export function validateConfig(): void {
   if (!config.anthropic.apiKey) errors.push('ANTHROPIC_API_KEY is required');
   if (!config.openai.apiKey) errors.push('OPENAI_API_KEY is required');
   // STUDIO_APP_KEY is optional - only needed for session validation
+
+  // Fail closed on auth: refuse to boot unauthenticated rather than silently
+  // serving every route open. The escape hatch is explicit and must be a
+  // deliberate act, not the consequence of a forgotten variable.
+  if (!config.auth.apiToken && !config.auth.allowUnauthenticated) {
+    errors.push(
+      'LUCID_API_TOKEN is required (the API would otherwise serve every route ' +
+        'unauthenticated). Generate one with `openssl rand -hex 32`, or set ' +
+        'ALLOW_UNAUTHENTICATED=true for local development.'
+    );
+  }
 
   if (errors.length > 0) {
     throw new Error(`Configuration errors:\n${errors.join('\n')}`);
