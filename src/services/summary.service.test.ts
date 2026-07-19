@@ -111,10 +111,17 @@ describe('SummaryService', () => {
       expect(result.message_count).toBe(2);
       expect(mockAnthropicCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'claude-sonnet-4-6',
-          temperature: 0.3,
+          model: 'claude-sonnet-5',
         })
       );
+      // Sonnet 5 rejects non-default sampling params with a 400. Assert the
+      // absence explicitly rather than just dropping it from the matcher above:
+      // objectContaining ignores extra keys, so a re-added temperature would
+      // pass this test and fail every real call.
+      const [params] = mockAnthropicCreate.mock.calls[0];
+      expect(params.temperature).toBeUndefined();
+      expect(params.top_p).toBeUndefined();
+      expect(params.top_k).toBeUndefined();
     });
 
     it('should handle LLM response in markdown code block', async () => {

@@ -49,7 +49,7 @@ export class AutonomousLoopService {
   private pushNotificationService: PushNotificationService;
   private seedService: SeedService;
   private livingDocumentService: LivingDocumentService;
-  private readonly model = 'claude-sonnet-4-6';
+  private readonly model = 'claude-sonnet-5';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
@@ -1603,7 +1603,6 @@ Keep the notebook concise — a flat list of what matters, not a filing system.`
       const response = await this.anthropic.messages.create({
         model: this.model,
         max_tokens: maxTokens,
-        temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
       });
 

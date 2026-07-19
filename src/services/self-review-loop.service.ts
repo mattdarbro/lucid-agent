@@ -81,7 +81,7 @@ export class SelfReviewLoopService {
   // Quick weekly reviews run on Sonnet (cost-efficient, ideal for small well-scoped
   // diffs). The monthly "full" deep dive (first Thursday) runs on Opus for deeper
   // architectural reasoning across the larger file set.
-  private readonly quickModel = 'claude-sonnet-4-6';
+  private readonly quickModel = 'claude-sonnet-5';
   private readonly deepModel = 'claude-opus-4-8';
 
   constructor(pool: Pool) {

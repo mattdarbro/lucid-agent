@@ -85,9 +85,8 @@ CRITICAL: Respond with ONLY valid JSON in this exact format:
       });
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 1500,
-        temperature: 0.3,
         system: systemPrompt,
         messages: [
           {

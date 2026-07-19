@@ -54,7 +54,7 @@ export class VersusService {
   private pool: Pool;
   private anthropic: Anthropic;
   private vectorService: VectorService;
-  private readonly model = 'claude-sonnet-4-6';
+  private readonly model = 'claude-sonnet-5';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
@@ -395,7 +395,6 @@ Your response as ${myName}:`;
       const response = await this.anthropic.messages.create({
         model: this.model,
         max_tokens: 300,
-        temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
       });
 
@@ -447,7 +446,6 @@ Write in first person as Lucid (not Lu or Cid). Be thorough but concise (300-500
       const response = await this.anthropic.messages.create({
         model: this.model,
         max_tokens: 1000,
-        temperature: 0.6,
         messages: [{ role: 'user', content: prompt }],
       });
 
