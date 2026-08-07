@@ -103,7 +103,8 @@ export function validateConfig(): void {
   if (!config.supabase.url) errors.push('SUPABASE_URL is required');
   if (!config.supabase.serviceKey) errors.push('SUPABASE_SERVICE_KEY is required');
   if (!config.databaseUrl) errors.push('DATABASE_URL is required');
-  if (!config.anthropic.apiKey) errors.push('ANTHROPIC_API_KEY is required');
+  if (!config.anthropic.apiKey && process.env.USE_CLAUDE_CLI !== 'true')
+    errors.push('ANTHROPIC_API_KEY is required (or set USE_CLAUDE_CLI=true for Max-plan CLI transport)');
   if (!config.openai.apiKey) errors.push('OPENAI_API_KEY is required');
   // STUDIO_APP_KEY is optional - only needed for session validation
 

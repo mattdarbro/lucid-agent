@@ -1,6 +1,9 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { pool } from '../db';
 import { logger } from '../logger';
+import { getLibraryAudio, advertiseAudio, AudioUnavailableError } from '../services/library-audio.service';
 import { z } from 'zod';
 import { VectorService } from '../services/vector.service';
 import { LibraryCommentService } from '../services/library-comment.service';
@@ -78,7 +81,7 @@ router.get('/', async (req: Request, res: Response) => {
     const result = await pool.query(query, params);
 
     res.status(200).json({
-      entries: result.rows,
+      entries: result.rows.map(advertiseAudio),
       count: result.rows.length,
       limit: parseInt(limit as string, 10),
       offset: parseInt(offset as string, 10),
@@ -175,6 +178,44 @@ router.get('/search', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /v1/library/:id/audio
+ *
+ * Stream the pre-generated narration MP3 for an entry (see
+ * LibraryAudioService). sendFile handles Range requests, so AVPlayer
+ * can seek. 404s until the worker has generated audio for the entry.
+ */
+router.get('/:id/audio', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    return res.status(400).json({ error: 'Invalid entry id' });
+  }
+
+  let filePath: string;
+  try {
+    // First play synthesizes and banks the MP3; every later play is a disk read.
+    ({ path: filePath } = await getLibraryAudio().ensureAudio(id));
+  } catch (err: any) {
+    if (err instanceof AudioUnavailableError) {
+      const status =
+        err.code === 'not_found' ? 404 :
+        err.code === 'not_speakable' ? 404 :
+        err.code === 'too_long' ? 413 : 503;
+      logger.warn(`[LIBRARY-AUDIO] ${id} unavailable (${err.code}): ${err.message}`);
+      return res.status(status).json({ error: err.message, code: err.code });
+    }
+    logger.error(`Error preparing audio for ${id}:`, err);
+    return res.status(500).json({ error: 'Failed to prepare audio' });
+  }
+
+  res.sendFile(filePath, { headers: { 'Content-Type': 'audio/mpeg' } }, (err) => {
+    if (err && !res.headersSent) {
+      logger.error(`Error sending audio for ${id}:`, err);
+      res.status(500).json({ error: 'Failed to send audio' });
+    }
+  });
+});
+
+/**
  * GET /v1/library/:id
  *
  * Get a specific library entry
@@ -200,7 +241,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     // Include comments with the entry
     const { comments } = await commentService.getComments(id, user_id as string);
 
-    res.status(200).json({ entry: { ...result.rows[0], comments } });
+    res.status(200).json({ entry: advertiseAudio({ ...result.rows[0], comments }) });
   } catch (error: any) {
     logger.error('Error in GET /v1/library/:id:', error);
     res.status(500).json({

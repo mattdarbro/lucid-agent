@@ -1,5 +1,6 @@
 import { Pool, QueryResult } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { logger } from '../logger';
 import { VectorService } from './vector.service';
 import { MessageService } from './message.service';
@@ -37,7 +38,7 @@ export class SummaryService {
     this.pool = pool;
     this.vectorService = vectorService || new VectorService();
     this.messageService = new MessageService(pool, this.vectorService);
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: anthropicApiKey || process.env.ANTHROPIC_API_KEY,
     });
   }

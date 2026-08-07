@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { logger } from '../logger';
 import { MessageService } from './message.service';
 import { VectorService } from './vector.service';
@@ -71,7 +72,7 @@ export class ChatService {
   constructor(pool: Pool, supabase: SupabaseClient, anthropicApiKey?: string) {
     this.pool = pool;
     this.supabase = supabase;
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: anthropicApiKey || process.env.ANTHROPIC_API_KEY,
     });
 

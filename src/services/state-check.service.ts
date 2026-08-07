@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { logger } from '../logger';
 import { MattStateService } from './matt-state.service';
 import { ProfileService } from './profile.service';
@@ -79,7 +80,7 @@ export class StateCheckService {
   private vectorService: VectorService;
 
   constructor(private pool: Pool) {
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
     this.stateService = new MattStateService(pool);

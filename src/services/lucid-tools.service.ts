@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { logger } from '../logger';
 import { config } from '../config';
 import { WebSearchService } from './web-search.service';
@@ -357,7 +358,7 @@ export class LucidToolsService {
   constructor(private pool: Pool, webSearchService?: WebSearchService) {
     this.webSearchService = webSearchService || null;
     this.vectorService = new VectorService();
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
     this.commentService = new LibraryCommentService(pool);
