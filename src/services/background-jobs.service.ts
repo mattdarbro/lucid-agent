@@ -113,7 +113,11 @@ export class BackgroundJobsService {
       logger.info('[BACKGROUND] Research executor disabled via ENABLE_WEB_RESEARCH');
     }
 
-    this.startNotificationDispatchJob();
+    if (this.pushNotificationService.isEnabled()) {
+      this.startNotificationDispatchJob();
+    } else {
+      logger.info('[BACKGROUND] Notification dispatch disabled — Dispatch not configured (DISPATCH_API_URL, DISPATCH_APP_KEY, DISPATCH_SENDER_ID)');
+    }
 
     if (config.features.autonomousAgents) {
       this.startConversationReviewJob();
@@ -356,10 +360,9 @@ export class BackgroundJobsService {
    */
   private async dispatchPendingNotifications(): Promise<void> {
     try {
-      if (!this.pushNotificationService.isEnabled()) {
-        logger.warn('[DISPATCH] Push notifications not configured — check DISPATCH_API_URL, DISPATCH_APP_KEY, DISPATCH_SENDER_ID env vars');
-        return;
-      }
+      // The job is only scheduled when Dispatch is configured; guard anyway
+      // for direct callers.
+      if (!this.pushNotificationService.isEnabled()) return;
 
       // First, expire old notifications
       await this.thoughtNotificationService.expireOldNotifications();
