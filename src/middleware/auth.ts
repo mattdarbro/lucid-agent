@@ -31,18 +31,25 @@ function safeEqual(a: string, b: string): boolean {
 /**
  * Requires `Authorization: Bearer <LUCID_API_TOKEN>` on every request.
  *
- * Migration path: if LUCID_API_TOKEN is not configured, requests are allowed
- * through with a loud warning so a deploy can't lock out the iOS app before
- * the client ships the token. Set the env var to turn enforcement on.
+ * The token is now REQUIRED — validateConfig() refuses to boot without it, so
+ * a missing variable crash-loops instead of silently serving open. The only
+ * way to reach the unauthenticated path is ALLOW_UNAUTHENTICATED=true, which
+ * is a deliberate local-dev act rather than a forgotten deploy variable.
+ *
+ * (The old behavior was a migration ramp: allow-through with a warning so a
+ * deploy couldn't lock out the iOS app before the client shipped the token.
+ * The client ships it now, so the ramp is retired.)
  */
 export function requireApiToken(req: Request, res: Response, next: NextFunction) {
   const expected = config.auth.apiToken;
 
   if (!expected) {
+    // Only reachable with ALLOW_UNAUTHENTICATED=true — validateConfig() would
+    // have refused to boot otherwise.
     if (!warnedNoToken) {
       logger.warn(
-        '⚠️  LUCID_API_TOKEN is not set — API is running UNAUTHENTICATED. ' +
-          'Set LUCID_API_TOKEN and configure the client to send it as a Bearer token.'
+        '⚠️  API is running UNAUTHENTICATED via ALLOW_UNAUTHENTICATED=true. ' +
+          'Never set this outside local development.'
       );
       warnedNoToken = true;
     }

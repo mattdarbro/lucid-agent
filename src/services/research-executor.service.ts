@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { logger } from '../logger';
 import { ResearchTaskService } from './research-task.service';
 import { WebSearchService } from './web-search.service';
@@ -40,7 +41,7 @@ export class ResearchExecutorService {
     this.autonomousThoughtService = new AutonomousThoughtService(pool, supabase);
     this.pushNotificationService = new PushNotificationService(pool);
 
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
   }
@@ -419,9 +420,8 @@ Format your response as JSON:
 Keep facts concise and specific. Focus on information relevant to understanding the user's interests or needs.`;
 
     const response = await this.anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       max_tokens: 1500,
-      temperature: 0.3,
       messages: [{ role: 'user', content: prompt }],
     });
 

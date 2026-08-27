@@ -2,6 +2,7 @@ import { Pool, QueryResult } from 'pg';
 import { logger } from '../logger';
 import { VectorService } from './vector.service';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { CostTrackingService } from './cost-tracking.service';
 import {
   CreateFactInput,
@@ -64,7 +65,7 @@ export class FactService {
     anthropicApiKey?: string
   ) {
     this.vectorService = vectorService || new VectorService();
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: anthropicApiKey || process.env.ANTHROPIC_API_KEY,
     });
     this.costTrackingService = new CostTrackingService(pool);

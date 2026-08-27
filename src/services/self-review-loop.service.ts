@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { logger } from '../logger';
 import { config } from '../config';
 import { VectorService } from './vector.service';
@@ -81,12 +82,12 @@ export class SelfReviewLoopService {
   // Quick weekly reviews run on Sonnet (cost-efficient, ideal for small well-scoped
   // diffs). The monthly "full" deep dive (first Thursday) runs on Opus for deeper
   // architectural reasoning across the larger file set.
-  private readonly quickModel = 'claude-sonnet-4-6';
-  private readonly deepModel = 'claude-opus-4-8';
+  private readonly quickModel = 'claude-sonnet-5';
+  private readonly deepModel = 'claude-sonnet-5';
 
   constructor(pool: Pool) {
     this.pool = pool;
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: config.anthropic.apiKey,
     });
     this.vectorService = new VectorService();

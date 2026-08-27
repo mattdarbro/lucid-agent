@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { logger } from '../logger';
 import { MemoryService } from './memory.service';
 import { VectorService } from './vector.service';
@@ -78,11 +79,11 @@ export class PossibilityThinkingService {
   private memoryService: MemoryService;
   private vectorService: VectorService;
   private thoughtService: ThoughtService;
-  private readonly model = 'claude-opus-4-8';
+  private readonly model = 'claude-sonnet-5';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: anthropicApiKey || process.env.ANTHROPIC_API_KEY,
     });
     this.memoryService = new MemoryService(pool);
@@ -621,13 +622,20 @@ Your conversational response (do NOT include the library link - it will be added
       : 'No facts known yet.';
 
     const sigmaToGenerate = sigma ? [sigma] : [1, 2, 3];
-    const prompt = this.buildSigmaPrompt(focus, factsContext, sigmaToGenerate, count);
+    // This call used temperature 0.85 for creative spread. Sonnet 5 rejects
+    // non-default sampling params (400), so the variance is asked for in the
+    // prompt instead — the migration-guide replacement for temperature-driven
+    // creativity. Without this the possibilities converge on the obvious.
+    const prompt = this.buildSigmaPrompt(focus, factsContext, sigmaToGenerate, count) +
+      '\n\nVary your possibilities deliberately: each should come from a different ' +
+      'angle rather than being a restatement of the same idea. Include at least one ' +
+      'that is genuinely off-distribution — the option a careful thinker would reach ' +
+      'last, not first. Do not converge on the obvious.';
 
     try {
       const response = await this.anthropic.messages.create({
-        model: 'claude-sonnet-4-6',  // Faster model for structured generation
+        model: 'claude-sonnet-5',  // Faster model for structured generation
         max_tokens: 2000,
-        temperature: 0.85,  // Higher for creative alternatives
         messages: [{ role: 'user', content: prompt }],
       });
 

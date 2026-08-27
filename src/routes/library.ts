@@ -1,11 +1,14 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { pool } from '../db';
 import { logger } from '../logger';
+import { getLibraryAudio, advertiseAudio, AudioUnavailableError } from '../services/library-audio.service';
 import { z } from 'zod';
 import { VectorService } from '../services/vector.service';
 import { LibraryCommentService } from '../services/library-comment.service';
 import { PushNotificationService } from '../services/push-notification.service';
-import { chicagoTimeOfDay } from '../utils/chicago-time';
+import { chicagoTimeOfDay, chicagoDateStr } from '../utils/chicago-time';
 
 const router = Router();
 const vectorService = new VectorService();
@@ -78,7 +81,7 @@ router.get('/', async (req: Request, res: Response) => {
     const result = await pool.query(query, params);
 
     res.status(200).json({
-      entries: result.rows,
+      entries: result.rows.map(advertiseAudio),
       count: result.rows.length,
       limit: parseInt(limit as string, 10),
       offset: parseInt(offset as string, 10),
@@ -89,6 +92,75 @@ router.get('/', async (req: Request, res: Response) => {
       error: 'Failed to fetch library entries',
       details: error.message,
     });
+  }
+});
+
+/**
+ * GET /v1/library/shuffle
+ *
+ * "From the shelf" — one old page of Lucid's own, the same one his night run
+ * saw (v3 plan §7, [[lucid-daily-shuffle-idea]]). Deterministic per Chicago
+ * calendar day and identical to read_shuffle() in /conductors/lucid/v3_inputs.py:
+ * first an entry already stamped `metadata.lucid_shuffled_at` today (the night
+ * run stamps it on --commit), else entries older than SHUFFLE_MIN_AGE_DAYS not
+ * shuffled in SHUFFLE_COOLDOWN_DAYS, audio-ready first, ordered by
+ * md5(id || day). This endpoint never stamps — the journal does.
+ *
+ * Declared before GET /:id for the same reason /search is.
+ *
+ * Query parameters:
+ * - user_id: string (required)
+ *
+ * Response: { entry: LibraryEntry | null, day: 'YYYY-MM-DD' }
+ */
+const SHUFFLE_MIN_AGE_DAYS = 60;
+const SHUFFLE_COOLDOWN_DAYS = 90;
+const SHUFFLE_TYPES = [
+  'lucid_thought', 'consolidation', 'curiosity', 'reflection',
+  'user_reflection', 'insight', 'research_journal', 'dream', 'deep_thought',
+];
+const SHUFFLE_COLUMNS = `id, user_id, entry_type, title, content, time_of_day,
+             related_conversation_id, metadata, comment_count, created_at, updated_at`;
+
+router.get('/shuffle', async (req: Request, res: Response) => {
+  try {
+    const { user_id } = req.query;
+    if (!user_id || typeof user_id !== 'string') {
+      return res.status(400).json({ error: 'user_id is required' });
+    }
+    const day = chicagoDateStr();
+
+    let result = await pool.query(
+      `SELECT ${SHUFFLE_COLUMNS}
+       FROM library_entries
+       WHERE user_id = $1 AND (metadata->>'lucid_shuffled_at')::date = $2::date
+       ORDER BY created_at DESC LIMIT 1`,
+      [user_id, day]
+    );
+    if (result.rows.length === 0) {
+      result = await pool.query(
+        `SELECT ${SHUFFLE_COLUMNS}
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = ANY($2)
+           AND created_at < NOW() - ($3 || ' days')::interval
+           AND (metadata->>'lucid_shuffled_at' IS NULL
+                OR (metadata->>'lucid_shuffled_at')::date < NOW() - ($4 || ' days')::interval)
+         ORDER BY (metadata->'audio'->>'status' = 'ready') DESC NULLS LAST,
+                  md5(id::text || $5)
+         LIMIT 1`,
+        [user_id, SHUFFLE_TYPES, String(SHUFFLE_MIN_AGE_DAYS), String(SHUFFLE_COOLDOWN_DAYS), day]
+      );
+    }
+
+    const row = result.rows[0];
+    res.status(200).json({
+      entry: row ? advertiseAudio(row) : null,
+      day,
+    });
+  } catch (error: any) {
+    logger.error('Error in GET /v1/library/shuffle:', error);
+    res.status(500).json({ error: 'Failed to pick from the shelf', details: error.message });
   }
 });
 
@@ -175,6 +247,44 @@ router.get('/search', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /v1/library/:id/audio
+ *
+ * Stream the pre-generated narration MP3 for an entry (see
+ * LibraryAudioService). sendFile handles Range requests, so AVPlayer
+ * can seek. 404s until the worker has generated audio for the entry.
+ */
+router.get('/:id/audio', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    return res.status(400).json({ error: 'Invalid entry id' });
+  }
+
+  let filePath: string;
+  try {
+    // First play synthesizes and banks the MP3; every later play is a disk read.
+    ({ path: filePath } = await getLibraryAudio().ensureAudio(id));
+  } catch (err: any) {
+    if (err instanceof AudioUnavailableError) {
+      const status =
+        err.code === 'not_found' ? 404 :
+        err.code === 'not_speakable' ? 404 :
+        err.code === 'too_long' ? 413 : 503;
+      logger.warn(`[LIBRARY-AUDIO] ${id} unavailable (${err.code}): ${err.message}`);
+      return res.status(status).json({ error: err.message, code: err.code });
+    }
+    logger.error(`Error preparing audio for ${id}:`, err);
+    return res.status(500).json({ error: 'Failed to prepare audio' });
+  }
+
+  res.sendFile(filePath, { headers: { 'Content-Type': 'audio/mpeg' } }, (err) => {
+    if (err && !res.headersSent) {
+      logger.error(`Error sending audio for ${id}:`, err);
+      res.status(500).json({ error: 'Failed to send audio' });
+    }
+  });
+});
+
+/**
  * GET /v1/library/:id
  *
  * Get a specific library entry
@@ -200,7 +310,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     // Include comments with the entry
     const { comments } = await commentService.getComments(id, user_id as string);
 
-    res.status(200).json({ entry: { ...result.rows[0], comments } });
+    res.status(200).json({ entry: advertiseAudio({ ...result.rows[0], comments }) });
   } catch (error: any) {
     logger.error('Error in GET /v1/library/:id:', error);
     res.status(500).json({

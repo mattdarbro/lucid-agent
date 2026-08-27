@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { logger } from '../logger';
 import { OrbitsService, OrbitPersonInput } from './orbits.service';
 import { VectorService } from './vector.service';
@@ -56,7 +57,7 @@ export class OrbitIntegrationService {
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: anthropicApiKey || process.env.ANTHROPIC_API_KEY,
     });
     this.orbitsService = new OrbitsService(pool);

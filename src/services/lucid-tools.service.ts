@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { logger } from '../logger';
 import { config } from '../config';
 import { WebSearchService } from './web-search.service';
@@ -7,6 +8,7 @@ import { VectorService } from './vector.service';
 import { LibraryCommentService } from './library-comment.service';
 import { LivingDocumentService } from './living-document.service';
 import { ContentReaderService } from './content-reader.service';
+import { ResearchQueueService } from './research-queue.service';
 
 /**
  * Tool definitions for Claude to use during chat
@@ -301,6 +303,44 @@ export const LUCID_TOOLS: Anthropic.Tool[] = [
       required: ['user_id', 'content'],
     },
   },
+  {
+    name: 'plant_curiosity',
+    description:
+      "Bank something YOU want to go look into later, on your own time. Your midday pass drains this queue and chases what's in it with live web search — so this is how you follow a thread nobody handed you. " +
+      "Plant when something in the conversation genuinely pulls at you: a mechanism you don't understand, a claim you want to check, a pattern you can't explain, a question you'd chase if you had an afternoon. " +
+      "The bar is 'I actually want to know this,' not 'this would be a helpful thing to research for Matt.' Do not plant to seem thorough and do not plant to fill a quota — most conversations should produce zero. " +
+      "If the same curiosity recurs across conversations it is bumped rather than duplicated, and repeated curiosity earns itself a research pass sooner. Write the search_query in your own words: it is your starting point later, not a cage.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'The user ID',
+        },
+        topic: {
+          type: 'string',
+          description: 'Short name for the thing you want to look into',
+        },
+        search_query: {
+          type: 'string',
+          description: 'The question YOU would go search — phrased as you would actually ask it, not as a keyword list',
+        },
+        why_it_matters: {
+          type: 'string',
+          description: "Why this pulls at you, and what you'd do with the answer. Be honest; 'I just want to know' is a legitimate reason.",
+        },
+        source_snippet: {
+          type: 'string',
+          description: 'Optional: the bit of conversation that sparked it, so future-you remembers where this came from',
+        },
+        priority: {
+          type: 'number',
+          description: 'How much it pulls at you, 1-10 (default 5). 6+ qualifies for the next research pass on its own; below that it waits until the curiosity recurs.',
+        },
+      },
+      required: ['user_id', 'topic', 'search_query', 'why_it_matters'],
+    },
+  },
 ];
 
 /**
@@ -313,16 +353,18 @@ export class LucidToolsService {
   private commentService: LibraryCommentService;
   private livingDocumentService: LivingDocumentService;
   private contentReaderService: ContentReaderService;
+  private researchQueueService: ResearchQueueService;
 
   constructor(private pool: Pool, webSearchService?: WebSearchService) {
     this.webSearchService = webSearchService || null;
     this.vectorService = new VectorService();
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
     this.commentService = new LibraryCommentService(pool);
     this.livingDocumentService = new LivingDocumentService(pool);
     this.contentReaderService = new ContentReaderService();
+    this.researchQueueService = new ResearchQueueService(pool);
   }
 
   /**
@@ -416,6 +458,16 @@ export class LucidToolsService {
           return await this.updateNotes(
             toolInput.user_id,
             toolInput.content
+          );
+
+        case 'plant_curiosity':
+          return await this.plantCuriosity(
+            toolInput.user_id,
+            toolInput.topic,
+            toolInput.search_query,
+            toolInput.why_it_matters,
+            toolInput.source_snippet,
+            toolInput.priority
           );
 
         default:
@@ -1416,6 +1468,69 @@ Focus on information most relevant to the query and purpose.`;
       logger.error('Failed to update notebook', { userId, error: error.message });
       return JSON.stringify({
         error: 'Failed to update notebook',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * Plant a curiosity of Lucid's own into the research queue.
+   *
+   * This is the chat half of Discover. The queue (research_queue) was built as the
+   * "bridge between chat and AT" but nothing autonomous ever drained it; Lucid's
+   * midday pass on the Falcon now does (see /conductors/lucid/gather_data.py).
+   *
+   * Dedup/bump is not implemented here on purpose — ResearchQueueService.addToQueue
+   * already finds a similar pending topic and increments times_mentioned instead of
+   * inserting a duplicate. Recurring curiosity accruing into a mandate is the whole
+   * mechanism, so we reuse it rather than reimplement it.
+   *
+   * Deliberately NOT gated on user_approved: house doctrine is trust-based — Lucid
+   * plants and chases, Matt redirects after the fact. user_rejected remains a veto.
+   */
+  private async plantCuriosity(
+    userId: string,
+    topic: string,
+    searchQuery: string,
+    whyItMatters: string,
+    sourceSnippet?: string,
+    priority?: number
+  ): Promise<string> {
+    try {
+      const item = await this.researchQueueService.addToQueue({
+        userId,
+        topic,
+        searchQuery,
+        whyItMatters,
+        sourceSnippet,
+        priority: priority ?? 5,
+      });
+
+      // times_mentioned > 1 means addToQueue matched an existing pending row and bumped it.
+      const bumped = item.times_mentioned > 1;
+      const qualifies = item.priority >= 6 || item.times_mentioned >= 2;
+
+      return JSON.stringify({
+        planted: true,
+        bumped,
+        id: item.id,
+        topic: item.topic,
+        priority: item.priority,
+        times_mentioned: item.times_mentioned,
+        will_be_chased: qualifies,
+        note: bumped
+          ? 'You had already planted something close to this — bumped rather than duplicated.'
+          : 'Planted.',
+        // Told plainly so Lucid can be honest with Matt about what happens next
+        // rather than implying he is about to go research it right now.
+        next: qualifies
+          ? 'This qualifies for the next midday research pass.'
+          : 'Waiting: it needs priority 6+, or for this curiosity to surface again, before a pass picks it up.',
+      });
+    } catch (error: any) {
+      logger.error('Failed to plant curiosity', { userId, topic, error: error.message });
+      return JSON.stringify({
+        error: 'Failed to plant curiosity',
         message: error.message,
       });
     }

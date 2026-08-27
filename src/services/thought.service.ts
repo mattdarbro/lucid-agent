@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { logger } from '../logger';
 import { MemoryService } from './memory.service';
 import { VectorService } from './vector.service';
@@ -76,11 +77,11 @@ export class ThoughtService {
   private memoryService: MemoryService;
   private vectorService: VectorService;
   private orbitsService: OrbitsService;
-  private readonly model = 'claude-opus-4-8';
+  private readonly model = 'claude-sonnet-5';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: anthropicApiKey || process.env.ANTHROPIC_API_KEY,
     });
     this.memoryService = new MemoryService(pool);

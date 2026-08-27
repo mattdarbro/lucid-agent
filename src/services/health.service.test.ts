@@ -222,6 +222,68 @@ describe('HealthService', () => {
       expect(storedDate.toISOString()).toBe('2026-02-17T06:00:00.000Z');
     });
 
+    it('should file an evening capture time on the correct Chicago day', async () => {
+      // The regression: 2026-02-17T05:00:00Z is Feb 16, 11pm Chicago. Reading the
+      // UTC date filed it as Feb 17's total. Anything captured after 6pm Chicago
+      // (5pm CDT) landed on tomorrow.
+      const mockClient = {
+        query: vi.fn().mockResolvedValue({ rows: [{ is_insert: true }] }),
+        release: vi.fn(),
+      };
+      (mockPool.connect as any).mockResolvedValue(mockClient);
+
+      await healthService.batchCreateMetrics({
+        user_id: 'user-1',
+        metrics: [
+          {
+            metric_type: 'steps',
+            value: 8200,
+            unit: 'steps',
+            recorded_at: new Date('2026-02-17T05:00:00Z'),
+            source: 'apple_health',
+            metadata: { granularity: 'daily_total' },
+          },
+        ],
+      });
+
+      const insertCall = mockClient.query.mock.calls.find(
+        (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT')
+      );
+      const stored = new Date(insertCall![1][4]);
+      // Feb 16 Chicago midnight = 2026-02-16T06:00:00Z (CST), NOT Feb 17.
+      expect(stored.toISOString()).toBe('2026-02-16T06:00:00.000Z');
+    });
+
+    it('should treat exact midnight UTC as a date marker, not an instant', async () => {
+      // The other iOS shape: 00:00:00Z means "this date", so it must NOT be
+      // read in Chicago (which would shift it back a day to Feb 16).
+      const mockClient = {
+        query: vi.fn().mockResolvedValue({ rows: [{ is_insert: true }] }),
+        release: vi.fn(),
+      };
+      (mockPool.connect as any).mockResolvedValue(mockClient);
+
+      await healthService.batchCreateMetrics({
+        user_id: 'user-1',
+        metrics: [
+          {
+            metric_type: 'steps',
+            value: 5900,
+            unit: 'steps',
+            recorded_at: new Date('2026-02-17T00:00:00Z'),
+            source: 'apple_health',
+            metadata: { granularity: 'daily_total' },
+          },
+        ],
+      });
+
+      const insertCall = mockClient.query.mock.calls.find(
+        (c: any[]) => typeof c[0] === 'string' && c[0].includes('INSERT')
+      );
+      const stored = new Date(insertCall![1][4]);
+      expect(stored.toISOString()).toBe('2026-02-17T06:00:00.000Z');
+    });
+
     it('should NOT normalize sample records', async () => {
       const mockClient = {
         query: vi.fn().mockResolvedValue({ rows: [{ is_insert: true }] }),

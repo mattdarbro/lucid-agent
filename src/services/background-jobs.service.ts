@@ -113,7 +113,11 @@ export class BackgroundJobsService {
       logger.info('[BACKGROUND] Research executor disabled via ENABLE_WEB_RESEARCH');
     }
 
-    this.startNotificationDispatchJob();
+    if (this.pushNotificationService.isEnabled()) {
+      this.startNotificationDispatchJob();
+    } else {
+      logger.info('[BACKGROUND] Notification dispatch disabled — Dispatch not configured (DISPATCH_API_URL, DISPATCH_APP_KEY, DISPATCH_SENDER_ID)');
+    }
 
     if (config.features.autonomousAgents) {
       this.startConversationReviewJob();
@@ -254,10 +258,36 @@ export class BackgroundJobsService {
         }
       }
 
-      if (entriesFixed > 0 || messagesFixed > 0) {
+      // Then facts — these are the largest recall surface and the one that
+      // has silently fallen behind twice (a Dec 2025 batch, and Jul 2026).
+      // Unembedded facts are reachable by keyword only, so they quietly
+      // disappear from vector recall.
+      const facts = await this.pool.query(
+        `SELECT id, content
+         FROM facts
+         WHERE embedding IS NULL AND content IS NOT NULL AND length(trim(content)) > 0
+         ORDER BY created_at DESC
+         LIMIT 200`
+      );
+
+      let factsFixed = 0;
+      if (facts.rows.length > 0) {
+        const texts = facts.rows.map((row: any) => row.content.slice(0, 8000));
+        const embeddings = await this.vectorService.generateEmbeddings(texts);
+        for (let i = 0; i < facts.rows.length; i++) {
+          await this.pool.query(
+            `UPDATE facts SET embedding = $1::vector WHERE id = $2 AND embedding IS NULL`,
+            [`[${embeddings[i].join(',')}]`, facts.rows[i].id]
+          );
+          factsFixed++;
+        }
+      }
+
+      if (entriesFixed > 0 || messagesFixed > 0 || factsFixed > 0) {
         logger.info('[BACKGROUND] Embedding backfill completed', {
           libraryEntriesFixed: entriesFixed,
           messagesFixed,
+          factsFixed,
         });
       }
     } catch (err: any) {
@@ -356,10 +386,9 @@ export class BackgroundJobsService {
    */
   private async dispatchPendingNotifications(): Promise<void> {
     try {
-      if (!this.pushNotificationService.isEnabled()) {
-        logger.warn('[DISPATCH] Push notifications not configured — check DISPATCH_API_URL, DISPATCH_APP_KEY, DISPATCH_SENDER_ID env vars');
-        return;
-      }
+      // The job is only scheduled when Dispatch is configured; guard anyway
+      // for direct callers.
+      if (!this.pushNotificationService.isEnabled()) return;
 
       // First, expire old notifications
       await this.thoughtNotificationService.expireOldNotifications();

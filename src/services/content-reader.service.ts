@@ -1,3 +1,5 @@
+import dns from 'dns';
+import net from 'net';
 import { logger } from '../logger';
 
 /**
@@ -14,6 +16,7 @@ import { logger } from '../logger';
  */
 
 const FETCH_TIMEOUT_MS = 20000;
+const MAX_REDIRECTS = 3;
 const MAX_PAGE_CHARS = 12000;
 const MAX_TRANSCRIPT_CHARS = 14000;
 
@@ -43,11 +46,65 @@ export class ContentReaderService {
   }
 
   /**
-   * Basic guard: only plain http(s) URLs to public-looking hosts.
-   * Blocks localhost and obvious private-range IP literals so the tool can't
-   * be pointed at internal services.
+   * True if an IP literal is loopback, private, link-local, or otherwise not
+   * a public destination. Covers both families, including IPv4-mapped IPv6
+   * (::ffff:127.0.0.1) — the standard way to smuggle a v4 address past a
+   * v6-unaware check.
    */
-  private validateUrl(rawUrl: string): URL {
+  private isBlockedAddress(addr: string): boolean {
+    const ip = addr.toLowerCase().replace(/^\[|\]$/g, '');
+
+    // IPv4-mapped IPv6 comes in TWO spellings and both must be unwrapped.
+    // WHATWG URL parsing normalizes the readable dotted form into hex —
+    // `http://[::ffff:127.0.0.1]/` arrives as `::ffff:7f00:1` — so matching
+    // only the dotted form silently lets the hex form through. That is not
+    // theoretical: `::ffff:a9fe:a9fe` is the cloud metadata endpoint.
+    const dotted = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    const hex = ip.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    let v4 = ip;
+    if (dotted) {
+      v4 = dotted[1];
+    } else if (hex) {
+      const hi = parseInt(hex[1], 16);
+      const lo = parseInt(hex[2], 16);
+      v4 = `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+    }
+
+    if (net.isIPv4(v4)) {
+      const o = v4.split('.').map(Number);
+      return (
+        o[0] === 0 ||                                    // 0.0.0.0/8
+        o[0] === 10 ||                                   // private
+        o[0] === 127 ||                                  // loopback
+        (o[0] === 169 && o[1] === 254) ||                // link-local / cloud metadata
+        (o[0] === 172 && o[1] >= 16 && o[1] <= 31) ||    // private
+        (o[0] === 192 && o[1] === 168) ||                // private
+        (o[0] === 100 && o[1] >= 64 && o[1] <= 127) ||   // CGNAT
+        o[0] >= 224                                      // multicast + reserved
+      );
+    }
+    if (net.isIPv6(ip)) {
+      return (
+        ip === '::' || ip === '::1' ||                   // unspecified / loopback
+        /^f[cd]/.test(ip) ||                             // unique local fc00::/7
+        /^fe[89ab]/.test(ip)                             // link-local fe80::/10
+      );
+    }
+    return false;
+  }
+
+  /**
+   * Validate a URL for fetching.
+   *
+   * Name-based blocking alone is not enough: a perfectly public hostname can
+   * resolve to 169.254.169.254 or 127.0.0.1, so every host is RESOLVED and
+   * every returned address checked. This runs on each redirect hop too — see
+   * fetchGuarded — because a public URL that 302s inward would otherwise
+   * sail past a validate-once check.
+   *
+   * Reachable from chat (read_webpage), i.e. from any link Matt pastes.
+   */
+  private async validateUrl(rawUrl: string): Promise<URL> {
     let url: URL;
     try {
       url = new URL(rawUrl);
@@ -57,19 +114,61 @@ export class ContentReaderService {
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       throw new Error('Only http(s) URLs can be read.');
     }
-    const host = url.hostname.toLowerCase();
-    const isPrivateIp =
-      /^127\./.test(host) ||
-      /^10\./.test(host) ||
-      /^192\.168\./.test(host) ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-      /^169\.254\./.test(host) ||
-      host === '0.0.0.0' ||
-      host === '::1';
-    if (host === 'localhost' || host.endsWith('.local') || isPrivateIp) {
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {
+      throw new Error('That address points at a private/internal host and cannot be read.');
+    }
+    // An IP literal needs no lookup — check it directly.
+    if (net.isIP(host)) {
+      if (this.isBlockedAddress(host)) {
+        throw new Error('That address points at a private/internal host and cannot be read.');
+      }
+      return url;
+    }
+    let addresses: dns.LookupAddress[];
+    try {
+      addresses = await dns.promises.lookup(host, { all: true });
+    } catch {
+      throw new Error(`Could not resolve ${host}.`);
+    }
+    // ALL resolved addresses must be public — a name with one public and one
+    // private answer is a DNS-rebinding shape, not a legitimate host.
+    const blocked = addresses.find((a) => this.isBlockedAddress(a.address));
+    if (blocked) {
+      logger.warn('Blocked URL resolving to a non-public address', {
+        host,
+        resolved: blocked.address,
+      });
       throw new Error('That address points at a private/internal host and cannot be read.');
     }
     return url;
+  }
+
+  /**
+   * Fetch following redirects manually, re-validating every hop.
+   *
+   * `redirect: 'follow'` would let a validated public URL bounce into internal
+   * space without a second check. Capped at MAX_REDIRECTS.
+   */
+  private async fetchGuarded(url: URL, init: RequestInit): Promise<Response> {
+    let current = url;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const response = await this.fetchWithTimeout(current.toString(), {
+        ...init,
+        redirect: 'manual',
+      });
+      if (response.status < 300 || response.status >= 400) {
+        return response;
+      }
+      const location = response.headers.get('location');
+      if (!location) {
+        return response;
+      }
+      const next = new URL(location, current); // resolve relative redirects
+      current = await this.validateUrl(next.toString());
+      logger.info('Following validated redirect', { from: url.toString(), to: current.toString() });
+    }
+    throw new Error(`Too many redirects (more than ${MAX_REDIRECTS}).`);
   }
 
   /**
@@ -109,7 +208,7 @@ export class ContentReaderService {
     truncated: boolean;
     source: 'tavily_extract' | 'direct_fetch';
   }> {
-    const url = this.validateUrl(rawUrl);
+    const url = await this.validateUrl(rawUrl);
 
     // Preferred path: Tavily extract returns clean article text.
     if (this.tavilyApiKey) {
@@ -149,9 +248,8 @@ export class ContentReaderService {
     }
 
     // Fallback: fetch the page directly and strip tags.
-    const response = await this.fetchWithTimeout(url.toString(), {
+    const response = await this.fetchGuarded(url, {
       headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/xhtml+xml' },
-      redirect: 'follow',
     });
     if (!response.ok) {
       throw new Error(`The site responded with HTTP ${response.status}.`);

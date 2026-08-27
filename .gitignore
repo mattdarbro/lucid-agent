@@ -30,3 +30,7 @@ coverage/
 .cache/
 tmp/
 temp/
+
+# Local backups (never commit — .env.bak can contain secrets)
+.env.bak*
+*.bak-*

@@ -3,6 +3,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { config, validateConfig } from './config';
 import { requireApiToken } from './middleware/auth';
+import ttsRouter from './routes/tts';
 import { testConnection, closeConnections, pool, supabase } from './db';
 import { logger } from './logger';
 import usersRouter from './routes/users';
@@ -19,6 +20,8 @@ import thoughtNotificationsRouter from './routes/thought-notifications';
 import multiDayTasksRouter from './routes/multi-day-tasks';
 import taskInsightsRouter from './routes/task-insights';
 import { BackgroundJobsService } from './services/background-jobs.service';
+import { LibraryAudioService, getLibraryAudio } from './services/library-audio.service';
+import { ENGINE as ttsEngine } from './services/tts.service';
 import libraryRouter from './routes/library';
 import versusRouter from './routes/versus';
 import syncRouter from './routes/sync';
@@ -170,6 +173,7 @@ app.use('/v1/conversations/:conversation_id/summaries', summaryRouter);
 app.use('/v1/users/:user_id/summaries', summaryRouter);
 
 // Seeds (simplified capture system)
+app.use('/v1/tts', ttsRouter);
 app.use('/v1/seeds', createSeedsRouter(pool));
 
 // Calendar integration
@@ -252,6 +256,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // Initialize background jobs service
 let backgroundJobs: BackgroundJobsService | null = null;
+let libraryAudio: LibraryAudioService | null = null;
 
 async function startServer() {
   try {
@@ -284,6 +289,18 @@ async function startServer() {
         logger.error('Failed to start background jobs:', error);
         logger.warn('⚠️  Continuing without background fact extraction');
       }
+
+      // Pre-generate library entry narration audio
+      try {
+        libraryAudio = getLibraryAudio();
+        libraryAudio.start();
+        logger.info(
+          `🔊 Library narration: ${ttsEngine === 'kokoro' ? 'LOCAL KOKORO (free)' : 'ELEVENLABS'}`
+        );
+      } catch (error: any) {
+        logger.error('Failed to start library audio service:', error);
+        logger.warn('⚠️  Continuing without library audio pre-generation');
+      }
     });
 
     // Graceful shutdown handlers
@@ -294,6 +311,10 @@ async function startServer() {
       if (backgroundJobs) {
         logger.info('Stopping background jobs...');
         backgroundJobs.stop();
+      }
+
+      if (libraryAudio) {
+        libraryAudio.stop();
       }
 
       server.close(async () => {

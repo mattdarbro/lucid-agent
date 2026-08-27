@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../llm/claude-cli-transport';
 import { logger } from '../logger';
 import { VectorService } from './vector.service';
 import { chicagoTimeOfDay } from '../utils/chicago-time';
@@ -54,11 +55,11 @@ export class VersusService {
   private pool: Pool;
   private anthropic: Anthropic;
   private vectorService: VectorService;
-  private readonly model = 'claude-sonnet-4-6';
+  private readonly model = 'claude-sonnet-5';
 
   constructor(pool: Pool, anthropicApiKey?: string) {
     this.pool = pool;
-    this.anthropic = new Anthropic({
+    this.anthropic = createAnthropicClient({
       apiKey: anthropicApiKey || process.env.ANTHROPIC_API_KEY,
     });
     this.vectorService = new VectorService();
@@ -395,7 +396,6 @@ Your response as ${myName}:`;
       const response = await this.anthropic.messages.create({
         model: this.model,
         max_tokens: 300,
-        temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
       });
 
@@ -447,7 +447,6 @@ Write in first person as Lucid (not Lu or Cid). Be thorough but concise (300-500
       const response = await this.anthropic.messages.create({
         model: this.model,
         max_tokens: 1000,
-        temperature: 0.6,
         messages: [{ role: 'user', content: prompt }],
       });
 
