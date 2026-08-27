@@ -171,6 +171,42 @@ function parseToolCalls(text: string): Array<{ name: string; input: unknown }> |
   return null;
 }
 
+/**
+ * Parse the CLI's JSON result, tolerating stray lines around it (an MCP
+ * server or a plugin can print to stdout after the result object).
+ */
+function parseCliJson(stdout: string): Record<string, any> | null {
+  const whole = stdout.trim();
+  try {
+    return JSON.parse(whole);
+  } catch {
+    /* fall through */
+  }
+  // The result object is one line in --output-format json; find it.
+  const lines = whole.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line.startsWith('{')) continue;
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed && typeof parsed === 'object' && 'result' in parsed) return parsed;
+    } catch {
+      /* not this line */
+    }
+  }
+  // Last resort: the first '{' to the last '}'.
+  const a = whole.indexOf('{');
+  const b = whole.lastIndexOf('}');
+  if (a !== -1 && b > a) {
+    try {
+      return JSON.parse(whole.slice(a, b + 1));
+    } catch {
+      /* give up */
+    }
+  }
+  return null;
+}
+
 function apiResponse(status: number, payload: unknown): Response {
   return new Response(JSON.stringify(payload), {
     status,
@@ -202,11 +238,44 @@ function runClaudeCli(
     delete env.ANTHROPIC_AUTH_TOKEN;
     delete env.ANTHROPIC_BASE_URL;
 
-    const args = ['-p', '--model', model, '--output-format', 'json', '--max-turns', MAX_CLI_TURNS];
-    if (systemPrompt) args.push('--system-prompt', systemPrompt);
+    // --strict-mcp-config with no --mcp-config: load no MCP servers. Lucid's
+    // tools are emulated in-prompt, and a user-level MCP server was printing
+    // "Client.listTools() called but server does not advertise tools
+    // capability" after the JSON result, which broke parsing (2026-08-27).
+    const args = [
+      '-p', '--model', model, '--output-format', 'json', '--max-turns', MAX_CLI_TURNS,
+      '--strict-mcp-config',
+    ];
+    const workdir = ensureWorkdir();
+
+    // v3 (2026-08-27): the system prompt now carries Lucid's five memory files
+    // (~80KB and growing), so it goes through --system-prompt-file rather than
+    // argv — Linux caps a single argument at 128KB (MAX_ARG_STRLEN), and the
+    // old --system-prompt form would start failing silently as matt.md grows.
+    // One file per call; removed when the CLI exits.
+    let systemFile: string | null = null;
+    if (systemPrompt) {
+      systemFile = path.join(workdir, `system-${randomUUID()}.md`);
+      try {
+        fs.writeFileSync(systemFile, systemPrompt, 'utf8');
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      args.push('--system-prompt-file', systemFile);
+    }
+    const cleanup = () => {
+      if (!systemFile) return;
+      try {
+        fs.unlinkSync(systemFile);
+      } catch {
+        /* already gone */
+      }
+      systemFile = null;
+    };
 
     const child = spawn('claude', args, {
-      cwd: ensureWorkdir(),
+      cwd: workdir,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -215,6 +284,7 @@ function runClaudeCli(
     let stderr = '';
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
+      cleanup();
       reject(new Error(`claude CLI timed out after ${CLI_TIMEOUT_MS / 1000}s`));
     }, CLI_TIMEOUT_MS);
 
@@ -222,10 +292,12 @@ function runClaudeCli(
     child.stderr.on('data', (d) => (stderr += d));
     child.on('error', (err) => {
       clearTimeout(timer);
+      cleanup();
       reject(err);
     });
     child.on('close', (code) => {
       clearTimeout(timer);
+      cleanup();
       resolve({ code, stdout, stderr });
     });
 
@@ -273,10 +345,8 @@ async function claudeCliFetch(input: any, init?: any): Promise<Response> {
     return apiError(500, `claude CLI exited with code ${result.code}: ${detail}`);
   }
 
-  let cli: Record<string, any>;
-  try {
-    cli = JSON.parse(result.stdout);
-  } catch {
+  const cli = parseCliJson(result.stdout);
+  if (!cli) {
     return apiError(500, `claude CLI returned non-JSON output: ${result.stdout.slice(-500)}`);
   }
 

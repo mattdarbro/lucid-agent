@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { VectorService } from '../services/vector.service';
 import { LibraryCommentService } from '../services/library-comment.service';
 import { PushNotificationService } from '../services/push-notification.service';
-import { chicagoTimeOfDay } from '../utils/chicago-time';
+import { chicagoTimeOfDay, chicagoDateStr } from '../utils/chicago-time';
 
 const router = Router();
 const vectorService = new VectorService();
@@ -92,6 +92,75 @@ router.get('/', async (req: Request, res: Response) => {
       error: 'Failed to fetch library entries',
       details: error.message,
     });
+  }
+});
+
+/**
+ * GET /v1/library/shuffle
+ *
+ * "From the shelf" — one old page of Lucid's own, the same one his night run
+ * saw (v3 plan §7, [[lucid-daily-shuffle-idea]]). Deterministic per Chicago
+ * calendar day and identical to read_shuffle() in /conductors/lucid/v3_inputs.py:
+ * first an entry already stamped `metadata.lucid_shuffled_at` today (the night
+ * run stamps it on --commit), else entries older than SHUFFLE_MIN_AGE_DAYS not
+ * shuffled in SHUFFLE_COOLDOWN_DAYS, audio-ready first, ordered by
+ * md5(id || day). This endpoint never stamps — the journal does.
+ *
+ * Declared before GET /:id for the same reason /search is.
+ *
+ * Query parameters:
+ * - user_id: string (required)
+ *
+ * Response: { entry: LibraryEntry | null, day: 'YYYY-MM-DD' }
+ */
+const SHUFFLE_MIN_AGE_DAYS = 60;
+const SHUFFLE_COOLDOWN_DAYS = 90;
+const SHUFFLE_TYPES = [
+  'lucid_thought', 'consolidation', 'curiosity', 'reflection',
+  'user_reflection', 'insight', 'research_journal', 'dream', 'deep_thought',
+];
+const SHUFFLE_COLUMNS = `id, user_id, entry_type, title, content, time_of_day,
+             related_conversation_id, metadata, comment_count, created_at, updated_at`;
+
+router.get('/shuffle', async (req: Request, res: Response) => {
+  try {
+    const { user_id } = req.query;
+    if (!user_id || typeof user_id !== 'string') {
+      return res.status(400).json({ error: 'user_id is required' });
+    }
+    const day = chicagoDateStr();
+
+    let result = await pool.query(
+      `SELECT ${SHUFFLE_COLUMNS}
+       FROM library_entries
+       WHERE user_id = $1 AND (metadata->>'lucid_shuffled_at')::date = $2::date
+       ORDER BY created_at DESC LIMIT 1`,
+      [user_id, day]
+    );
+    if (result.rows.length === 0) {
+      result = await pool.query(
+        `SELECT ${SHUFFLE_COLUMNS}
+         FROM library_entries
+         WHERE user_id = $1
+           AND entry_type = ANY($2)
+           AND created_at < NOW() - ($3 || ' days')::interval
+           AND (metadata->>'lucid_shuffled_at' IS NULL
+                OR (metadata->>'lucid_shuffled_at')::date < NOW() - ($4 || ' days')::interval)
+         ORDER BY (metadata->'audio'->>'status' = 'ready') DESC NULLS LAST,
+                  md5(id::text || $5)
+         LIMIT 1`,
+        [user_id, SHUFFLE_TYPES, String(SHUFFLE_MIN_AGE_DAYS), String(SHUFFLE_COOLDOWN_DAYS), day]
+      );
+    }
+
+    const row = result.rows[0];
+    res.status(200).json({
+      entry: row ? advertiseAudio(row) : null,
+      day,
+    });
+  } catch (error: any) {
+    logger.error('Error in GET /v1/library/shuffle:', error);
+    res.status(500).json({ error: 'Failed to pick from the shelf', details: error.message });
   }
 });
 

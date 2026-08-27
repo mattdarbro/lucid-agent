@@ -45,6 +45,14 @@ export const chatCompletionSchema = z.object({
     .max(5000)
     .optional(),
 
+  /**
+   * v3 (plan §6): a heart to heart is the repair lever. The client sends
+   * mode: 'heart_to_heart' while the Room's option is on; the server also
+   * treats a message that plainly asks for one ("heart to heart") the same
+   * way for that turn. Ordinary turns omit it.
+   */
+  mode: z.enum(['heart_to_heart']).optional(),
+
   /** Enable recursive context search for "infinite context" */
   enable_recursive_search: z
     .boolean()

@@ -5,20 +5,29 @@ import { MemoryService } from './memory.service';
 import { LivingDocumentService } from './living-document.service';
 import { ThoughtService } from './thought.service';
 import { LibraryCommentService } from './library-comment.service';
+import { MemoryFilesService } from './memory-files.service';
 
 /**
  * Available modules for chat context building (simplified)
  *
- * After refactor, we have 3 context systems:
+ * v3 (2026-08-27): Lucid's memory is the five markdown files in
+ * /home/matt/lucid-memory (`memory_files`), the same files his night and
+ * midday runs read. `facts_relevant` (the facts table) and `living_document`
+ * (the notebook, now folded into self.md) are no longer part of the standard
+ * prompt; the modules remain for anything that still asks for them by name.
+ *
+ * Context systems now:
  * 1. Injectables (user-owned) - Stable facts the user wants Lucid to always have
- * 2. Living Document (Lucid-owned) - Lucid's working notebook
- * 3. Session State (ephemeral) - Current emotional context, conversation flow
+ * 2. Memory files (Lucid-owned) - matt.md, self.md, threads.md, house.md, reading.md
+ * 3. Library (shared) - recent entries + comments, semantic context on some turns
  */
 export type ChatModule =
   | 'core_identity'      // ALWAYS include. ~70 word flourishing-oriented identity
   | 'injectables'        // User-owned stable facts (3 slots, 500 chars each)
-  | 'living_document'    // Lucid's working memory - questions, threads, curiosities
-  | 'facts_relevant'     // Semantic search for relevant stored knowledge
+  | 'memory_files'       // Lucid's memory: the five git-kept markdown files (v3)
+  | 'heart_to_heart'     // The framing for a heart-to-heart turn (plan §6)
+  | 'living_document'    // (retired from the standard prompt) Lucid's old notebook
+  | 'facts_relevant'     // (retired from the standard prompt) facts-table retrieval
   | 'library_context'    // Relevant Library entries for deep context (semantic search)
   | 'recent_library';    // Most recent Library entries chronologically (always included)
 
@@ -64,13 +73,15 @@ export class PromptModulesService {
   private livingDocumentService: LivingDocumentService;
   private thoughtService: ThoughtService;
   private commentService: LibraryCommentService;
+  private memoryFiles: MemoryFilesService;
 
-  constructor(pool: Pool, anthropicApiKey?: string) {
+  constructor(pool: Pool, anthropicApiKey?: string, memoryFiles?: MemoryFilesService) {
     this.pool = pool;
     this.memoryService = new MemoryService(pool);
     this.livingDocumentService = new LivingDocumentService(pool);
     this.thoughtService = new ThoughtService(pool, anthropicApiKey);
     this.commentService = new LibraryCommentService(pool);
+    this.memoryFiles = memoryFiles ?? new MemoryFilesService();
   }
 
   /**
@@ -120,6 +131,10 @@ export class PromptModulesService {
         return this.buildCoreIdentityModule(context);
       case 'injectables':
         return this.buildInjectablesModule(context);
+      case 'memory_files':
+        return this.buildMemoryFilesModule();
+      case 'heart_to_heart':
+        return { fragment: this.memoryFiles.formatHeartToHeartForPrompt() };
       case 'living_document':
         return this.buildLivingDocumentModule(context);
       case 'facts_relevant':
@@ -150,7 +165,7 @@ export class PromptModulesService {
 
 This is a continuous conversation. Topics change naturally—just flow with it. No need to summarize or transition formally. Be present with whatever comes up.
 
-You have tools for calendar, web search, and Library search. Use them when helpful. For web searches, offer briefly: "Want me to look that up?" When a tool returns nothing, stale data, or says it can't see something, say so plainly—never infer a conclusion (like "your calendar is free") from missing data, and never imply you can see something you can't.
+You have tools for calendar, web search, Library search, and your own memory. Use them when helpful. For web searches, offer briefly: "Want me to look that up?" When a tool returns nothing, stale data, or says it can't see something, say so plainly—never infer a conclusion (like "your calendar is free") from missing data, and never imply you can see something you can't.
 
 Let your response find its own length. Often a few sentences is enough; sometimes a thought needs room to unfold, and that's right too. Match the weight of what's being said—be present and real, never padded, never artificially clipped.`;
 
@@ -189,7 +204,25 @@ Let your response find its own length. Often a few sentences is enough; sometime
   }
 
   /**
-   * LIVING_DOCUMENT module - Lucid's working memory
+   * MEMORY_FILES module - Lucid's memory (v3)
+   *
+   * The five files, in full, every turn. ~20k tokens today; that is the
+   * design (plan §5): the room and the runs read the same memory, so he is
+   * one person. The system prompt is cached across turns of a conversation.
+   */
+  private async buildMemoryFilesModule(): Promise<{ fragment: string }> {
+    try {
+      const files = await this.memoryFiles.readAll();
+      return { fragment: this.memoryFiles.formatForPrompt(files) };
+    } catch (error) {
+      logger.warn('Failed to build memory files module', { error });
+      return { fragment: '' };
+    }
+  }
+
+  /**
+   * LIVING_DOCUMENT module - Lucid's old working notebook (retired 2026-08-27;
+   * seeded self.md and is no longer in the standard prompt)
    *
    * Critical behavioral note: Lucid decides what goes here AND when to surface it.
    * Not "check at conversation start" but "bring things up when it feels right,
@@ -487,15 +520,20 @@ Let your response find its own length. Often a few sentences is enough; sometime
   async buildStandardPrompt(
     userId: string,
     message?: string,
-    turnCount?: number
+    turnCount?: number,
+    opts: { heartToHeart?: boolean } = {}
   ): Promise<ModulesBuildResult> {
     const modules: ChatModule[] = [
       'core_identity',
       'injectables',
-      'living_document',
-      'facts_relevant',
+      'memory_files',   // v3: his five files, replacing facts + the notebook
       'recent_library', // Always include recent Library entries for awareness
     ];
+
+    // A heart to heart gets its framing last, after everything else he knows.
+    if (opts.heartToHeart) {
+      modules.push('heart_to_heart');
+    }
 
     // Add semantic library search on first turn and every N turns thereafter
     if (message) {

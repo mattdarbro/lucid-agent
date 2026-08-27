@@ -9,6 +9,13 @@ import { ProfileService } from './profile.service';
 import { CostTrackingService } from './cost-tracking.service';
 import { PromptModulesService } from './prompt-modules.service';
 import { LucidToolsService, LUCID_TOOLS } from './lucid-tools.service';
+import {
+  MemoryFilesService,
+  MEMORY_TOOLS_ORDINARY,
+  MEMORY_TOOLS_HEART_TO_HEART,
+  MEMORY_TOOL_NAMES,
+  executeMemoryTool,
+} from './memory-files.service';
 import { WebSearchService } from './web-search.service';
 import { RecursiveContextSearchService, RecursiveSearchConfig } from './recursive-context-search.service';
 import { ChatCompletionInput } from '../validation/chat.validation';
@@ -30,6 +37,27 @@ interface ChatConfig {
 }
 
 /**
+ * The words that open a heart to heart from a plain message (plan §6, "Matt
+ * opens it plainly"). The Room's option sends mode: 'heart_to_heart'
+ * explicitly; this catches the spoken version for that one turn.
+ */
+const HEART_TO_HEART_PHRASE = /\bheart[\s-]+to[\s-]+heart\b/i;
+
+/** Heart-to-heart turns go to Opus 5 — rare, and the one place depth matters most. */
+const HEART_TO_HEART_MODEL = process.env.LUCID_HEART_TO_HEART_MODEL || 'claude-opus-5';
+
+/**
+ * The room's tools. v3: `update_notes` (the old notebook) is retired — self.md
+ * is where that lives now — and the memory tools come in. commit_memory_edits
+ * is only offered on heart-to-heart turns.
+ */
+const ROOM_TOOLS = [
+  ...LUCID_TOOLS.filter((t) => t.name !== 'update_notes'),
+  ...MEMORY_TOOLS_ORDINARY,
+];
+const HEART_TO_HEART_TOOLS = [...ROOM_TOOLS, ...MEMORY_TOOLS_HEART_TO_HEART];
+
+/**
  * ChatService - Fast, present chat
  *
  * Architecture:
@@ -49,6 +77,7 @@ export class ChatService {
   private costTrackingService: CostTrackingService;
   private promptModulesService: PromptModulesService;
   private lucidToolsService: LucidToolsService;
+  private memoryFiles: MemoryFilesService;
   private recursiveContextService: RecursiveContextSearchService;
 
   // Default configuration - word limits unified at service layer
@@ -80,7 +109,8 @@ export class ChatService {
     this.messageService = new MessageService(pool, vectorService);
     this.profileService = new ProfileService(pool);
     this.costTrackingService = new CostTrackingService(pool);
-    this.promptModulesService = new PromptModulesService(pool, anthropicApiKey);
+    this.memoryFiles = new MemoryFilesService();
+    this.promptModulesService = new PromptModulesService(pool, anthropicApiKey, this.memoryFiles);
 
     // Initialize web search service for Room searches
     const webSearchService = new WebSearchService();
@@ -140,11 +170,23 @@ export class ChatService {
 
       const chatConfig = this.mergeConfig(profile.chat);
 
+      // v3 (plan §6): is this turn a heart to heart? Either the Room's option
+      // is on (mode) or Matt asked for one in so many words.
+      const heartToHeart =
+        input.mode === 'heart_to_heart' || HEART_TO_HEART_PHRASE.test(input.message);
+      if (heartToHeart) {
+        logger.info('Heart to heart turn', {
+          conversation_id: input.conversation_id,
+          via: input.mode === 'heart_to_heart' ? 'room option' : 'plain ask',
+        });
+      }
+
       // Build prompt from modules
       const moduleResult = await this.promptModulesService.buildStandardPrompt(
         input.user_id,
         input.message,
-        messages.length
+        messages.length,
+        { heartToHeart }
       );
 
       // Determine if recursive context search should be used
@@ -246,8 +288,11 @@ export class ChatService {
         temperature,
       });
 
-      // Call Claude API with tools and retry for transient errors
-      const modelUsed = input.model || chatConfig.defaultModel || this.DEFAULT_CONFIG.defaultModel!;
+      // Call Claude API with tools and retry for transient errors.
+      // A heart to heart goes to Opus regardless of the client's model.
+      const modelUsed = heartToHeart
+        ? HEART_TO_HEART_MODEL
+        : input.model || chatConfig.defaultModel || this.DEFAULT_CONFIG.defaultModel!;
       const maxTokens = input.max_tokens || chatConfig.maxTokens || this.DEFAULT_CONFIG.maxTokens!;
 
       // Sonnet 5 / Opus 4.7–4.8 / Fable 5 reject non-default sampling params
@@ -259,7 +304,7 @@ export class ChatService {
       const isReasoningModel = /^claude-(opus-4-[78]|sonnet-5|fable-5)/.test(modelUsed);
 
       // Prepare tools with user_id injected (so Claude doesn't need to guess it)
-      const toolsWithContext = LUCID_TOOLS.map((tool) => ({
+      const toolsWithContext = (heartToHeart ? HEART_TO_HEART_TOOLS : ROOM_TOOLS).map((tool) => ({
         ...tool,
         description: `${tool.description} The user_id is: ${input.user_id}`,
       }));
@@ -369,10 +414,17 @@ export class ChatService {
                   iteration,
                 });
 
-                const result = await this.lucidToolsService.executeTool(
-                  toolUse.name,
-                  toolUse.input as Record<string, any>
-                );
+                const result = MEMORY_TOOL_NAMES.has(toolUse.name)
+                  ? await executeMemoryTool(
+                      this.memoryFiles,
+                      toolUse.name,
+                      toolUse.input as Record<string, any>,
+                      { conversationId: input.conversation_id, heartToHeart }
+                    )
+                  : await this.lucidToolsService.executeTool(
+                      toolUse.name,
+                      toolUse.input as Record<string, any>
+                    );
 
                 return {
                   type: 'tool_result' as const,
