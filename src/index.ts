@@ -21,6 +21,7 @@ import multiDayTasksRouter from './routes/multi-day-tasks';
 import taskInsightsRouter from './routes/task-insights';
 import { BackgroundJobsService } from './services/background-jobs.service';
 import { LibraryAudioService, getLibraryAudio } from './services/library-audio.service';
+import { ENGINE as ttsEngine } from './services/tts.service';
 import libraryRouter from './routes/library';
 import versusRouter from './routes/versus';
 import syncRouter from './routes/sync';
@@ -293,7 +294,9 @@ async function startServer() {
       try {
         libraryAudio = getLibraryAudio();
         libraryAudio.start();
-        logger.info('🔊 Library narration: ON-DEMAND (ElevenLabs)');
+        logger.info(
+          `🔊 Library narration: ${ttsEngine === 'kokoro' ? 'LOCAL KOKORO (free)' : 'ELEVENLABS'}`
+        );
       } catch (error: any) {
         logger.error('Failed to start library audio service:', error);
         logger.warn('⚠️  Continuing without library audio pre-generation');
